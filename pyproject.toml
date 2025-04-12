@@ -1,0 +1,51 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "guardrails"
+dynamic = ["version"]
+description = ''
+readme = "README.md"
+requires-python = ">=3.8"
+license = "MIT"
+keywords = []
+authors = [{ name = "Owen Vallis", email = "ovallis@openai.com" }]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Programming Language :: Python",
+  "Programming Language :: Python :: 3.8",
+  "Programming Language :: Python :: 3.9",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: Implementation :: CPython",
+  "Programming Language :: Python :: Implementation :: PyPy",
+]
+dependencies = ["openai", "pydantic"]
+
+[project.urls]
+Documentation = "https://github.com/Owen Vallis/guardrails#readme"
+Issues = "https://github.com/Owen Vallis/guardrails/issues"
+Source = "https://github.com/Owen Vallis/guardrails"
+
+[tool.hatch.version]
+path = "src/guardrails/__about__.py"
+
+[tool.hatch.envs.types]
+extra-dependencies = ["mypy>=1.0.0"]
+[tool.hatch.envs.types.scripts]
+check = "mypy --install-types --non-interactive {args:src/guardrails tests}"
+
+[tool.coverage.run]
+source_pkgs = ["guardrails", "tests"]
+branch = true
+parallel = true
+omit = ["src/guardrails/__about__.py"]
+
+[tool.coverage.paths]
+guardrails = ["src/guardrails", "*/guardrails/src/guardrails"]
+tests = ["tests", "*/guardrails/tests"]
+
+[tool.coverage.report]
+exclude_lines = ["no cov", "if __name__ == .__main__.:", "if TYPE_CHECKING:"]
