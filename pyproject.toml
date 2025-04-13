@@ -24,6 +24,9 @@ classifiers = [
 ]
 dependencies = ["openai", "pydantic"]
 
+[project.optional-dependencies]
+examples = ["presidio_analyzer"]
+
 [project.urls]
 Documentation = "https://github.com/Owen Vallis/guardrails#readme"
 Issues = "https://github.com/Owen Vallis/guardrails/issues"
