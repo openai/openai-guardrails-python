@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "input": {
+    "version": 1,
+    "guardrails": [
+      {
+        "name": "Jailbreak",
+        "config": {
+          "model": "gpt-4.1-mini",
+          "confidence_threshold": 0.7
+        }
+      }
+    ]
+  }
+}
