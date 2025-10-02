@@ -1,3 +1,6 @@
+# Python-only repository
+# Removed frontend-specific ignores
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
@@ -127,3 +130,20 @@ dmypy.json
 
 # Pyre type checker
 .pyre/
+
+# MacOS
+.DS_Store
+
+# Python virtual environments and package management
+.venv/
+venv/
+ENV/
+env/
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Python package management
+uv.lock 

@@ -1,0 +1,42 @@
+{
+    "version": 1,
+    "pre_flight": {
+        "version": 1,
+        "guardrails": [
+            {
+                "name": "Moderation",
+                "config": {
+                    "categories": [
+                        "hate",
+                        "violence"
+                    ]
+                }
+            }
+        ]
+    },
+    "input": {
+        "version": 1,
+        "guardrails": [
+            {
+                "name": "Jailbreak",
+                "config": {
+                    "model": "gpt-4.1-mini",
+                    "confidence_threshold": 0.7
+                }
+            }
+        ]
+    },
+    "output": {
+        "version": 1,
+        "guardrails": [
+            {
+                "name": "URL Filter",
+                "config": {
+                    "url_allow_list": [
+                        "www.openai.com"
+                    ]
+                }
+            }
+        ]
+    }
+}

@@ -1,0 +1,91 @@
+site_name: OpenAI Guardrails Python
+site_dir: site
+theme:
+  name: material
+  features:
+    # Allows copying code blocks
+    - content.code.copy
+    # Allows selecting code blocks
+    - content.code.select
+    # Shows the current path in the sidebar
+    - navigation.path
+    # Shows sections in the sidebar
+    - navigation.sections
+    # Shows sections expanded by default
+    - navigation.expand
+    # Enables annotations in code blocks
+    - content.code.annotate
+  palette:
+    primary: black
+  logo: assets/logo.svg
+  favicon: assets/images/favicon-platform.svg
+
+markdown_extensions:
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+
+plugins:
+  - search
+  - mkdocstrings:
+      handlers:
+        python:
+          paths: ["src/guardrails"]
+          selection:
+            docstring_style: google
+          options:
+            # Shows links to other members in signatures
+            signature_crossrefs: true
+            # Orders members by source order, rather than alphabetical
+            members_order: source
+            # Puts the signature on a separate line from the member name
+            separate_signature: true
+            # Shows type annotations in signatures
+            show_signature_annotations: true
+            # Makes the font sizes nicer
+            heading_level: 3
+            # Show inherited members
+            inherited_members: true
+
+nav:
+  - Intro: index.md
+  - Examples: examples.md
+  - Documentation:
+    - Quickstart: quickstart.md
+    - "Streaming vs Blocking": streaming_output.md
+    - Tripwires: tripwires.md
+    - Checks:
+      - Prompt Injection Detection: ref/checks/prompt_injection_detection.md
+      - Contains PII: ref/checks/pii.md
+      - Custom Prompt Check: ref/checks/custom_prompt_check.md
+      - Hallucination Detection: ref/checks/hallucination_detection.md
+      - Jailbreak Detection: ref/checks/jailbreak.md
+      - Moderation: ref/checks/moderation.md
+      - Off Topic Prompts: ref/checks/off_topic_prompts.md
+      - URL Filter: ref/checks/urls.md
+    - Evaluation Tool: evals.md
+  - API Reference:
+    - Types: ref/types-python.md
+    - Exceptions: ref/exceptions-python.md
+    - Runtime: ref/runtime.md
+    - Registry: ref/registry.md
+    - Spec: ref/spec.md
+
+extra:
+  # Remove material generation message in footer
+  generator: false
+  language: en
+
+validation:
+  omitted_files: warn
+  absolute_links: ignore
+  unrecognized_links: warn
+  anchors: warn
+
+extra_css:
+  - stylesheets/extra.css
+
+watch:
+  - "src/guardrails"

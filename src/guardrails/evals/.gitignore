@@ -1,0 +1,8 @@
+# Evaluation results and outputs
+results/
+benchmarking/*
+eval_run_*/
+benchmark_*/
+
+# Python cache
+__pycache__/

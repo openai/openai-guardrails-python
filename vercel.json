@@ -1,0 +1,12 @@
+{
+  "version": 2,
+  "buildCommand": "pip install -r requirements-docs.txt && mkdocs build",
+  "outputDirectory": "site",
+  "installCommand": "pip install -r requirements-docs.txt",
+  "routes": [
+    {
+      "src": "/(.*)",
+      "dest": "/$1"
+    }
+  ]
+}
