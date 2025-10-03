@@ -21,7 +21,7 @@ export OPENAI_API_KEY=sk-...
 
 ## Create Pipeline Configuration
 
-The fastest way is using the [Guardrails Wizard](https://guardrails.openai.com/) - a no-code tool for creating configurations.
+The fastest way is using the [Guardrails Wizard](https://platform.openai.com/guardrails) - a no-code tool for creating configurations.
 
 Or define manually:
 

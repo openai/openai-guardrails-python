@@ -47,5 +47,5 @@ response = await client.responses.create(
 
 See complete examples:
 
-- [Non-streaming (synchronous)](https://github.com/openai/openai-guardrails-python/tree/main/examples/implementation_code/synchronous)
+- [Non-streaming (blocking)](https://github.com/openai/openai-guardrails-python/tree/main/examples/implementation_code/blocking)
 - [Streaming](https://github.com/openai/openai-guardrails-python/tree/main/examples/implementation_code/streaming)

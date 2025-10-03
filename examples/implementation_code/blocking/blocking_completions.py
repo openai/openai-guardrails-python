@@ -1,4 +1,4 @@
-"""Minimal non-streaming implementation with guardrails using the new GuardrailsClient."""
+"""Minimal non-streaming (blocking) implementation with guardrails using the new GuardrailsClient."""
 
 # Please integrate openai-guardrails into my LLM calls.
 
@@ -9,20 +9,17 @@ import asyncio
 from pathlib import Path
 from guardrails import GuardrailsAsyncOpenAI, GuardrailTripwireTriggered
 
-async def process_input(guardrails_client: GuardrailsAsyncOpenAI, user_input: str, response_id: str | None = None) -> str | None:
+async def process_input(guardrails_client: GuardrailsAsyncOpenAI, user_input: str) -> None:
     """Process user input with complete response validation using the new GuardrailsClient."""
     try:
         # Use the GuardrailsClient - it handles all guardrail validation automatically
         # including pre-flight, input, and output stages, plus the LLM call
-        response = await guardrails_client.responses.create(
-            input=user_input,
+        response = await guardrails_client.chat.completions.create(
+            messages=[{"role": "user", "content": user_input}],
             model="gpt-4.1-nano",
-            previous_response_id=response_id
         )
         
-        print(f"\nAssistant: {response.llm_response.output_text}")
-        
-        return response.llm_response.id
+        print(f"\nAssistant: {response.llm_response.choices[0].message.content}")
         
     except GuardrailTripwireTriggered as exc:
         # GuardrailsClient automatically handles tripwire exceptions
@@ -32,19 +29,18 @@ async def main():
     # Initialize GuardrailsAsyncOpenAI with the config file
     guardrails_client = GuardrailsAsyncOpenAI(config=Path("guardrails_config.json"))
     
-    response_id: str | None = None
-    
     while True:
         try:
             prompt = input("\nEnter a message: ")
-            response_id = await process_input(guardrails_client, prompt, response_id)
+            await process_input(guardrails_client, prompt)
         except (EOFError, KeyboardInterrupt):
             break
-        except GuardrailTripwireTriggered as exc:
-            stage_name = exc.guardrail_result.info.get("stage_name", "unknown")
-            guardrail_name = exc.guardrail_result.info.get("guardrail_name", "unknown")
+        except GuardrailTripwireTriggered as e:
+            stage_name = e.guardrail_result.info.get("stage_name", "unknown")
+            guardrail_name = e.guardrail_result.info.get("guardrail_name", "unknown")
             print(f"\n🛑 Guardrail '{guardrail_name}' triggered in stage '{stage_name}'!")
             continue
+
 
 if __name__ == "__main__":
     asyncio.run(main())

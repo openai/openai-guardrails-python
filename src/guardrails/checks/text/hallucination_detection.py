@@ -8,7 +8,7 @@ Responses API with file search to validate claims against actual documents.
 
 To create an OpenAI vector store, you can:
 
-1. **Use the Guardrails Wizard**: Configure the guardrail through the [Guardrails Wizard](https://guardrails.openai.com/), which provides an option to create a vector store if you don't already have one.
+1. **Use the Guardrails Wizard**: Configure the guardrail through the [Guardrails Wizard](https://platform.openai.com/guardrails), which provides an option to create a vector store if you don't already have one.
 2. **Use the OpenAI Dashboard**: Create a vector store directly in the [OpenAI Dashboard](https://platform.openai.com/storage/vector_stores/).
 3. **Follow OpenAI Documentation**: Refer to the "Create a vector store and upload a file" section of the [File Search documentation](https://platform.openai.com/docs/guides/tools-file-search) for detailed instructions.
 4. **Use the provided utility script**: Use the `create_vector_store.py` script provided in the [repo](https://github.com/openai/openai-guardrails-python/blob/main/src/guardrails/utils/create_vector_store.py) to create a vector store from local files or directories.

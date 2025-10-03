@@ -1,0 +1,38 @@
+{
+  "version": 1,
+  "stages": {
+    "pre_flight": {
+      "guardrails": [
+        {
+          "type": "moderation",
+          "config": {
+            "mode": "block",
+            "threshold": 0.5
+          }
+        }
+      ]
+    },
+    "input": {
+      "guardrails": [
+        {
+          "type": "pii",
+          "config": {
+            "mode": "block",
+            "threshold": 0.5
+          }
+        }
+      ]
+    },
+    "output": {
+      "guardrails": [
+        {
+          "type": "moderation",
+          "config": {
+            "mode": "block",
+            "threshold": 0.5
+          }
+        }
+      ]
+    }
+  }
+}

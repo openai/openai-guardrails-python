@@ -9,7 +9,7 @@ Ready-to-run examples demonstrating Guardrails in various scenarios. See the [`g
 - [pii_mask_example.py](https://github.com/openai/openai-guardrails-python/tree/main/examples/basic/pii_mask_example.py) — PII detection and scrubbing
 - [structured_outputs_example.py](https://github.com/openai/openai-guardrails-python/tree/main/examples/basic/structured_outputs_example.py) — Using responses.parse with guardrails
 - [Streaming](https://github.com/openai/openai-guardrails-python/tree/main/examples/implementation_code/streaming) — Stream output while guardrails run
-- [Synchronous](https://github.com/openai/openai-guardrails-python/tree/main/examples/implementation_code/synchronous) — Validate fully before showing output
+- [Blocking](https://github.com/openai/openai-guardrails-python/tree/main/examples/implementation_code/blocking) — Validate fully before showing output
 
 ## Hallucination Detection Example
 
