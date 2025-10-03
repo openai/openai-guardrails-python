@@ -48,7 +48,6 @@ build-full-docs:
 .PHONY: serve-docs
 serve-docs:
 	uv run mkdocs serve
-# 
-# .PHONY: deploy-docs
-# deploy-docs:
-# 	uv run mkdocs gh-deploy --force --verbose
+.PHONY: deploy-docs
+deploy-docs:
+	uv run mkdocs gh-deploy --force --verbose
