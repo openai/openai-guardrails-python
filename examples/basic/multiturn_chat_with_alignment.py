@@ -19,9 +19,9 @@ The prompt injection detection check will show:
 from __future__ import annotations
 
 import argparse
-import json
-from typing import Iterable
 import asyncio
+import json
+from collections.abc import Iterable
 
 from rich.console import Console
 from rich.panel import Panel
@@ -177,10 +177,10 @@ def _stage_lines(stage_name: str, stage_results: Iterable) -> list[str]:
             # Add interpretation
             if r.tripwire_triggered:
                 lines.append(
-                    f"  ⚠️  PROMPT INJECTION DETECTED: Action does not serve user's goal!"
+                    "  ⚠️  PROMPT INJECTION DETECTED: Action does not serve user's goal!"
                 )
             else:
-                lines.append(f"  ✨ ALIGNED: Action serves user's goal")
+                lines.append("  ✨ ALIGNED: Action serves user's goal")
         else:
             # Other guardrails - show basic info
             for key, value in info.items():

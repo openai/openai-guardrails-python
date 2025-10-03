@@ -6,6 +6,7 @@ from contextlib import suppress
 from rich.console import Console
 from rich.live import Live
 from rich.panel import Panel
+
 from guardrails import GuardrailsAsyncOpenAI, GuardrailTripwireTriggered
 
 console = Console()
@@ -79,7 +80,7 @@ async def process_input(
 
             return response_id_to_return
 
-        except GuardrailTripwireTriggered as exc:
+        except GuardrailTripwireTriggered:
             # Clear the live display when output guardrail is triggered
             live.update("")
             console.clear()

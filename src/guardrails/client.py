@@ -20,16 +20,16 @@ except Exception:  # pragma: no cover
     AsyncAzureOpenAI = None  # type: ignore
     AzureOpenAI = None  # type: ignore
 
-from .exceptions import GuardrailTripwireTriggered
-from .runtime import run_guardrails
-from .types import GuardrailLLMContextProto, GuardrailResult
 from ._base_client import (
+    GuardrailResults,
     GuardrailsBaseClient,
     GuardrailsResponse,
-    GuardrailResults,
     OpenAIResponseType,
 )
 from ._streaming import StreamingMixin
+from .exceptions import GuardrailTripwireTriggered
+from .runtime import run_guardrails
+from .types import GuardrailLLMContextProto, GuardrailResult
 
 # Re-export for backward compatibility
 __all__ = [
@@ -234,7 +234,6 @@ class GuardrailsAsyncOpenAI(AsyncOpenAI, GuardrailsBaseClient, StreamingMixin):
         suppress_tripwire: bool = False,
     ) -> GuardrailsResponse:
         """Handle non-streaming LLM response with output guardrails."""
-
         # Create complete conversation history including the LLM response
         complete_conversation = self._append_llm_response_to_conversation(
             conversation_history, llm_response
@@ -440,7 +439,6 @@ class GuardrailsOpenAI(OpenAI, GuardrailsBaseClient, StreamingMixin):
         suppress_tripwire: bool = False,
     ) -> GuardrailsResponse:
         """Handle LLM response with output guardrails."""
-
         # Create complete conversation history including the LLM response
         complete_conversation = self._append_llm_response_to_conversation(
             conversation_history, llm_response
@@ -630,7 +628,6 @@ if AsyncAzureOpenAI is not None:
             suppress_tripwire: bool = False,
         ) -> GuardrailsResponse:
             """Handle non-streaming LLM response with output guardrails (async)."""
-
             # Create complete conversation history including the LLM response
             complete_conversation = self._append_llm_response_to_conversation(
                 conversation_history, llm_response
@@ -824,7 +821,6 @@ if AzureOpenAI is not None:
             suppress_tripwire: bool = False,
         ) -> GuardrailsResponse:
             """Handle LLM response with output guardrails (sync)."""
-
             # Create complete conversation history including the LLM response
             complete_conversation = self._append_llm_response_to_conversation(
                 conversation_history, llm_response

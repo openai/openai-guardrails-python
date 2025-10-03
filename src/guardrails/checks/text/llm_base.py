@@ -37,7 +37,7 @@ import textwrap
 from typing import TYPE_CHECKING, TypeVar
 
 from openai import AsyncOpenAI
-from pydantic import BaseModel, Field, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from guardrails.registry import default_spec_registry
 from guardrails.spec import GuardrailSpecMetadata
@@ -209,7 +209,7 @@ async def run_llm(
 
     except Exception as exc:
         logger.exception("LLM guardrail failed for prompt: %s", system_prompt)
-        
+
         # Check if this is a content filter error - Azure OpenAI
         if "content_filter" in str(exc):
             logger.warning("Content filter triggered by provider: %s", exc)
@@ -290,7 +290,7 @@ def create_llm_check_fn(
             # Extract error information from the LLMErrorOutput
             error_info = analysis.info if hasattr(analysis, 'info') else {}
             error_message = error_info.get('error_message', 'LLM execution failed')
-            
+
             return GuardrailResult(
                 tripwire_triggered=False,  # Don't trigger tripwire on execution errors
                 execution_failed=True,
@@ -302,7 +302,7 @@ def create_llm_check_fn(
                     **analysis.model_dump(),
                 },
             )
-        
+
         # Compare severity levels
         is_trigger = (
             analysis.flagged and analysis.confidence >= config.confidence_threshold

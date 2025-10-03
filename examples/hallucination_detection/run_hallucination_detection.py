@@ -1,7 +1,9 @@
 import asyncio
-from guardrails import GuardrailsAsyncOpenAI, GuardrailTripwireTriggered
+
 from rich.console import Console
 from rich.panel import Panel
+
+from guardrails import GuardrailsAsyncOpenAI, GuardrailTripwireTriggered
 
 # Initialize Rich console
 console = Console()
@@ -43,14 +45,14 @@ async def main():
             messages=[{"role": "user", "content": candidate}],
             model="gpt-4.1-mini",
         )
-        
+
         console.print(Panel(
             f"[bold green]Tripwire not triggered[/bold green]\n\n"
             f"Response: {response.llm_response.choices[0].message.content}",
             title="✅ Guardrail Check Passed",
             border_style="green"
         ))
-        
+
     except GuardrailTripwireTriggered as exc:
         # Make the guardrail triggered message stand out with Rich
         console.print(Panel(

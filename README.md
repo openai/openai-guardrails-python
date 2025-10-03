@@ -17,7 +17,7 @@ For full details, advanced usage, and API reference, see here: [OpenAI Guardrail
 2. **Install dependencies**
    - **Install from this repo:**
      ```bash
-     pip install -e .[presidio]
+     pip install -e '.[presidio]'
      ```
    - **Eventually this will be:**
      ```bash

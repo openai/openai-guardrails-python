@@ -1,6 +1,6 @@
 """Responses API with guardrails."""
 
-from .responses import Responses, AsyncResponses
+from .responses import AsyncResponses, Responses
 
 __all__ = [
     "Responses",

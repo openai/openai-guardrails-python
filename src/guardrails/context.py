@@ -6,10 +6,10 @@ async/await boundaries and execution contexts.
 """
 
 from contextvars import ContextVar
-from typing import Any, Optional
 from dataclasses import dataclass
 
 from openai import AsyncOpenAI, OpenAI
+
 try:
     from openai import AsyncAzureOpenAI, AzureOpenAI  # type: ignore
 except Exception:  # pragma: no cover - optional dependency
@@ -23,14 +23,14 @@ CTX = ContextVar("guardrails_context", default=None)
 @dataclass(frozen=True, slots=True)
 class GuardrailsContext:
     """Context for guardrail execution.
-    
+
     This dataclass defines the resources and configuration needed
     for guardrail execution, including the LLM client to use.
-    
+
     The guardrail_llm can be either:
     - AsyncOpenAI: For async guardrail execution
     - OpenAI: For sync guardrail execution
-    
+
     Both client types work seamlessly with the guardrails system.
     """
     guardrail_llm: AsyncOpenAI | OpenAI | AsyncAzureOpenAI | AzureOpenAI
@@ -42,16 +42,16 @@ class GuardrailsContext:
 
 def set_context(context: GuardrailsContext) -> None:
     """Set the guardrails context for the current execution context.
-    
+
     Args:
         context: The context object containing guardrail resources
     """
     CTX.set(context)
 
 
-def get_context() -> Optional[GuardrailsContext]:
+def get_context() -> GuardrailsContext | None:
     """Get the current guardrails context.
-    
+
     Returns:
         The current context if set, None otherwise
     """
@@ -60,7 +60,7 @@ def get_context() -> Optional[GuardrailsContext]:
 
 def has_context() -> bool:
     """Check if a guardrails context is currently set.
-    
+
     Returns:
         True if context is set, False otherwise
     """

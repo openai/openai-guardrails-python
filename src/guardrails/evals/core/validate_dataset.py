@@ -1,5 +1,4 @@
-"""
-Dataset validation utility for guardrail evaluation.
+"""Dataset validation utility for guardrail evaluation.
 
 This module provides functions and a CLI for validating evaluation datasets in JSONL format.
 """

@@ -1,9 +1,9 @@
 """Responses API with guardrails."""
 
 import asyncio
-from concurrent.futures import ThreadPoolExecutor
 from collections.abc import AsyncIterator
-from typing import Any, Optional, Union
+from concurrent.futures import ThreadPoolExecutor
+from typing import Any
 
 from pydantic import BaseModel
 
@@ -21,7 +21,7 @@ class Responses:
         input: str | list[dict[str, str]],
         model: str,
         stream: bool = False,
-        tools: Optional[list[dict]] = None,
+        tools: list[dict] | None = None,
         suppress_tripwire: bool = False,
         **kwargs
     ):
@@ -162,12 +162,11 @@ class AsyncResponses:
         input: str | list[dict[str, str]],
         model: str,
         stream: bool = False,
-        tools: Optional[list[dict]] = None,
+        tools: list[dict] | None = None,
         suppress_tripwire: bool = False,
         **kwargs
-    ) -> Union[Any, AsyncIterator[Any]]:
+    ) -> Any | AsyncIterator[Any]:
         """Create response with guardrails."""
-
         # Determine latest user message text when a list of messages is provided
         if isinstance(input, list):
             latest_message, _ = self._client._extract_latest_user_message(input)
@@ -228,7 +227,7 @@ class AsyncResponses:
         stream: bool = False,
         suppress_tripwire: bool = False,
         **kwargs
-    ) -> Union[Any, AsyncIterator[Any]]:
+    ) -> Any | AsyncIterator[Any]:
         """Parse response with structured output and guardrails."""
         latest_message, _ = self._client._extract_latest_user_message(input)
 

@@ -14,16 +14,19 @@ from importlib import metadata as _m
 from . import checks
 from .agents import GuardrailAgent
 from .client import (
+    GuardrailResults,
     GuardrailsAsyncOpenAI,
     GuardrailsOpenAI,
     GuardrailsResponse,
-    GuardrailResults,
 )
+
 try:  # Optional Azure variants
     from .client import GuardrailsAsyncAzureOpenAI, GuardrailsAzureOpenAI  # type: ignore
 except Exception:  # pragma: no cover - optional dependency path
     GuardrailsAsyncAzureOpenAI = None  # type: ignore
     GuardrailsAzureOpenAI = None  # type: ignore
+# Import resources for access to resource classes
+from . import resources
 from .exceptions import GuardrailTripwireTriggered
 from .registry import default_spec_registry
 from .runtime import (
@@ -38,9 +41,6 @@ from .runtime import (
 )
 from .spec import GuardrailSpecMetadata
 from .types import GuardrailResult
-
-# Import resources for access to resource classes
-from . import resources
 
 __all__ = [
     "ConfiguredGuardrail",  # configured, executable object

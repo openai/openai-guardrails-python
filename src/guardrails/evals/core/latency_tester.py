@@ -1,5 +1,4 @@
-"""
-Latency testing for guardrail benchmarking.
+"""Latency testing for guardrail benchmarking.
 
 This module implements end-to-end guardrail latency testing for different models.
 """
@@ -8,14 +7,15 @@ from __future__ import annotations
 
 import logging
 import time
-from typing import Any, Dict, List
+from typing import Any
 
 import numpy as np
 from tqdm import tqdm
 
-from .types import Context, Sample
 from guardrails.runtime import instantiate_guardrails
+
 from .async_engine import AsyncRunEngine
+from .types import Context, Sample
 
 logger = logging.getLogger(__name__)
 
@@ -31,7 +31,7 @@ class LatencyTester:
         """
         self.iterations = iterations
 
-    def calculate_latency_stats(self, times: List[float]) -> Dict[str, float]:
+    def calculate_latency_stats(self, times: list[float]) -> dict[str, float]:
         """Calculate latency statistics from a list of times.
 
         Args:
@@ -47,9 +47,9 @@ class LatencyTester:
                 "mean": float('nan'),
                 "std": float('nan')
             }
-        
+
         times_ms = np.array(times) * 1000  # Convert to milliseconds
-        
+
         return {
             "p50": float(np.percentile(times_ms, 50)),
             "p95": float(np.percentile(times_ms, 95)),
@@ -61,11 +61,11 @@ class LatencyTester:
         self,
         context: Context,
         stage_bundle: Any,
-        samples: List[Sample],
+        samples: list[Sample],
         iterations: int,
         *,
         desc: str | None = None,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Measure end-to-end guardrail latency per sample for a single model.
 
         Args:
@@ -85,9 +85,9 @@ class LatencyTester:
         if num <= 0:
             return self._empty_latency_result()
 
-        ttc_times: List[float] = []
+        ttc_times: list[float] = []
         bar_desc = desc or "Latency"
-        
+
         with tqdm(total=num, desc=bar_desc, leave=True) as pbar:
             for i in range(num):
                 sample = samples[i]
@@ -98,7 +98,7 @@ class LatencyTester:
                 pbar.update(1)
 
         ttc_stats = self.calculate_latency_stats(ttc_times)
-        
+
         return {
             "ttft": ttc_stats,  # TTFT same as TTC at guardrail level
             "ttc": ttc_stats,
@@ -106,7 +106,7 @@ class LatencyTester:
             "iterations": len(ttc_times),
         }
 
-    def _empty_latency_result(self) -> Dict[str, Any]:
+    def _empty_latency_result(self) -> dict[str, Any]:
         """Return empty latency result structure."""
         empty_stats = {"p50": float('nan'), "p95": float('nan'), "mean": float('nan'), "std": float('nan')}
         return {

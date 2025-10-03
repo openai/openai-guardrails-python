@@ -8,9 +8,9 @@ from agents import (
     OutputGuardrailTripwireTriggered,
     Runner,
 )
-from agents.run import RunConfig
 
 from guardrails import GuardrailAgent
+
 
 async def main():
     # Create agent with guardrails configured from config file
@@ -19,7 +19,7 @@ async def main():
         name="Customer support agent",
         instructions="You are a customer support agent. You help customers with their questions.",
     )
-    
+
     while True:
         try:
             prompt = input("\nEnter a message: ")
@@ -27,9 +27,9 @@ async def main():
                 agent,
                 prompt
             )
-            
+
             print(f"\nAssistant: {result.final_output}")
-            
+
         except (EOFError, KeyboardInterrupt):
             break
         except (InputGuardrailTripwireTriggered, OutputGuardrailTripwireTriggered) as exc:

@@ -45,7 +45,7 @@ import math
 import re
 from typing import TYPE_CHECKING, Any, TypedDict
 
-from pydantic import BaseModel, Field, field_validator, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from guardrails.registry import default_spec_registry
 from guardrails.spec import GuardrailSpecMetadata
@@ -198,11 +198,11 @@ class SecretKeysCfg(BaseModel):
 
     Attributes:
         threshold (str): Detection sensitivity level. One of:
-        
+
             - "strict": Most sensitive, may have more false positives
             - "balanced": Default setting, balanced between sensitivity and specificity
             - "permissive": Least sensitive, may have more false negatives
-        
+
         custom_regex (list[str] | None): Optional list of custom regex patterns to check for secrets.
             If provided, these patterns will be used in addition to the default checks.
             Each pattern must be a valid regex string.

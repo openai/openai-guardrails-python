@@ -74,11 +74,12 @@ from __future__ import annotations
 import functools
 import logging
 from collections import defaultdict
+from collections.abc import Sequence
 from dataclasses import dataclass
 from enum import Enum
-from typing import TYPE_CHECKING, Any, Sequence, Final
+from typing import TYPE_CHECKING, Any, Final
 
-from pydantic import BaseModel, Field, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from guardrails.registry import default_spec_registry
 from guardrails.spec import GuardrailSpecMetadata
@@ -197,7 +198,7 @@ class PIIEntity(str, Enum):
 class PIIConfig(BaseModel):
     """Configuration schema for PII detection.
 
-    Used to control which entity types are checked and whether to block content 
+    Used to control which entity types are checked and whether to block content
     containing PII or just mask it.
 
     Attributes:
@@ -213,7 +214,7 @@ class PIIConfig(BaseModel):
     )
     block: bool = Field(
         default=False,
-        description="If True, triggers tripwire when PII is detected (blocking mode). If False, masks PII without blocking (masking mode, only works in pre-flight stage).",
+        description="If True, triggers tripwire when PII is detected (blocking mode). If False, masks PII without blocking (masking mode, only works in pre-flight stage).",  # noqa: E501
     )
 
     model_config = ConfigDict(extra="forbid")

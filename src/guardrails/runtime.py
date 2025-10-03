@@ -118,7 +118,7 @@ class ConfigBundle(BaseModel):
         version (int): Format version for forward/backward compatibility.
         stage_name (str): User-defined name for the pipeline stage this bundle is for.
             This can be any string that helps identify which part of your pipeline
-            triggered the guardrail (e.g., "user_input_validation", "content_generation", 
+            triggered the guardrail (e.g., "user_input_validation", "content_generation",
             "pre_processing", etc.). It will be included in GuardrailResult info for
             easy identification.
         config (dict[str, Any]): Execution configuration for this bundle.
@@ -444,7 +444,7 @@ async def run_guardrails(
             logger.debug("Running guardrail '%s'", g.definition.name)
             try:
                 result = await g.run(ctx, data)
-                
+
                 # Always add stage_name to the result info while preserving all fields
                 result = GuardrailResult(
                     tripwire_triggered=result.tripwire_triggered,
@@ -452,10 +452,10 @@ async def run_guardrails(
                     original_exception=result.original_exception,
                     info={**result.info, "stage_name": stage_name or "unnamed"}
                 )
-                
+
             except Exception as exc:
                 logger.error("Guardrail '%s' failed to execute: %s", g.definition.name, exc)
-                
+
                 if raise_guardrail_errors:
                     # Re-raise the exception to stop execution
                     raise exc
@@ -472,7 +472,7 @@ async def run_guardrails(
                             "error": str(exc),
                         }
                     )
-            
+
             # Invoke user-provided handler for each result
             if result_handler:
                 try:
@@ -494,7 +494,7 @@ async def run_guardrails(
     # Check for guardrail execution failures and re-raise if configured
     if raise_guardrail_errors:
         execution_failures = [r for r in results if r.execution_failed]
-        
+
         if execution_failures:
             # Re-raise the first execution failure
             failure = execution_failures[0]

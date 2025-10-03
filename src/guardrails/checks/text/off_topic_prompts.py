@@ -39,7 +39,7 @@ from __future__ import annotations
 
 import textwrap
 
-from pydantic import Field, ConfigDict
+from pydantic import ConfigDict, Field
 
 from guardrails.types import CheckFn, GuardrailLLMContextProto
 

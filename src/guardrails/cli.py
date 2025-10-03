@@ -71,13 +71,13 @@ def main(argv: list[str] | None = None) -> None:
     if args.command == "validate":
         try:
             pipeline = load_pipeline_bundles(Path(args.config_file))
-            
+
             # Collect all guardrails from all stages
             all_guardrails = []
             for stage in pipeline.stages():
                 stage_guardrails = instantiate_guardrails(stage)
                 all_guardrails.extend(stage_guardrails)
-            
+
         except Exception as e:
             print(f"ERROR: {e}", file=sys.stderr)
             sys.exit(1)

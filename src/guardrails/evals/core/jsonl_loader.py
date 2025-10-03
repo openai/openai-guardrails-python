@@ -1,5 +1,4 @@
-"""
-JSONL dataset loader for guardrail evaluation.
+"""JSONL dataset loader for guardrail evaluation.
 
 This module provides a loader for reading and validating evaluation datasets in JSONL format.
 """

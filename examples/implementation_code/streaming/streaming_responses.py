@@ -2,13 +2,15 @@
 
 # Please integrate openai-guardrails into my LLM calls.
 
-# Use "guardrails_config.json" as the config file name, 
+# Use "guardrails_config.json" as the config file name,
 # and follow the example below that illustrates a sample installation.
 
 import asyncio
 import os
 from pathlib import Path
+
 from guardrails import GuardrailsAsyncOpenAI, GuardrailTripwireTriggered
+
 
 async def process_input(guardrails_client: GuardrailsAsyncOpenAI, user_input: str, response_id: str | None = None) -> str | None:
     """Process user input with streaming output and guardrails using the new GuardrailsClient."""
@@ -21,31 +23,31 @@ async def process_input(guardrails_client: GuardrailsAsyncOpenAI, user_input: st
             previous_response_id=response_id,
             stream=True,
         )
-        
+
         # Stream with output guardrail checks
         async for chunk in stream:
             # Access streaming response exactly like native OpenAI API through .llm_response
             # For responses API streaming, check for delta content
             if hasattr(chunk.llm_response, 'delta') and chunk.llm_response.delta:
                 print(chunk.llm_response.delta, end="", flush=True)
-        
+
         # Get the response ID from the final chunk
         response_id_to_return = None
         if hasattr(chunk.llm_response, 'response') and hasattr(chunk.llm_response.response, 'id'):
             response_id_to_return = chunk.llm_response.response.id
-        
+
         return response_id_to_return
-        
-    except GuardrailTripwireTriggered as exc:
+
+    except GuardrailTripwireTriggered:
         # The stream will have already yielded the violation chunk before raising
         raise
 
 async def main():
     # Initialize GuardrailsAsyncOpenAI with the config file
     guardrails_client = GuardrailsAsyncOpenAI(config=Path("guardrails_config.json"))
-    
+
     response_id: str | None = None
-    
+
     while True:
         try:
             prompt = input("\nEnter a message: ")
