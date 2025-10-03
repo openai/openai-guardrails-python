@@ -28,7 +28,13 @@ presidio = [
     "pip>=25.0.1",  # Required to load spaCy dependency for presidio-analyzer
     "presidio-analyzer>=2.2.358",
 ]
-evals = ["tqdm>=4.67.1"]
+benchmark = [
+    "numpy>=1.24.0",
+    "scikit-learn>=1.3.0",
+    "matplotlib>=3.7.0",
+    "seaborn>=0.12.0",
+    "pandas>=2.0.0",
+]
 
 [dependency-groups]
 dev = [

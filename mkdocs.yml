@@ -1,4 +1,5 @@
 site_name: OpenAI Guardrails Python
+site_url: https://openai.github.io/openai-guardrails-python/
 site_dir: site
 theme:
   name: material

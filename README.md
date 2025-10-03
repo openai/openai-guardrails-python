@@ -1,25 +1,17 @@
 # OpenAI Guardrails
 
-> **Choose your language:**
-> - [Python](#python)
-> - [TypeScript](#typescript)
-
----
-
-# Python
-
 ## Overview
 
 OpenAI Guardrails is a Python package for adding robust, configurable safety and compliance guardrails to LLM applications. It provides a drop-in wrapper for OpenAI's Python client, enabling automatic input/output validation and moderation using a wide range of guardrails.
 
 ## Documentation
 
-For full details, advanced usage, and API reference, see here: [OpenAI Guardrails Alpha Documentation](https://oaig-whisper-yonder-xnjpy2.vercel.app/docs/).
+For full details, advanced usage, and API reference, see here: [OpenAI Guardrails Documentation](https://openai.github.io/openai-guardrails-python/).
 
 ## Quick Start: Using OpenAI Guardrails (Python)
 
 1. **Generate your guardrail spec JSON**
-   - Use the [Guardrails web UI](https://oaig-whisper-yonder-xnjpy2.vercel.app/) (pw: guardrails) to create a JSON configuration file describing which guardrails to apply and how to configure them.
+   - Use the [Guardrails web UI](https://platform.openai.com/guardrails) to create a JSON configuration file describing which guardrails to apply and how to configure them.
    - The wizard outputs a file like `guardrail_specs.json`.
 
 2. **Install dependencies**
@@ -65,7 +57,7 @@ For full details, advanced usage, and API reference, see here: [OpenAI Guardrail
    - The client will automatically apply all configured guardrails to inputs and outputs.
    - If a guardrail is triggered, a `GuardrailTripwireTriggered` exception will be raised. You should handle this exception to gracefully manage blocked or flagged content.
 
-> **Note:** The Guardrails web UI (in `frontend/`) is hosted [here](https://oaig-whisper-yonder-xnjpy2.vercel.app/). You do not need to run the web UI yourself to use the Python package.
+> **Note:** The Guardrails web UI is hosted [here](https://platform.openai.com/guardrails). You do not need to run the web UI yourself to use the Python package.
 
 ---
 
@@ -76,107 +68,6 @@ For full details, advanced usage, and API reference, see here: [OpenAI Guardrail
 - **Automatic input/output validation**: Guardrails are applied to all relevant API calls (e.g., `chat.completions.create`, `responses.create`, etc.).
 - **Configurable guardrails**: Choose which checks to enable, and customize their parameters via the JSON spec.
 - **Tripwire support**: Optionally block or mask unsafe content, or just log/flag it for review.
-
----
-
-# TypeScript
-
-## Overview
-
-Guardrails TypeScript is a Node.js/TypeScript framework for secure AI calls with OpenAI Guardrails. It provides a port of the Python Guardrails framework with enhanced type safety, Node.js integration, and a high-level client API mirroring the Python version.
-
-> **Note:** The TypeScript package is currently in development and not yet published to npm. Use the local installation methods below.
-
-## Quick Start: Using OpenAI Guardrails (TypeScript)
-
-### 1. Install Locally
-
-Clone the repository and install dependencies:
-```bash
-# From the root of the repo
-cd guardrails-ts
-npm install
-npm run build
-```
-
-You can also install it into your own project from the local path:
-```bash
-npm install /absolute/path/to/guardrails/guardrails-ts
-```
-
-### 2. Using the Guardrails Client in TypeScript
-
-The TypeScript client now provides a high-level API similar to Python:
-
-```typescript
-import { GuardrailsOpenAI } from '@guardrails/guardrails-ts';
-import * as path from 'path';
-// Create a GuardrailsOpenAI client with your config
-const client = await GuardrailsOpenAI.create(path.resolve('guardrails_config.json'), {
-  apiKey: process.env.OPENAI_API_KEY,
-});
-try {
-  const response = await client.chat.completions.create({
-    model: 'gpt-5',
-    messages: [{ role: 'user', content: '...' }],
-  });
-  console.log(response.llm_response.choices[0].message.content);
-} catch (e) {
-  // Handle blocked or flagged content
-  console.error('Guardrail triggered:', e);
-}
-// Example: Using the new OpenAI Responses API with Guardrails
-try {
-  const resp = await client.responses.create({
-    model: 'gpt-5',
-    input: '...',
-    // Optionally, add file_search or other tool arguments as needed
-  });
-  console.log(resp.llm_response.output_text);
-} catch (e) {
-  console.error('Guardrail triggered (responses API):', e);
-}
-```
-
-### 3. CLI Usage
-
-You can also use the CLI for validation and evaluation:
-
-```bash
-# Run directly with npm (from guardrails-ts directory)
-npm run cli -- --help
-npm run cli -- validate config.json
-npm run cli -- eval --config-path config.json --dataset-path dataset.jsonl
-
-# Or install globally for CLI access
-npm install -g .
-guardrails-ts --help
-guardrails-ts validate config.json
-guardrails-ts eval --config-path config.json --dataset-path dataset.jsonl
-```
-
-### 4. Running Examples
-
-```bash
-# Build the package first
-npm run build
-
-# Run example scripts (from guardrails-ts/examples)
-cd examples
-npx tsx simple-runtime-usage.ts
-npx tsx guardrails-demo.ts
-```
-
----
-
-## What Does the TypeScript Package Provide?
-
-- **GuardrailsOpenAI** and **GuardrailsAzureOpenAI**: Drop-in replacements for OpenAI's `OpenAI` and `AzureOpenAI` clients, with automatic guardrail enforcement (mirrors Python API).
-- **Automatic input/output validation**: Guardrails are applied to all relevant API calls (e.g., `chat.completions.create`, `responses.create`, etc.).
-- **Configurable guardrails**: Choose which checks to enable, and customize their parameters via the JSON spec.
-- **Tripwire support**: Optionally block or mask unsafe content, or just log/flag it for review.
-- **CLI tool**: Validate configs, run evaluations, and more from the command line.
-- **Evaluation framework**: Test guardrail performance on datasets and measure metrics like precision, recall, and F1 scores.
 
 ---
 
@@ -202,9 +93,9 @@ Below is a list of all built-in guardrails you can configure. Each can be enable
 
 ## License
 
-For the duration of this early access alpha, `guardrails` (including both the Python and TypeScript packages) is distributed under the Alpha Evaluation Agreement that your organization signed with OpenAI.
+For the duration of this early access alpha, `guardrails` is distributed under the Alpha Evaluation Agreement that your organization signed with OpenAI.
 
-Both the Python and TypeScript packages are intended to be MIT-licensed in the future, subject to change.
+The Python package is intended to be MIT-licensed in the future, subject to change.
 
 ## Disclaimers
 

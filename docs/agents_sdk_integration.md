@@ -83,7 +83,7 @@ agent = GuardrailAgent(config=JsonString('{"version": 1, ...}'), ...)
 
 ## Next Steps
 
-- Use the [Guardrails Wizard](https://guardrails-vercel-git-main-openai.vercel.app/guardrails) to generate your configuration
+- Use the [Guardrails Wizard](https://platform.openai.com/guardrails) to generate your configuration
 - Explore available guardrails for your use case  
 - Learn about pipeline configuration in our [quickstart](./quickstart.md)
 - For more details on the OpenAI Agents SDK, refer to the [Agent SDK documentation](https://openai.github.io/openai-agents-python/).

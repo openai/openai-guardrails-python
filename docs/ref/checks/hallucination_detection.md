@@ -79,7 +79,7 @@ print(response.llm_response.output_text)
 
 ### Complete Example
 
-See [`examples/hallucination_detection/`](https://github.com/OpenAI-Early-Access/guardrails/tree/main/guardrails/examples/hallucination_detection) for the full implementation.
+See [`examples/hallucination_detection/`](https://github.com/openai/openai-guardrails-python/tree/main/examples/hallucination_detection) for the full implementation.
 
 ### Notes
 
