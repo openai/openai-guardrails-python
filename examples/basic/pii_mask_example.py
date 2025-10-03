@@ -11,6 +11,7 @@ PII will block the output if it is detected in the LLM response. (masking of the
 
 import asyncio
 from contextlib import suppress
+
 from rich.console import Console
 from rich.panel import Panel
 

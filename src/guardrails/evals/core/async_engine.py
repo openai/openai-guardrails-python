@@ -1,5 +1,4 @@
-"""
-Async run engine for guardrail evaluation.
+"""Async run engine for guardrail evaluation.
 
 This module provides an asynchronous engine for running guardrail checks on evaluation samples.
 """
@@ -7,14 +6,14 @@ This module provides an asynchronous engine for running guardrail checks on eval
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 from typing import Any
 
 from tqdm import tqdm
 
-import json
-
 from guardrails import GuardrailsAsyncOpenAI, run_guardrails
+
 from .types import Context, RunEngine, Sample, SampleResult
 
 logger = logging.getLogger(__name__)
@@ -119,7 +118,7 @@ class AsyncRunEngine(RunEngine):
 
         # Handle any exceptions from the batch
         results = []
-        for sample, result in zip(batch, batch_results):
+        for sample, result in zip(batch, batch_results, strict=False):
             if isinstance(result, Exception):
                 logger.error("Sample %s failed: %s", sample.id, str(result))
                 result = SampleResult(

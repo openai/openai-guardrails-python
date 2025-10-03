@@ -1,5 +1,4 @@
-"""
-Metrics calculator for guardrail evaluation.
+"""Metrics calculator for guardrail evaluation.
 
 This module implements precision, recall, and F1-score calculation for guardrail evaluation results.
 """

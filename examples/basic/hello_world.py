@@ -2,6 +2,7 @@
 
 import asyncio
 from contextlib import suppress
+
 from rich.console import Console
 from rich.panel import Panel
 
@@ -55,7 +56,7 @@ async def process_input(
 
         return response.llm_response.id
 
-    except GuardrailTripwireTriggered as exc:
+    except GuardrailTripwireTriggered:
         raise
 
 

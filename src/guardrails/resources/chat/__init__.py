@@ -1,10 +1,10 @@
 """Chat completions with guardrails."""
 
-from .chat import Chat, AsyncChat, ChatCompletions, AsyncChatCompletions
+from .chat import AsyncChat, AsyncChatCompletions, Chat, ChatCompletions
 
 __all__ = [
     "Chat",
     "AsyncChat",
-    "ChatCompletions", 
+    "ChatCompletions",
     "AsyncChatCompletions",
 ]

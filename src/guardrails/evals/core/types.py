@@ -1,5 +1,4 @@
-"""
-Core types and protocols for guardrail evaluation.
+"""Core types and protocols for guardrail evaluation.
 
 This module defines the core data models and protocols used throughout the guardrail evaluation framework.
 """
@@ -11,6 +10,7 @@ from pathlib import Path
 from typing import Any, Protocol
 
 from openai import AsyncOpenAI
+
 try:
     from openai import AsyncAzureOpenAI
 except ImportError:

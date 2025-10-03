@@ -8,18 +8,18 @@ from __future__ import annotations
 
 import logging
 from collections.abc import AsyncIterator
-from typing import Any, AsyncIterable
+from typing import Any
 
+from ._base_client import GuardrailsResponse
 from .exceptions import GuardrailTripwireTriggered
 from .types import GuardrailResult
-from ._base_client import GuardrailsResponse
 
 logger = logging.getLogger(__name__)
 
 
 class StreamingMixin:
     """Mixin providing streaming functionality for guardrails clients."""
-    
+
     async def _stream_with_guardrails(
         self,
         llm_stream: Any,  # coroutine or async iterator of OpenAI chunks
@@ -31,18 +31,18 @@ class StreamingMixin:
         """Stream with periodic guardrail checks (async)."""
         accumulated_text = ""
         chunk_count = 0
-        
+
         # Handle case where llm_stream is a coroutine
         if hasattr(llm_stream, '__await__'):
             llm_stream = await llm_stream
-        
+
         async for chunk in llm_stream:
             # Extract text from chunk
             chunk_text = self._extract_response_text(chunk)
             if chunk_text:
                 accumulated_text += chunk_text
                 chunk_count += 1
-                
+
                 # Run output guardrails periodically
                 if chunk_count % check_interval == 0:
                     try:
@@ -53,15 +53,15 @@ class StreamingMixin:
                         # Clear accumulated output and re-raise
                         accumulated_text = ""
                         raise
-            
+
             # Yield chunk with guardrail results
             yield self._create_guardrails_response(
                 chunk, preflight_results, input_results, []
             )
-        
+
         # Final output check
         if accumulated_text:
-            output_results = await self._run_stage_guardrails(
+            await self._run_stage_guardrails(
                 "output", accumulated_text, suppress_tripwire=suppress_tripwire
             )
             # Note: This final result won't be yielded since stream is complete
@@ -78,14 +78,14 @@ class StreamingMixin:
         """Stream with periodic guardrail checks (sync)."""
         accumulated_text = ""
         chunk_count = 0
-        
+
         for chunk in llm_stream:
             # Extract text from chunk
             chunk_text = self._extract_response_text(chunk)
             if chunk_text:
                 accumulated_text += chunk_text
                 chunk_count += 1
-                
+
                 # Run output guardrails periodically
                 if chunk_count % check_interval == 0:
                     try:
@@ -96,15 +96,15 @@ class StreamingMixin:
                         # Clear accumulated output and re-raise
                         accumulated_text = ""
                         raise
-            
+
             # Yield chunk with guardrail results
             yield self._create_guardrails_response(
                 chunk, preflight_results, input_results, []
             )
-        
+
         # Final output check
         if accumulated_text:
-            output_results = self._run_stage_guardrails(
+            self._run_stage_guardrails(
                 "output", accumulated_text, suppress_tripwire=suppress_tripwire
             )
             # Note: This final result won't be yielded since stream is complete

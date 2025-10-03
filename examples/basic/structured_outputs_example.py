@@ -1,6 +1,7 @@
 """Simple example demonstrating structured outputs with GuardrailsClient."""
 
 import asyncio
+
 from pydantic import BaseModel, Field
 
 from guardrails import GuardrailsAsyncOpenAI, GuardrailTripwireTriggered
@@ -37,13 +38,13 @@ async def extract_user_info(guardrails_client: GuardrailsAsyncOpenAI, text: str)
             model="gpt-4.1-nano",
             text_format=UserInfo
         )
-        
+
         # Access the parsed structured output
         user_info = response.llm_response.output_parsed
         print(f"✅ Successfully extracted: {user_info.name}, {user_info.age}, {user_info.email}")
-        
+
         return user_info
-        
+
     except GuardrailTripwireTriggered as exc:
         print(f"❌ Guardrail triggered: {exc}")
         raise
@@ -75,4 +76,4 @@ async def main() -> None:
 
 
 if __name__ == "__main__":
-    asyncio.run(main()) 
+    asyncio.run(main())

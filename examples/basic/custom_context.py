@@ -11,7 +11,6 @@ from contextlib import suppress
 from guardrails import GuardrailsAsyncOpenAI, GuardrailTripwireTriggered
 from guardrails.context import GuardrailsContext, set_context
 
-
 # Pipeline config with an LLM-based guardrail using Gemma3 via Ollama
 PIPELINE_CONFIG = {
     "version": 1,

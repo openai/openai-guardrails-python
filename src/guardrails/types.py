@@ -54,7 +54,7 @@ class GuardrailLLMContextProto(Protocol):
     def update_injection_last_checked_index(self, new_index: int) -> None:
         """Update the last checked index for incremental prompt injection detection checking."""
         if hasattr(self, "_client"):
-            getattr(self, "_client")._injection_last_checked_index = new_index
+            self._client._injection_last_checked_index = new_index
 
 
 @dataclass(frozen=True, slots=True)

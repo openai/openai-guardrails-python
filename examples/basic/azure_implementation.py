@@ -8,12 +8,14 @@ Configure the following environment variables (e.g., via .env):
 
 import asyncio
 import os
+
+from dotenv import load_dotenv
 from openai import BadRequestError
+
 from guardrails import (
     GuardrailsAsyncAzureOpenAI,
     GuardrailTripwireTriggered,
 )
-from dotenv import load_dotenv
 
 load_dotenv()
 
@@ -72,14 +74,14 @@ async def process_input(
     except GuardrailTripwireTriggered as e:
         # Extract information from the triggered guardrail
         triggered_result = e.guardrail_result
-        print(f"   Input blocked. Please try a different message.")
+        print("   Input blocked. Please try a different message.")
         print(f"   Full result: {triggered_result}")
         raise
     except BadRequestError as e:
         # Handle Azure's built-in content filter errors
         # Will be triggered not when the guardrail is tripped, but when the LLM is filtered by Azure.
         if "content_filter" in str(e):
-            print(f"\n🚨 Third party content filter triggered during LLM call.")
+            print("\n🚨 Third party content filter triggered during LLM call.")
             print(f"   Error: {e}")
             raise
         else:

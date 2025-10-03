@@ -25,7 +25,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from pydantic import Field, ConfigDict
+from pydantic import ConfigDict, Field
 
 from guardrails.registry import default_spec_registry
 from guardrails.spec import GuardrailSpecMetadata

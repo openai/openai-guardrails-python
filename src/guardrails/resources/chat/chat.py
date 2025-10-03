@@ -1,9 +1,9 @@
 """Chat completions with guardrails."""
 
 import asyncio
-from concurrent.futures import ThreadPoolExecutor
 from collections.abc import AsyncIterator
-from typing import Any, Union
+from concurrent.futures import ThreadPoolExecutor
+from typing import Any
 
 from ..._base_client import GuardrailsBaseClient
 
@@ -111,7 +111,7 @@ class AsyncChatCompletions:
         stream: bool = False,
         suppress_tripwire: bool = False,
         **kwargs
-    ) -> Union[Any, AsyncIterator[Any]]:
+    ) -> Any | AsyncIterator[Any]:
         """Create chat completion with guardrails."""
         latest_message, _ = self._client._extract_latest_user_message(messages)
 

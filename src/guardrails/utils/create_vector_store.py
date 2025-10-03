@@ -21,8 +21,8 @@ logger = logging.getLogger(__name__)
 
 # Supported file types
 SUPPORTED_FILE_TYPES = {
-    '.c', '.cpp', '.cs', '.css', '.doc', '.docx', '.go', '.html', 
-    '.java', '.js', '.json', '.md', '.pdf', '.php', '.pptx', 
+    '.c', '.cpp', '.cs', '.css', '.doc', '.docx', '.go', '.html',
+    '.java', '.js', '.json', '.md', '.pdf', '.php', '.pptx',
     '.py', '.rb', '.sh', '.tex', '.ts', '.txt'
 }
 
@@ -46,17 +46,17 @@ async def create_vector_store_from_path(
         Exception: For other OpenAI API errors.
     """
     path = Path(path)
-    
+
     if not path.exists():
         raise FileNotFoundError(f"Path does not exist: {path}")
-    
+
     try:
         # Create vector store
         logger.info(f"Creating vector store from path: {path}")
         vector_store = await client.vector_stores.create(
             name=f"anti_hallucination_{path.name}"
         )
-        
+
         # Get list of files to upload
         file_paths = []
         if path.is_file() and path.suffix.lower() in SUPPORTED_FILE_TYPES:
@@ -66,12 +66,12 @@ async def create_vector_store_from_path(
                 f for f in path.rglob("*")
                 if f.is_file() and f.suffix.lower() in SUPPORTED_FILE_TYPES
             ]
-        
+
         if not file_paths:
             raise ValueError(f"No supported files found in {path}")
-        
+
         logger.info(f"Found {len(file_paths)} files to upload")
-        
+
         # Upload files
         file_ids = []
         for file_path in file_paths:
@@ -85,10 +85,10 @@ async def create_vector_store_from_path(
                     logger.info(f"Uploaded: {file_path.name}")
             except Exception as e:
                 logger.warning(f"Failed to create file {file_path}: {e}")
-        
+
         if not file_ids:
             raise ValueError("No files were successfully uploaded")
-        
+
         # Add files to vector store
         logger.info("Adding files to vector store...")
         for file_id in file_ids:
@@ -96,14 +96,14 @@ async def create_vector_store_from_path(
                 vector_store_id=vector_store.id,
                 file_id=file_id
             )
-        
+
         # Wait for files to be processed
         logger.info("Waiting for files to be processed...")
         while True:
             files = await client.vector_stores.files.list(
                 vector_store_id=vector_store.id
             )
-            
+
             # Check if all files are completed
             statuses = [file.status for file in files.data]
             if all(status == "completed" for status in statuses):
@@ -111,9 +111,9 @@ async def create_vector_store_from_path(
                 return vector_store.id
             elif any(status == "error" for status in statuses):
                 raise Exception("Some files failed to process")
-            
+
             await asyncio.sleep(1)
-        
+
     except Exception as e:
         logger.error(f"Error in create_vector_store_from_path: {e}")
         raise
@@ -125,22 +125,22 @@ async def main():
         print("Usage: python create_vector_store.py <path_to_documents>")
         print("Example: python create_vector_store.py /path/to/documents")
         sys.exit(1)
-    
+
     path = sys.argv[1]
-    
+
     try:
         client = AsyncOpenAI()
         vector_store_id = await create_vector_store_from_path(path, client)
-        
-        print(f"\n✅ Vector store created successfully!")
+
+        print("\n✅ Vector store created successfully!")
         print(f"Vector Store ID: {vector_store_id}")
-        print(f"\nUse this ID in your anti-hallucination guardrail config:")
+        print("\nUse this ID in your anti-hallucination guardrail config:")
         print(f'{{"knowledge_source": "{vector_store_id}"}}')
-        
+
     except Exception as e:
         logger.error(f"Failed to create vector store: {e}")
         sys.exit(1)
 
 
 if __name__ == "__main__":
-    asyncio.run(main()) 
+    asyncio.run(main())

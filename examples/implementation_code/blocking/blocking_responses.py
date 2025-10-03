@@ -2,12 +2,14 @@
 
 # Please integrate openai-guardrails into my LLM calls.
 
-# Use "guardrails_config.json" as the config file name, 
+# Use "guardrails_config.json" as the config file name,
 # and follow the example below that illustrates a sample installation.
 
 import asyncio
 from pathlib import Path
+
 from guardrails import GuardrailsAsyncOpenAI, GuardrailTripwireTriggered
+
 
 async def process_input(guardrails_client: GuardrailsAsyncOpenAI, user_input: str, response_id: str | None = None) -> str | None:
     """Process user input with complete response validation using the new GuardrailsClient."""
@@ -19,21 +21,21 @@ async def process_input(guardrails_client: GuardrailsAsyncOpenAI, user_input: st
             model="gpt-4.1-nano",
             previous_response_id=response_id
         )
-        
+
         print(f"\nAssistant: {response.llm_response.output_text}")
-        
+
         return response.llm_response.id
-        
-    except GuardrailTripwireTriggered as exc:
+
+    except GuardrailTripwireTriggered:
         # GuardrailsClient automatically handles tripwire exceptions
         raise
 
 async def main():
     # Initialize GuardrailsAsyncOpenAI with the config file
     guardrails_client = GuardrailsAsyncOpenAI(config=Path("guardrails_config.json"))
-    
+
     response_id: str | None = None
-    
+
     while True:
         try:
             prompt = input("\nEnter a message: ")

@@ -1,5 +1,4 @@
-"""
-JSON results reporter for guardrail evaluation.
+"""JSON results reporter for guardrail evaluation.
 
 This module implements a reporter that saves evaluation results and metrics in JSON and JSONL formats.
 """
@@ -107,7 +106,7 @@ class JsonResultsReporter(ResultsReporter):
                 for stage, metrics in all_metrics.items():
                     stage_metrics_dict = {k: v.model_dump() for k, v in metrics.items()}
                     combined_metrics[stage] = stage_metrics_dict
-                
+
                 json.dump(combined_metrics, f, indent=2)
 
             # Save run summary
@@ -124,18 +123,18 @@ class JsonResultsReporter(ResultsReporter):
         """Save run summary to file."""
         summary_file = run_dir / "run_summary.txt"
         with summary_file.open("w") as f:
-            f.write(f"Guardrails Evaluation Run\n")
+            f.write("Guardrails Evaluation Run\n")
             f.write(f"Timestamp: {datetime.now().isoformat()}\n")
             f.write(f"Stages evaluated: {', '.join(all_results.keys())}\n")
             f.write(f"Total samples: {len(next(iter(all_results.values())))}\n")
-            f.write(f"\nStage breakdown:\n")
+            f.write("\nStage breakdown:\n")
             for stage, results in all_results.items():
                 f.write(f"  {stage}: {len(results)} samples\n")
-            f.write(f"\nFiles created:\n")
+            f.write("\nFiles created:\n")
             for stage in all_results.keys():
                 f.write(f"  eval_results_{stage}.jsonl: Per-sample results for {stage} stage\n")
-            f.write(f"  eval_metrics.json: Combined metrics for all stages\n")
-            f.write(f"  run_summary.txt: This summary file\n")
+            f.write("  eval_metrics.json: Combined metrics for all stages\n")
+            f.write("  run_summary.txt: This summary file\n")
 
         logger.info("Run summary saved to %s", summary_file)
 

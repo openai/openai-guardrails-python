@@ -39,14 +39,14 @@ Examples:
     >>> result.tripwire_triggered
     True
 ```
-"""
+"""  # noqa: E501
 
 from __future__ import annotations
 
 import logging
 import textwrap
 
-from pydantic import Field, ConfigDict
+from pydantic import ConfigDict, Field
 
 from guardrails.registry import default_spec_registry
 from guardrails.spec import GuardrailSpecMetadata
@@ -164,7 +164,7 @@ VALIDATION_PROMPT = textwrap.dedent(
     - "hallucinated_statements": array of strings (specific factual statements that may be hallucinated)
     - "verified_statements": array of strings (specific factual statements that are supported by the documents)
 
-    **CRITICAL GUIDELINES**: 
+    **CRITICAL GUIDELINES**:
     - Flag content if ANY factual claims are unsupported or contradicted (even if some claims are supported)
     - Allow conversational, opinion-based, or general content to pass through
     - Allow content to pass through ONLY if ALL factual claims are supported by documents
@@ -174,7 +174,7 @@ VALIDATION_PROMPT = textwrap.dedent(
         - 1.0 = Certain hallucinated
         - 0.0 = Certain not hallucinated
         - Use the full range [0.0 - 1.0] to reflect your level of certainty
-    """
+    """  # noqa: E501
 ).strip()
 
 
@@ -204,11 +204,11 @@ async def hallucination_detection(
     """
     if not config.knowledge_source or not config.knowledge_source.startswith("vs_"):
         raise ValueError("knowledge_source must be a valid vector store ID starting with 'vs_'")
-    
+
     try:
         # Create the validation query
         validation_query = f"{VALIDATION_PROMPT}\n\nText to validate:\n{candidate}"
-        
+
         # Use the Responses API with file search and structured output
         response = await ctx.guardrail_llm.responses.parse(
             model=config.model,
@@ -219,13 +219,13 @@ async def hallucination_detection(
                 "vector_store_ids": [config.knowledge_source]
             }]
         )
-        
+
         # Get the parsed output directly
         analysis = response.output_parsed
-        
+
         # Determine if tripwire should be triggered
         is_trigger = analysis.flagged and analysis.confidence >= config.confidence_threshold
-        
+
         return GuardrailResult(
             tripwire_triggered=is_trigger,
             info={
@@ -235,7 +235,7 @@ async def hallucination_detection(
                 "checked_text": candidate,  # Hallucination Detection doesn't modify text, pass through unchanged
             },
         )
-        
+
     except ValueError as e:
         # Log validation errors but return safe default
         logger.warning(f"Validation error in hallucination_detection: {e}")

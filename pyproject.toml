@@ -13,6 +13,7 @@ classifiers = [
   "Programming Language :: Python :: 3",
   "Programming Language :: Python :: 3.11",
   "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
   "Intended Audience :: Developers",
   "Operating System :: OS Independent",
   "Topic :: Software Development :: Libraries :: Python Modules",
@@ -70,8 +71,8 @@ packages = ["src/guardrails"]
 guardrails = "guardrails.cli:main"
 
 [tool.ruff]
-line-length = 100
-target-version = "py39"
+line-length = 150
+target-version = "py311"
 
 [tool.ruff.lint]
 select = [
@@ -85,10 +86,19 @@ select = [
   "D",  # pydocstyle
 ]
 isort = { combine-as-imports = true, known-first-party = ["guardrails"] }
+extend-ignore=[
+  "D100",  # Missing docstring in public module
+  "D102",  # Missing docstring in public method
+  "D103",  # Missing docstring in public function
+  "D104",  # Missing docstring in public package
+  "D107",  # Missing docstring in `__init__`
+]
 
 [tool.ruff.lint.pydocstyle]
 convention = "google"
 
+[tool.ruff.lint.extend-per-file-ignores]
+"tests/**" = ["E501"]
 
 [tool.ruff.format]
 docstring-code-format = true

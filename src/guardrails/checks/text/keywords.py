@@ -31,7 +31,7 @@ import re
 from functools import lru_cache
 from typing import Any
 
-from pydantic import BaseModel, Field, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from guardrails.registry import default_spec_registry
 from guardrails.spec import GuardrailSpecMetadata
@@ -99,7 +99,7 @@ def match_keywords(
     """
     # Sanitize keywords by stripping trailing punctuation
     sanitized_keywords = [re.sub(r'[.,!?;:]+$', '', keyword) for keyword in config.keywords]
-    
+
     pat = _compile_pattern(tuple(sorted(sanitized_keywords)))
     matches = [m.group(0) for m in pat.finditer(data)]
     seen: set[str] = set()

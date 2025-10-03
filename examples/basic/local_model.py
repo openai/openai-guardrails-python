@@ -2,10 +2,10 @@
 
 import asyncio
 from contextlib import suppress
-from rich.console import Console
-from rich.panel import Panel
 
 from openai.types.chat import ChatCompletionMessageParam
+from rich.console import Console
+from rich.panel import Panel
 
 from guardrails import GuardrailsAsyncOpenAI, GuardrailTripwireTriggered
 
@@ -55,7 +55,7 @@ async def process_input(
         input_data.append({"role": "user", "content": user_input})
         input_data.append({"role": "assistant", "content": response_content})
 
-    except GuardrailTripwireTriggered as exc:
+    except GuardrailTripwireTriggered:
         # Handle guardrail violations
         raise
 

@@ -8,7 +8,6 @@ import argparse
 import asyncio
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
 
 from openai import AsyncOpenAI
 
@@ -66,7 +65,7 @@ async def process_input(
         print(f"\nAn unexpected error occurred: {e}")
 
 
-async def get_user_input() -> Optional[str]:
+async def get_user_input() -> str | None:
     """Get input from the user.
 
     Returns:
