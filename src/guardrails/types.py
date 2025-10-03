@@ -71,8 +71,8 @@ class GuardrailResult:
         original_exception (Exception | None): The original exception if execution failed.
         info (dict[str, Any]): Additional structured data about the check result,
             such as error details, matched patterns, or diagnostic messages.
-            Must include 'checked_text' field containing the processed/validated text.
-            Defaults to an empty dict.
+            Implementations may include a 'checked_text' field containing the
+            processed/validated text when applicable. Defaults to an empty dict.
     """
 
     tripwire_triggered: bool
@@ -82,9 +82,6 @@ class GuardrailResult:
 
     def __post_init__(self) -> None:
         """Validate required fields and consistency."""
-        if "checked_text" not in self.info:
-            raise ValueError("GuardrailResult.info must contain 'checked_text' field")
-
         # Ensure consistency: if execution_failed=True, original_exception should be present
         if self.execution_failed and self.original_exception is None:
             raise ValueError(
@@ -108,5 +105,4 @@ Args:
     TCfg (TypeVar): The configuration type, usually a Pydantic model.
 Returns:
     GuardrailResult or Awaitable[GuardrailResult]: The outcome of the guardrail check.
-    The result must include 'checked_text' in the info dict.
 """
