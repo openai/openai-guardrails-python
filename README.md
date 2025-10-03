@@ -11,7 +11,7 @@ For full details, advanced usage, and API reference, see here: [OpenAI Guardrail
 ## Quick Start: Using OpenAI Guardrails (Python)
 
 1. **Generate your guardrail spec JSON**
-   - Use the [Guardrails web UI](https://platform.openai.com/guardrails) to create a JSON configuration file describing which guardrails to apply and how to configure them.
+   - Use the [Guardrails web UI](https://guardrails.openai.com/) to create a JSON configuration file describing which guardrails to apply and how to configure them.
    - The wizard outputs a file like `guardrail_specs.json`.
 
 2. **Install dependencies**
@@ -57,7 +57,7 @@ For full details, advanced usage, and API reference, see here: [OpenAI Guardrail
    - The client will automatically apply all configured guardrails to inputs and outputs.
    - If a guardrail is triggered, a `GuardrailTripwireTriggered` exception will be raised. You should handle this exception to gracefully manage blocked or flagged content.
 
-> **Note:** The Guardrails web UI is hosted [here](https://platform.openai.com/guardrails). You do not need to run the web UI yourself to use the Python package.
+> **Note:** The Guardrails web UI is hosted [here](https://guardrails.openai.com/). You do not need to run the web UI yourself to use the Python package.
 
 ---
 
