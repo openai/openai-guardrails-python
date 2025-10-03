@@ -30,7 +30,7 @@ jobs:
       - name: Install dependencies
         run: make sync
       - name: Build docs
-        run: mkdocs build --strict --site-dir site
+        run: uv run mkdocs build --strict --site-dir site
       - name: Configure Pages
         uses: actions/configure-pages@v5
       - name: Upload artifact
