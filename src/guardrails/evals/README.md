@@ -166,7 +166,7 @@ pip install -e .
 When running benchmark mode (ROC curves, precision at recall thresholds, visualizations), you need additional packages:
 
 ```bash
-pip install -r requirements-benchmark.txt
+pip install "guardrails[benchmark]"
 ```
 
 This installs:
