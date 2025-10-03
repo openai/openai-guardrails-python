@@ -6,7 +6,7 @@ OpenAI Guardrails is a Python package for adding robust, configurable safety and
 
 ## Documentation
 
-For full details, advanced usage, and API reference, see here: [OpenAI Guardrails Documentation](https://platform.openai.com/guardrails/docs/).
+For full details, advanced usage, and API reference, see here: [OpenAI Guardrails Documentation](https://openai.github.io/openai-guardrails-python/).
 
 ## Quick Start: Using OpenAI Guardrails (Python)
 
