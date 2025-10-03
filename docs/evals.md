@@ -20,7 +20,7 @@ python guardrail_evals.py \
   --models gpt-5 gpt-5-mini gpt-5-nano
 ```
 
-Test with included demo files in our [github repository](https://github.com/OpenAI-Early-Access/guardrails/tree/main/src/guardrails/evals/eval_demo)
+Test with included demo files in our [github repository](https://github.com/openai/openai-guardrails-python/tree/main/src/guardrails/evals/eval_demo)
 
 ## Dependencies
 
