@@ -8,8 +8,8 @@ Ready-to-run examples demonstrating Guardrails in various scenarios. See the [`g
 - [agents_sdk.py](https://github.com/OpenAI-Early-Access/guardrails/tree/main/guardrails/examples/basic/agents_sdk.py) — Integration with OpenAI Agents SDK
 - [pii_mask_example.py](https://github.com/OpenAI-Early-Access/guardrails/tree/main/guardrails/examples/basic/pii_mask_example.py) — PII detection and scrubbing
 - [structured_outputs_example.py](https://github.com/OpenAI-Early-Access/guardrails/tree/main/guardrails/examples/basic/structured_outputs_example.py) — Using responses.parse with guardrails
-- [Streaming (fast)](https://github.com/OpenAI-Early-Access/guardrails/tree/main/guardrails/examples/implementation_code/fast) — Stream output while guardrails run
-- [Blocking (slow)](https://github.com/OpenAI-Early-Access/guardrails/tree/main/guardrails/examples/implementation_code/slow) — Validate fully before showing output
+- [Streaming](https://github.com/OpenAI-Early-Access/guardrails/tree/main/guardrails/examples/implementation_code/streaming) — Stream output while guardrails run
+- [Synchronous](https://github.com/OpenAI-Early-Access/guardrails/tree/main/guardrails/examples/implementation_code/synchronous) — Validate fully before showing output
 
 ## Hallucination Detection Example
 

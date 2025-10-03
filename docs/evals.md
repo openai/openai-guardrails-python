@@ -24,13 +24,21 @@ Test with included demo files in our [github repository](https://github.com/Open
 
 ## Dependencies
 
-The evals tool requires a few extra packages that are not installed with the core `guardrails` package. Please install the following before running evaluations or benchmarks:
+### Benchmark Mode
+When running benchmark mode (ROC curves, precision at recall thresholds, visualizations), you need additional packages:
 
 ```bash
-pip install numpy pandas matplotlib seaborn scikit-learn
+pip install -r requirements-benchmark.txt
 ```
 
-These dependencies are only needed for the evals and benchmarking workflows (metrics and visualization), not for using `guardrails` at runtime.
+This installs:
+- `numpy>=1.24.0` - Core scientific computing
+- `scikit-learn>=1.3.0` - Machine learning metrics
+- `matplotlib>=3.7.0` - Visualization
+- `seaborn>=0.12.0` - Statistical plots
+- `pandas>=2.0.0` - Data processing
+
+**Note**: These dependencies are only needed for benchmarking workflows (metrics calculation and visualization), not for basic evaluation mode.
 
 ## Arguments
 
@@ -53,7 +61,7 @@ These dependencies are only needed for the evals and benchmarking workflows (met
 
 Export a configuration from the Guardrails Wizard UI and pass its path via `--config-path`.
 
-- Open the [Wizard UI](https://oaig-whisper-yonder-xnjpy2.vercel.app/guardrails)
+- Open the [Wizard UI](https://guardrails.openai.com/)
 - Configure the guardrails you want to evaluate
 - Use Export to download the config file (JSON)
 - Run the evaluator with `--config-path /path/to/exported_config.json`
@@ -190,4 +198,4 @@ python guardrail_evals.py \
 ## Next Steps
 
 - See the [API Reference](./ref/eval/guardrail_evals.md) for detailed documentation
-- Use [Wizard UI](https://oaig-whisper-yonder-xnjpy2.vercel.app/guardrails) for configuring guardrails without code
+- Use [Wizard UI](https://guardrails.openai.com/) for configuring guardrails without code
