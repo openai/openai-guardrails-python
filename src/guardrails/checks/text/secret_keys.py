@@ -43,8 +43,9 @@ from __future__ import annotations
 import functools
 import math
 import re
-from typing import TYPE_CHECKING, Any, TypedDict
+from typing import Any, TypedDict
 
+from presidio_analyzer import AnalyzerEngine, Pattern, PatternRecognizer
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from guardrails.registry import default_spec_registry
@@ -52,9 +53,6 @@ from guardrails.spec import GuardrailSpecMetadata
 from guardrails.types import GuardrailResult
 
 __all__ = ["secret_keys"]
-
-if TYPE_CHECKING:
-    from presidio_analyzer import AnalyzerEngine
 
 
 class SecretCfg(TypedDict, total=False):
@@ -166,15 +164,6 @@ def _get_analyzer_engine() -> AnalyzerEngine:
     Returns:
         AnalyzerEngine: Initialized Presidio analyzer engine.
     """
-    try:
-        from presidio_analyzer import AnalyzerEngine, Pattern, PatternRecognizer
-    except ImportError as e:
-        raise RuntimeError(
-            "The 'presidio_analyzer' library is not installed. This library is required "
-            "to use the `_get_analyzer_engine` function. Please install it using "
-            "'pip install presidio-analyzer'."
-        ) from e
-
     engine = AnalyzerEngine()
 
     # Recognise file extensions so we can filter them out in non‑strict mode.

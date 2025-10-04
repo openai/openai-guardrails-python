@@ -6,7 +6,13 @@ readme = "README.md"
 requires-python = ">=3.11"
 license = "MIT"
 authors = [{ name = "OpenAI", email = "support@openai.com" }]
-dependencies = ["openai>=1.75.0", "pydantic>=2.11.3", "openai-agents>=0.3.3"]
+dependencies = [
+    "openai>=1.75.0",
+    "pydantic>=2.11.3",
+    "openai-agents>=0.3.3",
+    "pip>=25.0.1",
+    "presidio-analyzer>=2.2.358",
+]
 classifiers = [
   "Typing :: Typed",
   "Intended Audience :: Developers",
@@ -24,10 +30,6 @@ classifiers = [
 examples = [
     "pillow>=11.2.1",
     "rich>=14.0.0",
-]
-presidio = [
-    "pip>=25.0.1",  # Required to load spaCy dependency for presidio-analyzer
-    "presidio-analyzer>=2.2.358",
 ]
 benchmark = [
     "numpy>=1.24.0",
