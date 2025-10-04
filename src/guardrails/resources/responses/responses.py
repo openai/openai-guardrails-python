@@ -14,6 +14,11 @@ class Responses:
     """Responses API with guardrails (sync)."""
 
     def __init__(self, client: GuardrailsBaseClient) -> None:
+        """Initialize Responses resource.
+
+        Args:
+            client: GuardrailsBaseClient instance with configured guardrails.
+        """
         self._client = client
 
     def create(
@@ -23,7 +28,7 @@ class Responses:
         stream: bool = False,
         tools: list[dict] | None = None,
         suppress_tripwire: bool = False,
-        **kwargs
+        **kwargs,
     ):
         """Create response with guardrails (synchronous).
 
@@ -44,9 +49,7 @@ class Responses:
         )
 
         # Apply pre-flight modifications (PII masking, etc.)
-        modified_input = self._client._apply_preflight_modifications(
-            input, preflight_results
-        )
+        modified_input = self._client._apply_preflight_modifications(input, preflight_results)
 
         # Input guardrails and LLM call concurrently
         with ThreadPoolExecutor(max_workers=1) as executor:
@@ -83,14 +86,7 @@ class Responses:
                 suppress_tripwire=suppress_tripwire,
             )
 
-    def parse(
-        self,
-        input: list[dict[str, str]],
-        model: str,
-        text_format: type[BaseModel],
-        suppress_tripwire: bool = False,
-        **kwargs
-    ):
+    def parse(self, input: list[dict[str, str]], model: str, text_format: type[BaseModel], suppress_tripwire: bool = False, **kwargs):
         """Parse response with structured output and guardrails (synchronous)."""
         latest_message, _ = self._client._extract_latest_user_message(input)
 
@@ -103,9 +99,7 @@ class Responses:
         )
 
         # Apply pre-flight modifications (PII masking, etc.)
-        modified_input = self._client._apply_preflight_modifications(
-            input, preflight_results
-        )
+        modified_input = self._client._apply_preflight_modifications(input, preflight_results)
 
         # Input guardrails and LLM call concurrently
         with ThreadPoolExecutor(max_workers=1) as executor:
@@ -135,19 +129,18 @@ class Responses:
     def retrieve(self, response_id: str, suppress_tripwire: bool = False, **kwargs):
         """Retrieve response with output guardrail validation (synchronous)."""
         # Get the response using the original OpenAI client
-        response = self._client._resource_client.responses.retrieve(
-            response_id, **kwargs
-        )
+        response = self._client._resource_client.responses.retrieve(response_id, **kwargs)
 
         # Run output guardrails on the retrieved content
         output_text = response.output_text if hasattr(response, "output_text") else ""
-        output_results = self._client._run_stage_guardrails(
-            "output", output_text, suppress_tripwire=suppress_tripwire
-        )
+        output_results = self._client._run_stage_guardrails("output", output_text, suppress_tripwire=suppress_tripwire)
 
         # Return wrapped response with guardrail results
         return self._client._create_guardrails_response(
-            response, [], [], output_results  # preflight  # input
+            response,
+            [],
+            [],
+            output_results,  # preflight  # input
         )
 
 
@@ -155,6 +148,11 @@ class AsyncResponses:
     """Responses API with guardrails (async)."""
 
     def __init__(self, client):
+        """Initialize AsyncResponses resource.
+
+        Args:
+            client: GuardrailsBaseClient instance with configured guardrails.
+        """
         self._client = client
 
     async def create(
@@ -164,7 +162,7 @@ class AsyncResponses:
         stream: bool = False,
         tools: list[dict] | None = None,
         suppress_tripwire: bool = False,
-        **kwargs
+        **kwargs,
     ) -> Any | AsyncIterator[Any]:
         """Create response with guardrails."""
         # Determine latest user message text when a list of messages is provided
@@ -182,9 +180,7 @@ class AsyncResponses:
         )
 
         # Apply pre-flight modifications (PII masking, etc.)
-        modified_input = self._client._apply_preflight_modifications(
-            input, preflight_results
-        )
+        modified_input = self._client._apply_preflight_modifications(input, preflight_results)
 
         # Run input guardrails and LLM call in parallel
         input_check = self._client._run_stage_guardrails(
@@ -220,13 +216,7 @@ class AsyncResponses:
             )
 
     async def parse(
-        self,
-        input: list[dict[str, str]],
-        model: str,
-        text_format: type[BaseModel],
-        stream: bool = False,
-        suppress_tripwire: bool = False,
-        **kwargs
+        self, input: list[dict[str, str]], model: str, text_format: type[BaseModel], stream: bool = False, suppress_tripwire: bool = False, **kwargs
     ) -> Any | AsyncIterator[Any]:
         """Parse response with structured output and guardrails."""
         latest_message, _ = self._client._extract_latest_user_message(input)
@@ -240,9 +230,7 @@ class AsyncResponses:
         )
 
         # Apply pre-flight modifications (PII masking, etc.)
-        modified_input = self._client._apply_preflight_modifications(
-            input, preflight_results
-        )
+        modified_input = self._client._apply_preflight_modifications(input, preflight_results)
 
         # Run input guardrails and LLM call in parallel
         input_check = self._client._run_stage_guardrails(
@@ -277,22 +265,19 @@ class AsyncResponses:
                 suppress_tripwire=suppress_tripwire,
             )
 
-    async def retrieve(
-        self, response_id: str, suppress_tripwire: bool = False, **kwargs
-    ):
+    async def retrieve(self, response_id: str, suppress_tripwire: bool = False, **kwargs):
         """Retrieve response with output guardrail validation."""
         # Get the response using the original OpenAI client
-        response = await self._client._resource_client.responses.retrieve(
-            response_id, **kwargs
-        )
+        response = await self._client._resource_client.responses.retrieve(response_id, **kwargs)
 
         # Run output guardrails on the retrieved content
         output_text = response.output_text if hasattr(response, "output_text") else ""
-        output_results = await self._client._run_stage_guardrails(
-            "output", output_text, suppress_tripwire=suppress_tripwire
-        )
+        output_results = await self._client._run_stage_guardrails("output", output_text, suppress_tripwire=suppress_tripwire)
 
         # Return wrapped response with guardrail results
         return self._client._create_guardrails_response(
-            response, [], [], output_results  # preflight  # input
+            response,
+            [],
+            [],
+            output_results,  # preflight  # input
         )

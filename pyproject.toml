@@ -86,13 +86,6 @@ select = [
   "D",  # pydocstyle
 ]
 isort = { combine-as-imports = true, known-first-party = ["guardrails"] }
-extend-ignore=[
-  "D100",  # Missing docstring in public module
-  "D102",  # Missing docstring in public method
-  "D103",  # Missing docstring in public function
-  "D104",  # Missing docstring in public package
-  "D107",  # Missing docstring in `__init__`
-]
 
 [tool.ruff.lint.pydocstyle]
 convention = "google"
