@@ -12,10 +12,20 @@ class Chat:
     """Chat completions with guardrails (sync)."""
 
     def __init__(self, client: GuardrailsBaseClient) -> None:
+        """Initialize Chat resource.
+
+        Args:
+            client: GuardrailsBaseClient instance with configured guardrails.
+        """
         self._client = client
 
     @property
     def completions(self):
+        """Access chat completions API with guardrails.
+
+        Returns:
+            ChatCompletions: Chat completions interface with guardrail support.
+        """
         return ChatCompletions(self._client)
 
 
@@ -23,10 +33,20 @@ class AsyncChat:
     """Chat completions with guardrails (async)."""
 
     def __init__(self, client: GuardrailsBaseClient) -> None:
+        """Initialize AsyncChat resource.
+
+        Args:
+            client: GuardrailsBaseClient instance with configured guardrails.
+        """
         self._client = client
 
     @property
     def completions(self):
+        """Access async chat completions API with guardrails.
+
+        Returns:
+            AsyncChatCompletions: Async chat completions with guardrail support.
+        """
         return AsyncChatCompletions(self._client)
 
 
@@ -34,16 +54,14 @@ class ChatCompletions:
     """Chat completions interface with guardrails (sync)."""
 
     def __init__(self, client: GuardrailsBaseClient) -> None:
+        """Initialize ChatCompletions interface.
+
+        Args:
+            client: GuardrailsBaseClient instance with configured guardrails.
+        """
         self._client = client
 
-    def create(
-        self,
-        messages: list[dict[str, str]],
-        model: str,
-        stream: bool = False,
-        suppress_tripwire: bool = False,
-        **kwargs
-    ):
+    def create(self, messages: list[dict[str, str]], model: str, stream: bool = False, suppress_tripwire: bool = False, **kwargs):
         """Create chat completion with guardrails (synchronous).
 
         Runs preflight first, then executes input guardrails concurrently with the LLM call.
@@ -59,9 +77,7 @@ class ChatCompletions:
         )
 
         # Apply pre-flight modifications (PII masking, etc.)
-        modified_messages = self._client._apply_preflight_modifications(
-            messages, preflight_results
-        )
+        modified_messages = self._client._apply_preflight_modifications(messages, preflight_results)
 
         # Run input guardrails and LLM call concurrently using a thread for the LLM
         with ThreadPoolExecutor(max_workers=1) as executor:
@@ -102,15 +118,15 @@ class AsyncChatCompletions:
     """Async chat completions interface with guardrails."""
 
     def __init__(self, client):
+        """Initialize AsyncChatCompletions interface.
+
+        Args:
+            client: GuardrailsBaseClient instance with configured guardrails.
+        """
         self._client = client
 
     async def create(
-        self,
-        messages: list[dict[str, str]],
-        model: str,
-        stream: bool = False,
-        suppress_tripwire: bool = False,
-        **kwargs
+        self, messages: list[dict[str, str]], model: str, stream: bool = False, suppress_tripwire: bool = False, **kwargs
     ) -> Any | AsyncIterator[Any]:
         """Create chat completion with guardrails."""
         latest_message, _ = self._client._extract_latest_user_message(messages)
@@ -124,9 +140,7 @@ class AsyncChatCompletions:
         )
 
         # Apply pre-flight modifications (PII masking, etc.)
-        modified_messages = self._client._apply_preflight_modifications(
-            messages, preflight_results
-        )
+        modified_messages = self._client._apply_preflight_modifications(messages, preflight_results)
 
         # Run input guardrails and LLM call concurrently for both streaming and non-streaming
         input_check = self._client._run_stage_guardrails(
