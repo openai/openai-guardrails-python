@@ -10,13 +10,18 @@ from guardrails import GuardrailsAsyncOpenAI, GuardrailTripwireTriggered
 
 console = Console()
 
-# Pipeline configuration with input guardrails
+# Pipeline configuration with pre_flight and input guardrails
 PIPELINE_CONFIG = {
     "version": 1,
-    "input": {
+    "pre_flight": {
         "version": 1,
         "guardrails": [
             {"name": "Contains PII", "config": {"entities": ["US_SSN", "PHONE_NUMBER", "EMAIL_ADDRESS"]}},
+        ],
+    },
+    "input": {
+        "version": 1,
+        "guardrails": [
             {
                 "name": "Custom Prompt Check",
                 "config": {

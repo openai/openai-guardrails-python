@@ -77,8 +77,10 @@ from collections import defaultdict
 from collections.abc import Sequence
 from dataclasses import dataclass
 from enum import Enum
-from typing import TYPE_CHECKING, Any, Final
+from typing import Any, Final
 
+from presidio_analyzer import AnalyzerEngine, RecognizerResult
+from presidio_analyzer.nlp_engine import NlpEngineProvider
 from pydantic import BaseModel, ConfigDict, Field
 
 from guardrails.registry import default_spec_registry
@@ -89,9 +91,6 @@ __all__ = ["pii"]
 
 logger = logging.getLogger(__name__)
 
-if TYPE_CHECKING:
-    from presidio_analyzer import AnalyzerEngine, AnalyzerResult
-
 
 @functools.lru_cache(maxsize=1)
 def _get_analyzer_engine() -> AnalyzerEngine:
@@ -99,17 +98,7 @@ def _get_analyzer_engine() -> AnalyzerEngine:
 
     Returns:
         AnalyzerEngine: Initialized Presidio analyzer engine.
-
-    Raises:
-        ImportError: If required Presidio packages are not installed.
     """
-    try:
-        from presidio_analyzer import AnalyzerEngine
-        from presidio_analyzer.nlp_engine import NlpEngineProvider
-    except ImportError as e:
-        logger.error("Failed to import Presidio analyzer: %s", e)
-        raise ImportError("Presidio analyzer package is required") from e
-
     # Define a smaller NLP configuration
     sm_nlp_config: Final[dict[str, Any]] = {
         "nlp_engine_name": "spacy",
@@ -226,11 +215,11 @@ class PiiDetectionResult:
 
     Attributes:
         mapping (dict[str, list[str]]): Mapping from entity type to list of detected strings.
-        analyzer_results (Sequence[AnalyzerResult]): Raw analyzer results for position information.
+        analyzer_results (Sequence[RecognizerResult]): Raw analyzer results for position information.
     """
 
     mapping: dict[str, list[str]]
-    analyzer_results: Sequence[AnalyzerResult]
+    analyzer_results: Sequence[RecognizerResult]
 
     def to_dict(self) -> dict[str, list[str]]:
         """Convert the result to a dictionary.

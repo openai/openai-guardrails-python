@@ -14,14 +14,9 @@ For full details, advanced usage, and API reference, see here: [OpenAI Guardrail
    - Use the [Guardrails web UI](https://guardrails.openai.com/) to create a JSON configuration file describing which guardrails to apply and how to configure them.
    - The wizard outputs a file like `guardrail_specs.json`.
 
-2. **Install dependencies**
-   - **Install from this repo:**
+2. **Install**
      ```bash
-     pip install -e '.[presidio]'
-     ```
-   - **Eventually this will be:**
-     ```bash
-     pip install openai-guardrails
+     pip install guardrails
      ```
 
 3. **Wrap your OpenAI client with Guardrails**

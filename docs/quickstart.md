@@ -8,11 +8,6 @@ Get started with Guardrails in minutes. Guardrails provides drop-in replacements
 pip install guardrails
 ```
 
-For PII detection (optional):
-```bash
-pip install guardrails[presidio]
-```
-
 ## Set API Key
 
 ```bash
