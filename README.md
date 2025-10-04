@@ -16,7 +16,7 @@ For full details, advanced usage, and API reference, see here: [OpenAI Guardrail
 
 2. **Install**
      ```bash
-     pip install guardrails
+     pip install openai-guardrails
      ```
 
 3. **Wrap your OpenAI client with Guardrails**
