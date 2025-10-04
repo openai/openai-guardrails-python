@@ -66,7 +66,7 @@ __all__ = [
     "resources",  # resource modules
 ]
 
-__version__: str = _m.version("guardrails")
+__version__: str = _m.version("openai-guardrails")
 
 # Expose a package-level logger and install a NullHandler so importing the
 # library never configures global logging for the host application.

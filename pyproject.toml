@@ -1,5 +1,5 @@
 [project]
-name = "guardrails"
+name = "openai-guardrails"
 version = "0.1.0"
 description = "OpenAI Guardrails: A framework for building safe and reliable AI systems."
 readme = "README.md"
