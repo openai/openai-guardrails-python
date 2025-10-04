@@ -34,6 +34,5 @@ jobs:
       - name: Lint with ruff
         run: make lint
 
-      # TODO: enable this once all the tests pass
-      # - name: Run tests
-      #   run: make tests
+      - name: Run tests
+        run: make tests

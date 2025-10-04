@@ -37,7 +37,12 @@ def test_resolve_ctx_protocol_creates_model() -> None:
         return GuardrailResult(tripwire_triggered=False)
 
     model = _resolve_ctx_requirements(check)
-    fields = getattr(model, "model_fields", getattr(model, "__fields__", {}))
+    # Prefer Pydantic v2 API without eagerly touching deprecated v1 attributes
+    fields = (
+        model.model_fields
+        if hasattr(model, "model_fields")
+        else getattr(model, "__fields__", {})
+    )
     assert issubclass(model, BaseModel)  # noqa: S101
     assert set(fields) == {"foo"}  # noqa: S101
 
