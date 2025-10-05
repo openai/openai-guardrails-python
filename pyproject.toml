@@ -26,6 +26,10 @@ classifiers = [
   "License :: OSI Approved :: MIT License",
 ]
 
+[project.urls]
+Homepage = "https://openai.github.io/openai-guardrails-python/"
+Repository = "https://github.com/openai/openai-guardrails-python"
+
 [project.optional-dependencies]
 examples = [
     "pillow>=11.2.1",
