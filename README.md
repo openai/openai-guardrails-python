@@ -1,4 +1,4 @@
-# OpenAI Guardrails: Python
+# OpenAI Guardrails: Python (Preview)
 
 This is the Python version of OpenAI Guardrails, a package for adding configurable safety and compliance guardrails to LLM applications. It provides a drop-in wrapper for OpenAI's Python client, enabling automatic input/output validation and moderation using a wide range of guardrails.
 
@@ -195,4 +195,4 @@ MIT License - see LICENSE file for details.
 
 Please note that Guardrails may use Third-Party Services such as the [Presidio open-source framework](https://github.com/microsoft/presidio), which are subject to their own terms and conditions and are not developed or verified by OpenAI.
 
-Developers are responsible for implementing appropriate safeguards to prevent storage or misuse of sensitive or prohibited content (including but not limited to personal data, child sexual abuse material, or other illegal content). OpenAI disclaims liability for any logging or retention of such content by developers. Developers must ensure their systems comply with all applicable data protection and content safety laws, and should avoid persisting any blocked content generated or intercepted by Guardrails.
+Developers are responsible for implementing appropriate safeguards to prevent storage or misuse of sensitive or prohibited content (including but not limited to personal data, child sexual abuse material, or other illegal content). OpenAI disclaims liability for any logging or retention of such content by developers. Developers must ensure their systems comply with all applicable data protection and content safety laws, and should avoid persisting any blocked content generated or intercepted by Guardrails. Guardrails calls paid OpenAI APIs, and developers are responsible for associated charges.
