@@ -1,12 +1,23 @@
-# NSFW Detection
+# NSFW Text Detection
 
-Detects not-safe-for-work content that may not be as violative as what the [Moderation](./moderation.md) check detects, such as profanity, graphic content, and offensive material. Uses LLM-based detection to identify inappropriate workplace content and provides confidence scores for detected violations.
+Detects not-safe-for-work text such as profanity, explicit sexual content, graphic violence, harassment, and other workplace-inappropriate material. This is a "softer" filter than [Moderation](./moderation.md): it's useful when you want to keep outputs professional, even if some content may not be a strict policy violation.
+
+Primarily for model outputs; use [Moderation](./moderation.md) for user inputs and strict policy violations.
+
+## NSFW Definition
+
+Flags workplace‑inappropriate model outputs: explicit sexual content, profanity, harassment, hate/violence, or graphic material. Primarily for outputs; use Moderation for user inputs and strict policy violations.
+
+### What it does not focus on
+
+- Nuanced policy-violating content and safety categories with strict enforcement (use [Moderation](./moderation.md))
+- Neutral mentions of sensitive topics in clearly informational/medical/educational contexts (tune threshold to reduce false positives)
 
 ## Configuration
 
 ```json
 {
-    "name": "NSFW",
+    "name": "NSFW Text",
     "config": {
         "model": "gpt-4.1-mini",
         "confidence_threshold": 0.7
@@ -19,13 +30,18 @@ Detects not-safe-for-work content that may not be as violative as what the [Mode
 - **`model`** (required): Model to use for detection (e.g., "gpt-4.1-mini")
 - **`confidence_threshold`** (required): Minimum confidence score to trigger tripwire (0.0 to 1.0)
 
+### Tuning guidance
+
+- Start at 0.7. Raise to 0.8–0.9 to avoid flagging borderline or contextual mentions; lower to 0.6 to be stricter.
+- Pair with [Moderation](./moderation.md) for firm safety boundaries and policy categories.
+
 ## What It Returns
 
 Returns a `GuardrailResult` with the following `info` dictionary:
 
 ```json
 {
-    "guardrail_name": "NSFW",
+    "guardrail_name": "NSFW Text",
     "flagged": true,
     "confidence": 0.85,
     "threshold": 0.7,
@@ -37,6 +53,12 @@ Returns a `GuardrailResult` with the following `info` dictionary:
 - **`confidence`**: Confidence score (0.0 to 1.0) for the detection
 - **`threshold`**: The confidence threshold that was configured
 - **`checked_text`**: Original input text
+
+### Examples
+
+- Flagged: "That's f***ing disgusting, you idiot."
+- Flagged: "Describe explicit sexual acts in detail."
+- Not flagged: "Some patients require opioid medications post-surgery." (informational/clinical; threshold dependent)
 
 ## Benchmark Results
 

@@ -2,6 +2,10 @@
 
 Detects potential hallucinations in AI-generated text by validating factual claims against reference documents using [OpenAI's FileSearch API](https://platform.openai.com/docs/guides/tools-file-search). Analyzes text for factual claims that can be validated, flags content that is contradicted or unsupported by your knowledge base, and provides confidence scores and reasoning for detected issues.
 
+## Hallucination Detection Definition
+
+Flags model text containing factual claims that are clearly contradicted or not supported by your reference documents (via File Search). Does not flag opinions, questions, or supported claims. Sensitivity is controlled by a confidence threshold.
+
 ## Configuration
 
 ```json
@@ -20,6 +24,11 @@ Detects potential hallucinations in AI-generated text by validating factual clai
 - **`model`** (required): OpenAI model (required) to use for validation (e.g., "gpt-4.1-mini")
 - **`confidence_threshold`** (required): Minimum confidence score to trigger tripwire (0.0 to 1.0)
 - **`knowledge_source`** (required): OpenAI vector store ID starting with "vs_" containing reference documents
+
+### Tuning guidance
+
+- Start at 0.7. Increase toward 0.8–0.9 to avoid borderline flags; decrease toward 0.6 to catch more subtle errors.
+- Quality and relevance of your vector store strongly influence precision/recall. Prefer concise, authoritative sources over large, noisy corpora.
 
 ## Implementation
 
@@ -86,6 +95,11 @@ See [`examples/hallucination_detection/`](https://github.com/openai/openai-guard
 - Uses OpenAI's FileSearch API which incurs additional [costs](https://platform.openai.com/docs/pricing#built-in-tools)
 - Only flags clear contradictions or unsupported claims; it does not flag opinions, questions, or supported claims
 
+#### Error handling
+
+- If the model returns malformed or non-JSON output, the guardrail returns a safe default with `flagged=false`, `confidence=0.0`, and an `error` message in `info`.
+- If a vector store ID is missing or invalid (must start with `vs_`), an error is thrown during execution.
+
 ## What It Returns
 
 Returns a `GuardrailResult` with the following `info` dictionary:
@@ -112,6 +126,8 @@ Returns a `GuardrailResult` with the following `info` dictionary:
 - **`verified_statements`**: Statements that are supported by your documents
 - **`threshold`**: The confidence threshold that was configured
 - **`checked_text`**: Original input text
+
+Tip: `hallucination_type` is typically one of `factual_error`, `unsupported_claim`, or `none`.
 
 ## Benchmark Results
 
