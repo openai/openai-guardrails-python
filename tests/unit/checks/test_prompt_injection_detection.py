@@ -1,0 +1,122 @@
+"""Tests for prompt injection detection guardrail."""
+
+from __future__ import annotations
+
+from types import SimpleNamespace
+from typing import Any
+
+import pytest
+
+from guardrails.checks.text import prompt_injection_detection as pid_module
+from guardrails.checks.text.llm_base import LLMConfig
+from guardrails.checks.text.prompt_injection_detection import (
+    PromptInjectionDetectionOutput,
+    _should_analyze,
+    prompt_injection_detection,
+)
+
+
+class _FakeContext:
+    """Context stub providing conversation history accessors."""
+
+    def __init__(self, history: list[Any]) -> None:
+        self._history = history
+        self.guardrail_llm = SimpleNamespace()  # unused due to monkeypatch
+        self._last_index = 0
+
+    def get_conversation_history(self) -> list[Any]:
+        return self._history
+
+    def get_injection_last_checked_index(self) -> int:
+        return self._last_index
+
+    def update_injection_last_checked_index(self, new_index: int) -> None:
+        self._last_index = new_index
+
+
+def _make_history(action: dict[str, Any]) -> list[Any]:
+    return [
+        {"role": "user", "content": "Retrieve the weather for Paris"},
+        action,
+    ]
+
+
+@pytest.mark.parametrize(
+    "message, expected",
+    [
+        ({"type": "function_call"}, True),
+        ({"role": "tool", "content": "Tool output"}, True),
+        ({"role": "assistant", "content": "hello"}, False),
+    ],
+)
+def test_should_analyze(message: dict[str, Any], expected: bool) -> None:
+    """Verify _should_analyze matches only tool-related messages."""
+    assert _should_analyze(message) is expected  # noqa: S101
+
+
+@pytest.mark.asyncio
+async def test_prompt_injection_detection_triggers(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Guardrail should trigger when analysis flags misalignment above threshold."""
+    history = _make_history({"type": "function_call", "tool_name": "delete_files", "arguments": "{}"})
+    context = _FakeContext(history)
+
+    async def fake_call_llm(ctx: Any, prompt: str, config: LLMConfig) -> PromptInjectionDetectionOutput:
+        assert "delete_files" in prompt  # noqa: S101
+        assert hasattr(ctx, "guardrail_llm")  # noqa: S101
+        return PromptInjectionDetectionOutput(flagged=True, confidence=0.95, observation="Deletes user files")
+
+    monkeypatch.setattr(pid_module, "_call_prompt_injection_detection_llm", fake_call_llm)
+
+    config = LLMConfig(model="gpt-test", confidence_threshold=0.9)
+    result = await prompt_injection_detection(context, data="{}", config=config)
+
+    assert result.tripwire_triggered is True  # noqa: S101
+    assert context.get_injection_last_checked_index() == len(history)  # noqa: S101
+
+
+@pytest.mark.asyncio
+async def test_prompt_injection_detection_no_trigger(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Low confidence results should not trigger the guardrail."""
+    history = _make_history({"type": "function_call", "tool_name": "get_weather", "arguments": "{}"})
+    context = _FakeContext(history)
+
+    async def fake_call_llm(ctx: Any, prompt: str, config: LLMConfig) -> PromptInjectionDetectionOutput:
+        return PromptInjectionDetectionOutput(flagged=True, confidence=0.3, observation="Aligned")
+
+    monkeypatch.setattr(pid_module, "_call_prompt_injection_detection_llm", fake_call_llm)
+
+    config = LLMConfig(model="gpt-test", confidence_threshold=0.9)
+    result = await prompt_injection_detection(context, data="{}", config=config)
+
+    assert result.tripwire_triggered is False  # noqa: S101
+    assert "Aligned" in result.info["observation"]  # noqa: S101
+
+
+@pytest.mark.asyncio
+async def test_prompt_injection_detection_skips_without_history(monkeypatch: pytest.MonkeyPatch) -> None:
+    """When no conversation history is present, guardrail should skip."""
+    context = _FakeContext([])
+    config = LLMConfig(model="gpt-test", confidence_threshold=0.9)
+
+    result = await prompt_injection_detection(context, data="{}", config=config)
+
+    assert result.tripwire_triggered is False  # noqa: S101
+    assert result.info["observation"] == "No conversation history available"  # noqa: S101
+
+
+@pytest.mark.asyncio
+async def test_prompt_injection_detection_handles_analysis_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Exceptions during analysis should return a skip result."""
+    history = _make_history({"type": "function_call", "tool_name": "get_weather", "arguments": "{}"})
+    context = _FakeContext(history)
+
+    async def failing_llm(*_args: Any, **_kwargs: Any) -> PromptInjectionDetectionOutput:
+        raise RuntimeError("LLM failed")
+
+    monkeypatch.setattr(pid_module, "_call_prompt_injection_detection_llm", failing_llm)
+
+    config = LLMConfig(model="gpt-test", confidence_threshold=0.7)
+    result = await prompt_injection_detection(context, data="{}", config=config)
+
+    assert result.tripwire_triggered is False  # noqa: S101
+    assert "Error during prompt injection detection check" in result.info["observation"]  # noqa: S101
