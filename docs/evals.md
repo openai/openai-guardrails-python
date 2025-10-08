@@ -28,7 +28,7 @@ Test with included demo files in our [github repository](https://github.com/open
 When running benchmark mode (ROC curves, precision at recall thresholds, visualizations), you need additional packages:
 
 ```bash
-pip install "guardrails[benchmark]"
+pip install "openai-guardrails[benchmark]"
 ```
 
 This installs:

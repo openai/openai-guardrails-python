@@ -5,7 +5,7 @@ Get started with Guardrails in minutes. Guardrails provides drop-in replacements
 ## Install
 
 ```bash
-pip install guardrails
+pip install openai-guardrails
 ```
 
 ## Set API Key
