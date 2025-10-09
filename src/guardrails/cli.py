@@ -87,8 +87,7 @@ def main(argv: list[str] | None = None) -> None:
             applicable = [g for g in all_guardrails if g.definition.media_type == args.media_type]
             count_applicable = len(applicable)
             print(
-                f"Config valid: {total} guardrails loaded, {count_applicable} "
-                f"matching media-type '{args.media_type}'",
+                f"Config valid: {total} guardrails loaded, {count_applicable} matching media-type '{args.media_type}'",
             )
         else:
             print(f"Config valid: {total} guardrails loaded")

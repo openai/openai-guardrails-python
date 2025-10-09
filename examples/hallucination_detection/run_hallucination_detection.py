@@ -11,6 +11,7 @@ console = Console()
 # Replace with your actual vector store ID from the vector store creation step
 VECTOR_STORE_ID = "<YOUR VECTOR STORE ID>"  # <-- UPDATE THIS WITH YOUR VECTOR STORE ID
 
+
 async def main():
     # Define the anti-hallucination guardrail config
     pipeline_config = {
@@ -46,21 +47,25 @@ async def main():
             model="gpt-4.1-mini",
         )
 
-        console.print(Panel(
-            f"[bold green]Tripwire not triggered[/bold green]\n\n"
-            f"Response: {response.llm_response.choices[0].message.content}",
-            title="✅ Guardrail Check Passed",
-            border_style="green"
-        ))
+        console.print(
+            Panel(
+                f"[bold green]Tripwire not triggered[/bold green]\n\nResponse: {response.llm_response.choices[0].message.content}",
+                title="✅ Guardrail Check Passed",
+                border_style="green",
+            )
+        )
 
     except GuardrailTripwireTriggered as exc:
         # Make the guardrail triggered message stand out with Rich
-        console.print(Panel(
-            f"[bold red]Guardrail triggered: {exc.guardrail_result.info.get('guardrail_name', 'unnamed')}[/bold red]",
-            title="⚠️  Guardrail Alert",
-            border_style="red"
-        ))
+        console.print(
+            Panel(
+                f"[bold red]Guardrail triggered: {exc.guardrail_result.info.get('guardrail_name', 'unnamed')}[/bold red]",
+                title="⚠️  Guardrail Alert",
+                border_style="red",
+            )
+        )
         print(f"Result details: {exc.guardrail_result.info}")
+
 
 if __name__ == "__main__":
     asyncio.run(main())

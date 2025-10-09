@@ -41,12 +41,7 @@ class LatencyTester:
             Dictionary with P50, P95, mean, and std dev (in milliseconds)
         """
         if not times:
-            return {
-                "p50": float('nan'),
-                "p95": float('nan'),
-                "mean": float('nan'),
-                "std": float('nan')
-            }
+            return {"p50": float("nan"), "p95": float("nan"), "mean": float("nan"), "std": float("nan")}
 
         times_ms = np.array(times) * 1000  # Convert to milliseconds
 
@@ -54,7 +49,7 @@ class LatencyTester:
             "p50": float(np.percentile(times_ms, 50)),
             "p95": float(np.percentile(times_ms, 95)),
             "mean": float(np.mean(times_ms)),
-            "std": float(np.std(times_ms))
+            "std": float(np.std(times_ms)),
         }
 
     async def test_guardrail_latency_for_model(
@@ -108,7 +103,7 @@ class LatencyTester:
 
     def _empty_latency_result(self) -> dict[str, Any]:
         """Return empty latency result structure."""
-        empty_stats = {"p50": float('nan'), "p95": float('nan'), "mean": float('nan'), "std": float('nan')}
+        empty_stats = {"p50": float("nan"), "p95": float("nan"), "mean": float("nan"), "std": float("nan")}
         return {
             "ttft": empty_stats,
             "ttc": empty_stats,

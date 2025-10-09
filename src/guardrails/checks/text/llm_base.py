@@ -288,8 +288,8 @@ def create_llm_check_fn(
         # Check if this is an error result
         if isinstance(analysis, LLMErrorOutput):
             # Extract error information from the LLMErrorOutput
-            error_info = analysis.info if hasattr(analysis, 'info') else {}
-            error_message = error_info.get('error_message', 'LLM execution failed')
+            error_info = analysis.info if hasattr(analysis, "info") else {}
+            error_message = error_info.get("error_message", "LLM execution failed")
 
             return GuardrailResult(
                 tripwire_triggered=False,  # Don't trigger tripwire on execution errors
@@ -304,9 +304,7 @@ def create_llm_check_fn(
             )
 
         # Compare severity levels
-        is_trigger = (
-            analysis.flagged and analysis.confidence >= config.confidence_threshold
-        )
+        is_trigger = analysis.flagged and analysis.confidence >= config.confidence_threshold
         return GuardrailResult(
             tripwire_triggered=is_trigger,
             info={

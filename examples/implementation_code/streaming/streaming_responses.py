@@ -28,12 +28,12 @@ async def process_input(guardrails_client: GuardrailsAsyncOpenAI, user_input: st
         async for chunk in stream:
             # Access streaming response exactly like native OpenAI API through .llm_response
             # For responses API streaming, check for delta content
-            if hasattr(chunk.llm_response, 'delta') and chunk.llm_response.delta:
+            if hasattr(chunk.llm_response, "delta") and chunk.llm_response.delta:
                 print(chunk.llm_response.delta, end="", flush=True)
 
         # Get the response ID from the final chunk
         response_id_to_return = None
-        if hasattr(chunk.llm_response, 'response') and hasattr(chunk.llm_response.response, 'id'):
+        if hasattr(chunk.llm_response, "response") and hasattr(chunk.llm_response.response, "id"):
             response_id_to_return = chunk.llm_response.response.id
 
         return response_id_to_return
@@ -41,6 +41,7 @@ async def process_input(guardrails_client: GuardrailsAsyncOpenAI, user_input: st
     except GuardrailTripwireTriggered:
         # The stream will have already yielded the violation chunk before raising
         raise
+
 
 async def main():
     # Initialize GuardrailsAsyncOpenAI with the config file
@@ -56,11 +57,12 @@ async def main():
             break
         except GuardrailTripwireTriggered as exc:
             # Clear output and handle violation
-            os.system('cls' if os.name == 'nt' else 'clear')
+            os.system("cls" if os.name == "nt" else "clear")
             stage_name = exc.guardrail_result.info.get("stage_name", "unknown")
             guardrail_name = exc.guardrail_result.info.get("guardrail_name", "unknown")
             print(f"\n🛑 Guardrail '{guardrail_name}' triggered in stage '{stage_name}'!")
             continue
+
 
 if __name__ == "__main__":
     asyncio.run(main())

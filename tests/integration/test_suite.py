@@ -538,13 +538,10 @@ def print_summary(results: dict[str, Any]) -> None:
     print("GUARDRAILS TEST SUMMARY")
     print("=" * 50)
     print(
-        f"Tests: {summary['passed_tests']} passed, " f"{summary['failed_tests']} failed, " f"{summary['error_tests']} errors",
+        f"Tests: {summary['passed_tests']} passed, {summary['failed_tests']} failed, {summary['error_tests']} errors",
     )
     print(
-        f"Cases: {summary['total_cases']} total, "
-        f"{summary['passed_cases']} passed, "
-        f"{summary['failed_cases']} failed, "
-        f"{summary['error_cases']} errors",
+        f"Cases: {summary['total_cases']} total, {summary['passed_cases']} passed, {summary['failed_cases']} failed, {summary['error_cases']} errors",
     )
 
 

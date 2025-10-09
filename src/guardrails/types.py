@@ -84,9 +84,7 @@ class GuardrailResult:
         """Validate required fields and consistency."""
         # Ensure consistency: if execution_failed=True, original_exception should be present
         if self.execution_failed and self.original_exception is None:
-            raise ValueError(
-                "When execution_failed=True, original_exception must be provided"
-            )
+            raise ValueError("When execution_failed=True, original_exception must be provided")
 
 
 TContext = TypeVar("TContext")

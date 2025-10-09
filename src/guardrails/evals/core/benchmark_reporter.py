@@ -37,7 +37,7 @@ class BenchmarkReporter:
         latency_results: dict[str, dict[str, Any]],
         guardrail_name: str,
         dataset_size: int,
-        latency_iterations: int
+        latency_iterations: int,
     ) -> Path:
         """Save benchmark results in organized folder structure.
 
@@ -76,8 +76,7 @@ class BenchmarkReporter:
             # Save summary files
             summary_file = benchmark_dir / "benchmark_summary.txt"
             self._save_benchmark_summary(
-                summary_file, guardrail_name, results_by_model,
-                metrics_by_model, latency_results, dataset_size, latency_iterations
+                summary_file, guardrail_name, results_by_model, metrics_by_model, latency_results, dataset_size, latency_iterations
             )
 
             self._save_summary_tables(benchmark_dir, metrics_by_model, latency_results)
@@ -94,15 +93,15 @@ class BenchmarkReporter:
         if not metrics_by_model:
             return pd.DataFrame()
 
-        metric_keys = ['precision', 'recall', 'f1_score', 'roc_auc']
-        metric_names = ['Precision', 'Recall', 'F1 Score', 'ROC AUC']
+        metric_keys = ["precision", "recall", "f1_score", "roc_auc"]
+        metric_names = ["Precision", "Recall", "F1 Score", "ROC AUC"]
 
         table_data = []
         for model_name, model_metrics in metrics_by_model.items():
-            row = {'Model': model_name}
+            row = {"Model": model_name}
             for key, display_name in zip(metric_keys, metric_names, strict=False):
-                value = model_metrics.get(key, float('nan'))
-                row[display_name] = 'N/A' if pd.isna(value) else f"{value:.4f}"
+                value = model_metrics.get(key, float("nan"))
+                row[display_name] = "N/A" if pd.isna(value) else f"{value:.4f}"
             table_data.append(row)
 
         return pd.DataFrame(table_data)
@@ -114,27 +113,24 @@ class BenchmarkReporter:
 
         table_data = []
         for model_name, model_latency in latency_results.items():
-            row = {'Model': model_name}
+            row = {"Model": model_name}
 
-            if 'ttc' in model_latency and isinstance(model_latency['ttc'], dict):
-                ttc_data = model_latency['ttc']
+            if "ttc" in model_latency and isinstance(model_latency["ttc"], dict):
+                ttc_data = model_latency["ttc"]
 
-                for metric in ['p50', 'p95']:
-                    value = ttc_data.get(metric, float('nan'))
-                    row[f'TTC {metric.upper()} (ms)'] = 'N/A' if pd.isna(value) else f"{value:.1f}"
+                for metric in ["p50", "p95"]:
+                    value = ttc_data.get(metric, float("nan"))
+                    row[f"TTC {metric.upper()} (ms)"] = "N/A" if pd.isna(value) else f"{value:.1f}"
             else:
-                row['TTC P50 (ms)'] = 'N/A'
-                row['TTC P95 (ms)'] = 'N/A'
+                row["TTC P50 (ms)"] = "N/A"
+                row["TTC P95 (ms)"] = "N/A"
 
             table_data.append(row)
 
         return pd.DataFrame(table_data)
 
     def _save_summary_tables(
-        self,
-        benchmark_dir: Path,
-        metrics_by_model: dict[str, dict[str, float]],
-        latency_results: dict[str, dict[str, Any]]
+        self, benchmark_dir: Path, metrics_by_model: dict[str, dict[str, float]], latency_results: dict[str, dict[str, Any]]
     ) -> None:
         """Save summary tables to a file."""
         output_file = benchmark_dir / "benchmark_summary_tables.txt"
@@ -143,7 +139,7 @@ class BenchmarkReporter:
             perf_table = self._create_performance_table(metrics_by_model)
             latency_table = self._create_latency_table(latency_results)
 
-            with open(output_file, 'w') as f:
+            with open(output_file, "w") as f:
                 f.write("BENCHMARK SUMMARY TABLES\n")
                 f.write("=" * 80 + "\n\n")
 
@@ -176,7 +172,7 @@ class BenchmarkReporter:
                     "id": result.id,
                     "expected_triggers": result.expected_triggers,
                     "triggered": result.triggered,
-                    "details": result.details or {}
+                    "details": result.details or {},
                 }
                 f.write(json.dumps(result_dict) + "\n")
 
@@ -198,7 +194,7 @@ class BenchmarkReporter:
         metrics_by_model: dict[str, dict[str, float]],
         latency_results: dict[str, dict[str, Any]],
         dataset_size: int,
-        latency_iterations: int
+        latency_iterations: int,
     ) -> None:
         """Save human-readable benchmark summary."""
         with filepath.open("w", encoding="utf-8") as f:

@@ -54,9 +54,7 @@ class JsonlDatasetLoader(DatasetLoader):
                         samples.append(sample)
                     except Exception as e:
                         logger.error("Invalid JSON in dataset at line %d: %s", line_num, e)
-                        raise ValueError(
-                            f"Invalid JSON in dataset at line {line_num}: {e}"
-                        ) from e
+                        raise ValueError(f"Invalid JSON in dataset at line {line_num}: {e}") from e
 
             logger.info("Loaded %d samples from %s", len(samples), path)
             return samples

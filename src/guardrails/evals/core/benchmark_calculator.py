@@ -19,12 +19,7 @@ logger = logging.getLogger(__name__)
 class BenchmarkMetricsCalculator:
     """Calculates advanced benchmarking metrics for guardrail evaluation."""
 
-    def calculate_advanced_metrics(
-        self,
-        results: list[SampleResult],
-        guardrail_name: str,
-        guardrail_config: dict | None = None
-    ) -> dict[str, float]:
+    def calculate_advanced_metrics(self, results: list[SampleResult], guardrail_name: str, guardrail_config: dict | None = None) -> dict[str, float]:
         """Calculate advanced metrics for a specific guardrail.
 
         Args:
@@ -48,19 +43,14 @@ class BenchmarkMetricsCalculator:
 
         return self._calculate_metrics(y_true, y_scores)
 
-    def _extract_labels_and_scores(
-        self,
-        results: list[SampleResult],
-        guardrail_name: str
-    ) -> tuple[list[int], list[float]]:
+    def _extract_labels_and_scores(self, results: list[SampleResult], guardrail_name: str) -> tuple[list[int], list[float]]:
         """Extract true labels and confidence scores for a guardrail."""
         y_true = []
         y_scores = []
 
         for result in results:
             if guardrail_name not in result.expected_triggers:
-                logger.warning("Guardrail '%s' not found in expected_triggers for sample %s",
-                             guardrail_name, result.id)
+                logger.warning("Guardrail '%s' not found in expected_triggers for sample %s", guardrail_name, result.id)
                 continue
 
             expected = result.expected_triggers[guardrail_name]
@@ -95,7 +85,7 @@ class BenchmarkMetricsCalculator:
             metrics["roc_auc"] = roc_auc_score(y_true, y_scores)
         except ValueError as e:
             logger.warning("Could not calculate ROC AUC: %s", e)
-            metrics["roc_auc"] = float('nan')
+            metrics["roc_auc"] = float("nan")
 
         # Calculate precision at different recall thresholds
         try:
@@ -105,11 +95,7 @@ class BenchmarkMetricsCalculator:
             metrics["prec_at_r95"] = self._precision_at_recall(precision, recall, 0.95)
         except Exception as e:
             logger.warning("Could not calculate precision at recall thresholds: %s", e)
-            metrics.update({
-                "prec_at_r80": float('nan'),
-                "prec_at_r90": float('nan'),
-                "prec_at_r95": float('nan')
-            })
+            metrics.update({"prec_at_r80": float("nan"), "prec_at_r90": float("nan"), "prec_at_r95": float("nan")})
 
         # Calculate recall at FPR = 0.01
         try:
@@ -117,16 +103,11 @@ class BenchmarkMetricsCalculator:
             metrics["recall_at_fpr01"] = self._recall_at_fpr(fpr, tpr, 0.01)
         except Exception as e:
             logger.warning("Could not calculate recall at FPR=0.01: %s", e)
-            metrics["recall_at_fpr01"] = float('nan')
+            metrics["recall_at_fpr01"] = float("nan")
 
         return metrics
 
-    def _precision_at_recall(
-        self,
-        precision: np.ndarray,
-        recall: np.ndarray,
-        target_recall: float
-    ) -> float:
+    def _precision_at_recall(self, precision: np.ndarray, recall: np.ndarray, target_recall: float) -> float:
         """Find precision at a specific recall threshold."""
         valid_indices = np.where(recall >= target_recall)[0]
 
@@ -136,12 +117,7 @@ class BenchmarkMetricsCalculator:
         best_idx = valid_indices[np.argmax(precision[valid_indices])]
         return float(precision[best_idx])
 
-    def _recall_at_fpr(
-        self,
-        fpr: np.ndarray,
-        tpr: np.ndarray,
-        target_fpr: float
-    ) -> float:
+    def _recall_at_fpr(self, fpr: np.ndarray, tpr: np.ndarray, target_fpr: float) -> float:
         """Find recall (TPR) at a specific false positive rate threshold."""
         valid_indices = np.where(fpr <= target_fpr)[0]
 
@@ -151,10 +127,7 @@ class BenchmarkMetricsCalculator:
         best_idx = valid_indices[np.argmax(tpr[valid_indices])]
         return float(tpr[best_idx])
 
-    def calculate_all_guardrail_metrics(
-        self,
-        results: list[SampleResult]
-    ) -> dict[str, dict[str, float]]:
+    def calculate_all_guardrail_metrics(self, results: list[SampleResult]) -> dict[str, dict[str, float]]:
         """Calculate advanced metrics for all guardrails in the results."""
         if not results:
             return {}
@@ -169,14 +142,13 @@ class BenchmarkMetricsCalculator:
                 guardrail_metrics = self.calculate_advanced_metrics(results, guardrail_name)
                 metrics[guardrail_name] = guardrail_metrics
             except Exception as e:
-                logger.error("Failed to calculate metrics for guardrail '%s': %s",
-                           guardrail_name, e)
+                logger.error("Failed to calculate metrics for guardrail '%s': %s", guardrail_name, e)
                 metrics[guardrail_name] = {
-                    "roc_auc": float('nan'),
-                    "prec_at_r80": float('nan'),
-                    "prec_at_r90": float('nan'),
-                    "prec_at_r95": float('nan'),
-                    "recall_at_fpr01": float('nan'),
+                    "roc_auc": float("nan"),
+                    "prec_at_r80": float("nan"),
+                    "prec_at_r90": float("nan"),
+                    "prec_at_r95": float("nan"),
+                    "recall_at_fpr01": float("nan"),
                 }
 
         return metrics

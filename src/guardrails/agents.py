@@ -18,6 +18,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from ._openai_utils import prepare_openai_kwargs
+
 logger = logging.getLogger(__name__)
 
 __all__ = ["GuardrailAgent"]
@@ -33,7 +35,7 @@ _TOOL_LEVEL_GUARDRAILS = ["Prompt Injection Detection"]
 # Only stores user messages - NOT full conversation history
 # This persists across turns to maintain multi-turn context
 # Only used when a guardrail in _NEEDS_CONVERSATION_HISTORY is configured
-_user_messages: ContextVar[list[str]] = ContextVar('user_messages', default=[])  # noqa: B039
+_user_messages: ContextVar[list[str]] = ContextVar("user_messages", default=[])  # noqa: B039
 
 
 def _get_user_messages() -> list[str]:
@@ -50,9 +52,7 @@ def _get_user_messages() -> list[str]:
         return user_msgs
 
 
-def _separate_tool_level_from_agent_level(
-    guardrails: list[Any]
-) -> tuple[list[Any], list[Any]]:
+def _separate_tool_level_from_agent_level(guardrails: list[Any]) -> tuple[list[Any], list[Any]]:
     """Separate tool-level guardrails from agent-level guardrails.
 
     Args:
@@ -96,11 +96,7 @@ def _build_conversation_with_tool_call(data: Any) -> list:
     """
     user_msgs = _get_user_messages()
     conversation = [{"role": "user", "content": msg} for msg in user_msgs]
-    conversation.append({
-        "type": "function_call",
-        "tool_name": data.context.tool_name,
-        "arguments": data.context.tool_arguments
-    })
+    conversation.append({"type": "function_call", "tool_name": data.context.tool_name, "arguments": data.context.tool_arguments})
     return conversation
 
 
@@ -115,20 +111,13 @@ def _build_conversation_with_tool_output(data: Any) -> list:
     """
     user_msgs = _get_user_messages()
     conversation = [{"role": "user", "content": msg} for msg in user_msgs]
-    conversation.append({
-        "type": "function_call_output",
-        "tool_name": data.context.tool_name,
-        "arguments": data.context.tool_arguments,
-        "output": str(data.output)
-    })
+    conversation.append(
+        {"type": "function_call_output", "tool_name": data.context.tool_name, "arguments": data.context.tool_arguments, "output": str(data.output)}
+    )
     return conversation
 
 
-def _attach_guardrail_to_tools(
-    tools: list[Any],
-    guardrail: Callable,
-    guardrail_type: str
-) -> None:
+def _attach_guardrail_to_tools(tools: list[Any], guardrail: Callable, guardrail_type: str) -> None:
     """Attach a guardrail to all tools in the list.
 
     Args:
@@ -152,7 +141,7 @@ def _create_default_tool_context() -> Any:
     class DefaultContext:
         guardrail_llm: AsyncOpenAI
 
-    return DefaultContext(guardrail_llm=AsyncOpenAI())
+    return DefaultContext(guardrail_llm=AsyncOpenAI(**prepare_openai_kwargs({})))
 
 
 def _create_conversation_context(
@@ -168,6 +157,7 @@ def _create_conversation_context(
     Returns:
         Context object with conversation history
     """
+
     @dataclass
     class ToolConversationContext:
         guardrail_llm: Any
@@ -191,12 +181,7 @@ def _create_conversation_context(
 
 
 def _create_tool_guardrail(
-    guardrail: Any,
-    guardrail_type: str,
-    needs_conv_history: bool,
-    context: Any,
-    raise_guardrail_errors: bool,
-    block_on_violations: bool
+    guardrail: Any, guardrail_type: str, needs_conv_history: bool, context: Any, raise_guardrail_errors: bool, block_on_violations: bool
 ) -> Callable:
     """Create a generic tool-level guardrail wrapper.
 
@@ -220,18 +205,14 @@ def _create_tool_guardrail(
             tool_output_guardrail,
         )
     except ImportError as e:
-        raise ImportError(
-            "The 'agents' package is required for tool guardrails. "
-            "Please install it with: pip install openai-agents"
-        ) from e
+        raise ImportError("The 'agents' package is required for tool guardrails. Please install it with: pip install openai-agents") from e
 
     from .runtime import run_guardrails
 
     if guardrail_type == "input":
+
         @tool_input_guardrail
-        async def tool_input_gr(
-            data: ToolInputGuardrailData
-        ) -> ToolGuardrailFunctionOutput:
+        async def tool_input_gr(data: ToolInputGuardrailData) -> ToolGuardrailFunctionOutput:
             """Check tool call before execution."""
             guardrail_name = guardrail.definition.name
 
@@ -242,9 +223,7 @@ def _create_tool_guardrail(
                     user_msgs = _get_user_messages()
 
                     if not user_msgs:
-                        return ToolGuardrailFunctionOutput(
-                            output_info=f"Skipped: no user intent available for {guardrail_name}"
-                        )
+                        return ToolGuardrailFunctionOutput(output_info=f"Skipped: no user intent available for {guardrail_name}")
 
                     # Build conversation history with user messages + tool call
                     conversation_history = _build_conversation_with_tool_call(data)
@@ -257,10 +236,7 @@ def _create_tool_guardrail(
                     # Use simple context without conversation history
                     ctx = context
                     # Format tool call data for non-conversation-aware guardrails
-                    check_data = json.dumps({
-                        "tool_name": data.context.tool_name,
-                        "arguments": data.context.tool_arguments
-                    })
+                    check_data = json.dumps({"tool_name": data.context.tool_name, "arguments": data.context.tool_arguments})
 
                 # Run the guardrail
                 results = await run_guardrails(
@@ -270,7 +246,7 @@ def _create_tool_guardrail(
                     guardrails=[guardrail],
                     suppress_tripwire=True,
                     stage_name=f"tool_input_{guardrail_name.lower().replace(' ', '_')}",
-                    raise_guardrail_errors=raise_guardrail_errors
+                    raise_guardrail_errors=raise_guardrail_errors,
                 )
 
                 # Check results
@@ -280,35 +256,25 @@ def _create_tool_guardrail(
                         message = f"Tool call was violative of policy and was blocked by {guardrail_name}: {observation}."
 
                         if block_on_violations:
-                            return ToolGuardrailFunctionOutput.raise_exception(
-                                output_info=result.info
-                            )
+                            return ToolGuardrailFunctionOutput.raise_exception(output_info=result.info)
                         else:
-                            return ToolGuardrailFunctionOutput.reject_content(
-                                message=message,
-                                output_info=result.info
-                            )
+                            return ToolGuardrailFunctionOutput.reject_content(message=message, output_info=result.info)
 
                 return ToolGuardrailFunctionOutput(output_info=f"{guardrail_name} check passed")
 
             except Exception as e:
                 if raise_guardrail_errors:
-                    return ToolGuardrailFunctionOutput.raise_exception(
-                        output_info={"error": f"{guardrail_name} check error: {str(e)}"}
-                    )
+                    return ToolGuardrailFunctionOutput.raise_exception(output_info={"error": f"{guardrail_name} check error: {str(e)}"})
                 else:
                     logger.warning(f"{guardrail_name} check error (treating as safe): {e}")
-                    return ToolGuardrailFunctionOutput(
-                        output_info=f"{guardrail_name} check skipped due to error"
-                    )
+                    return ToolGuardrailFunctionOutput(output_info=f"{guardrail_name} check skipped due to error")
 
         return tool_input_gr
 
     else:  # output
+
         @tool_output_guardrail
-        async def tool_output_gr(
-            data: ToolOutputGuardrailData
-        ) -> ToolGuardrailFunctionOutput:
+        async def tool_output_gr(data: ToolOutputGuardrailData) -> ToolGuardrailFunctionOutput:
             """Check tool output after execution."""
             guardrail_name = guardrail.definition.name
 
@@ -319,9 +285,7 @@ def _create_tool_guardrail(
                     user_msgs = _get_user_messages()
 
                     if not user_msgs:
-                        return ToolGuardrailFunctionOutput(
-                            output_info=f"Skipped: no user intent available for {guardrail_name}"
-                        )
+                        return ToolGuardrailFunctionOutput(output_info=f"Skipped: no user intent available for {guardrail_name}")
 
                     # Build conversation history with user messages + tool output
                     conversation_history = _build_conversation_with_tool_output(data)
@@ -334,11 +298,9 @@ def _create_tool_guardrail(
                     # Use simple context without conversation history
                     ctx = context
                     # Format tool output data for non-conversation-aware guardrails
-                    check_data = json.dumps({
-                        "tool_name": data.context.tool_name,
-                        "arguments": data.context.tool_arguments,
-                        "output": str(data.output)
-                    })
+                    check_data = json.dumps(
+                        {"tool_name": data.context.tool_name, "arguments": data.context.tool_arguments, "output": str(data.output)}
+                    )
 
                 # Run the guardrail
                 results = await run_guardrails(
@@ -348,7 +310,7 @@ def _create_tool_guardrail(
                     guardrails=[guardrail],
                     suppress_tripwire=True,
                     stage_name=f"tool_output_{guardrail_name.lower().replace(' ', '_')}",
-                    raise_guardrail_errors=raise_guardrail_errors
+                    raise_guardrail_errors=raise_guardrail_errors,
                 )
 
                 # Check results
@@ -357,37 +319,24 @@ def _create_tool_guardrail(
                         observation = result.info.get("observation", f"{guardrail_name} triggered")
                         message = f"Tool output was violative of policy and was blocked by {guardrail_name}: {observation}."
                         if block_on_violations:
-                            return ToolGuardrailFunctionOutput.raise_exception(
-                                output_info=result.info
-                            )
+                            return ToolGuardrailFunctionOutput.raise_exception(output_info=result.info)
                         else:
-                            return ToolGuardrailFunctionOutput.reject_content(
-                                message=message,
-                                output_info=result.info
-                            )
+                            return ToolGuardrailFunctionOutput.reject_content(message=message, output_info=result.info)
 
                 return ToolGuardrailFunctionOutput(output_info=f"{guardrail_name} check passed")
 
             except Exception as e:
                 if raise_guardrail_errors:
-                    return ToolGuardrailFunctionOutput.raise_exception(
-                        output_info={"error": f"{guardrail_name} check error: {str(e)}"}
-                    )
+                    return ToolGuardrailFunctionOutput.raise_exception(output_info={"error": f"{guardrail_name} check error: {str(e)}"})
                 else:
                     logger.warning(f"{guardrail_name} check error (treating as safe): {e}")
-                    return ToolGuardrailFunctionOutput(
-                        output_info=f"{guardrail_name} check skipped due to error"
-                    )
+                    return ToolGuardrailFunctionOutput(output_info=f"{guardrail_name} check skipped due to error")
 
         return tool_output_gr
 
 
 def _create_agents_guardrails_from_config(
-    config: str | Path | dict[str, Any],
-    stages: list[str],
-    guardrail_type: str = "input",
-    context: Any = None,
-    raise_guardrail_errors: bool = False
+    config: str | Path | dict[str, Any], stages: list[str], guardrail_type: str = "input", context: Any = None, raise_guardrail_errors: bool = False
 ) -> list[Any]:
     """Create agent-level guardrail functions from a pipeline configuration.
 
@@ -411,10 +360,7 @@ def _create_agents_guardrails_from_config(
     try:
         from agents import Agent, GuardrailFunctionOutput, RunContextWrapper, input_guardrail, output_guardrail
     except ImportError as e:
-        raise ImportError(
-            "The 'agents' package is required to create agent guardrails. "
-            "Please install it with: pip install openai-agents"
-        ) from e
+        raise ImportError("The 'agents' package is required to create agent guardrails. Please install it with: pip install openai-agents") from e
 
     # Import needed guardrails modules
     from .registry import default_spec_registry
@@ -443,7 +389,7 @@ def _create_agents_guardrails_from_config(
         class DefaultContext:
             guardrail_llm: AsyncOpenAI
 
-        context = DefaultContext(guardrail_llm=AsyncOpenAI())
+        context = DefaultContext(guardrail_llm=AsyncOpenAI(**prepare_openai_kwargs({})))
 
     def _create_stage_guardrail(stage_name: str):
         async def stage_guardrail(ctx: RunContextWrapper[None], agent: Agent, input_data: str) -> GuardrailFunctionOutput:
@@ -471,21 +417,14 @@ def _create_agents_guardrails_from_config(
                     guardrails=guardrails,
                     suppress_tripwire=True,  # We handle tripwires manually
                     stage_name=stage_name,
-                    raise_guardrail_errors=raise_guardrail_errors
+                    raise_guardrail_errors=raise_guardrail_errors,
                 )
 
                 # Check if any tripwires were triggered
                 for result in results:
                     if result.tripwire_triggered:
-                        guardrail_name = (
-                            result.info.get("guardrail_name", "unknown")
-                            if isinstance(result.info, dict)
-                            else "unknown"
-                        )
-                        return GuardrailFunctionOutput(
-                            output_info=f"Guardrail {guardrail_name} triggered tripwire",
-                            tripwire_triggered=True
-                        )
+                        guardrail_name = result.info.get("guardrail_name", "unknown") if isinstance(result.info, dict) else "unknown"
+                        return GuardrailFunctionOutput(output_info=f"Guardrail {guardrail_name} triggered tripwire", tripwire_triggered=True)
 
                 return GuardrailFunctionOutput(output_info=None, tripwire_triggered=False)
 
@@ -495,10 +434,7 @@ def _create_agents_guardrails_from_config(
                     raise e
                 else:
                     # Current behavior: treat errors as tripwires
-                    return GuardrailFunctionOutput(
-                        output_info=f"Error running {stage_name} guardrails: {str(e)}",
-                        tripwire_triggered=True
-                    )
+                    return GuardrailFunctionOutput(output_info=f"Error running {stage_name} guardrails: {str(e)}", tripwire_triggered=True)
 
         # Set the function name for debugging
         stage_guardrail.__name__ = f"{stage_name}_guardrail"
@@ -534,9 +470,11 @@ class GuardrailAgent:
         from guardrails import GuardrailAgent
         from agents import Runner, function_tool
 
+
         @function_tool
         def get_weather(location: str) -> str:
             return f"Weather in {location}: Sunny"
+
 
         agent = GuardrailAgent(
             config="guardrails_config.json",
@@ -557,7 +495,7 @@ class GuardrailAgent:
         instructions: str,
         raise_guardrail_errors: bool = False,
         block_on_tool_violations: bool = False,
-        **agent_kwargs: Any
+        **agent_kwargs: Any,
     ) -> Any:  # Returns agents.Agent
         """Create a new Agent instance with guardrails automatically configured.
 
@@ -592,10 +530,7 @@ class GuardrailAgent:
         try:
             from agents import Agent
         except ImportError as e:
-            raise ImportError(
-                "The 'agents' package is required to use GuardrailAgent. "
-                "Please install it with: pip install openai-agents"
-            ) from e
+            raise ImportError("The 'agents' package is required to use GuardrailAgent. Please install it with: pip install openai-agents") from e
 
         from .registry import default_spec_registry
         from .runtime import instantiate_guardrails, load_pipeline_bundles
@@ -607,33 +542,18 @@ class GuardrailAgent:
         for stage_name in ["pre_flight", "input", "output"]:
             bundle = getattr(pipeline, stage_name, None)
             if bundle:
-                stage_guardrails[stage_name] = instantiate_guardrails(
-                    bundle, default_spec_registry
-                )
+                stage_guardrails[stage_name] = instantiate_guardrails(bundle, default_spec_registry)
             else:
                 stage_guardrails[stage_name] = []
 
         # Check if ANY guardrail in the entire pipeline needs conversation history
-        all_guardrails = (
-            stage_guardrails.get("pre_flight", []) +
-            stage_guardrails.get("input", []) +
-            stage_guardrails.get("output", [])
-        )
-        needs_user_tracking = any(
-            gr.definition.name in _NEEDS_CONVERSATION_HISTORY
-            for gr in all_guardrails
-        )
+        all_guardrails = stage_guardrails.get("pre_flight", []) + stage_guardrails.get("input", []) + stage_guardrails.get("output", [])
+        needs_user_tracking = any(gr.definition.name in _NEEDS_CONVERSATION_HISTORY for gr in all_guardrails)
 
         # Separate tool-level from agent-level guardrails in each stage
-        preflight_tool, preflight_agent = _separate_tool_level_from_agent_level(
-            stage_guardrails.get("pre_flight", [])
-        )
-        input_tool, input_agent = _separate_tool_level_from_agent_level(
-            stage_guardrails.get("input", [])
-        )
-        output_tool, output_agent = _separate_tool_level_from_agent_level(
-            stage_guardrails.get("output", [])
-        )
+        preflight_tool, preflight_agent = _separate_tool_level_from_agent_level(stage_guardrails.get("pre_flight", []))
+        input_tool, input_agent = _separate_tool_level_from_agent_level(stage_guardrails.get("input", []))
+        output_tool, output_agent = _separate_tool_level_from_agent_level(stage_guardrails.get("output", []))
 
         # Create agent-level INPUT guardrails
         input_guardrails = []
@@ -643,9 +563,7 @@ class GuardrailAgent:
             try:
                 from agents import Agent as AgentType, GuardrailFunctionOutput, RunContextWrapper, input_guardrail
             except ImportError as e:
-                raise ImportError(
-                    "The 'agents' package is required. Please install it with: pip install openai-agents"
-                ) from e
+                raise ImportError("The 'agents' package is required. Please install it with: pip install openai-agents") from e
 
             @input_guardrail
             async def capture_user_message(ctx: RunContextWrapper[None], agent: AgentType, input_data: str) -> GuardrailFunctionOutput:
@@ -667,12 +585,14 @@ class GuardrailAgent:
             agent_input_stages.append("input")
 
         if agent_input_stages:
-            input_guardrails.extend(_create_agents_guardrails_from_config(
-                config=config,
-                stages=agent_input_stages,
-                guardrail_type="input",
-                raise_guardrail_errors=raise_guardrail_errors,
-            ))
+            input_guardrails.extend(
+                _create_agents_guardrails_from_config(
+                    config=config,
+                    stages=agent_input_stages,
+                    guardrail_type="input",
+                    raise_guardrail_errors=raise_guardrail_errors,
+                )
+            )
 
         # Create agent-level OUTPUT guardrails
         output_guardrails = []
@@ -701,7 +621,7 @@ class GuardrailAgent:
                     needs_conv_history=_needs_conversation_history(guardrail),
                     context=context,
                     raise_guardrail_errors=raise_guardrail_errors,
-                    block_on_violations=block_on_tool_violations
+                    block_on_violations=block_on_tool_violations,
                 )
                 _attach_guardrail_to_tools(tools, tool_input_gr, "input")
 
@@ -713,15 +633,9 @@ class GuardrailAgent:
                     needs_conv_history=_needs_conversation_history(guardrail),
                     context=context,
                     raise_guardrail_errors=raise_guardrail_errors,
-                    block_on_violations=block_on_tool_violations
+                    block_on_violations=block_on_tool_violations,
                 )
                 _attach_guardrail_to_tools(tools, tool_output_gr, "output")
 
         # Create and return a regular Agent instance with guardrails configured
-        return Agent(
-            name=name,
-            instructions=instructions,
-            input_guardrails=input_guardrails,
-            output_guardrails=output_guardrails,
-            **agent_kwargs
-        )
+        return Agent(name=name, instructions=instructions, input_guardrails=input_guardrails, output_guardrails=output_guardrails, **agent_kwargs)

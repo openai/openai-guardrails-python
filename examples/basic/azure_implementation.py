@@ -54,9 +54,7 @@ PIPELINE_CONFIG = {
 }
 
 
-async def process_input(
-    guardrails_client: GuardrailsAsyncAzureOpenAI, user_input: str
-) -> None:
+async def process_input(guardrails_client: GuardrailsAsyncAzureOpenAI, user_input: str) -> None:
     """Process user input with complete response validation using GuardrailsClient."""
     try:
         # Use GuardrailsClient to handle all guardrail checks and LLM calls

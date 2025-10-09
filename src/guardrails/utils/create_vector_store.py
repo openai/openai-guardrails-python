@@ -15,15 +15,35 @@ from pathlib import Path
 
 from openai import AsyncOpenAI
 
+from .._openai_utils import prepare_openai_kwargs
+
 # Configure logging
 # logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
 logger = logging.getLogger(__name__)
 
 # Supported file types
 SUPPORTED_FILE_TYPES = {
-    '.c', '.cpp', '.cs', '.css', '.doc', '.docx', '.go', '.html',
-    '.java', '.js', '.json', '.md', '.pdf', '.php', '.pptx',
-    '.py', '.rb', '.sh', '.tex', '.ts', '.txt'
+    ".c",
+    ".cpp",
+    ".cs",
+    ".css",
+    ".doc",
+    ".docx",
+    ".go",
+    ".html",
+    ".java",
+    ".js",
+    ".json",
+    ".md",
+    ".pdf",
+    ".php",
+    ".pptx",
+    ".py",
+    ".rb",
+    ".sh",
+    ".tex",
+    ".ts",
+    ".txt",
 }
 
 
@@ -53,19 +73,14 @@ async def create_vector_store_from_path(
     try:
         # Create vector store
         logger.info(f"Creating vector store from path: {path}")
-        vector_store = await client.vector_stores.create(
-            name=f"anti_hallucination_{path.name}"
-        )
+        vector_store = await client.vector_stores.create(name=f"anti_hallucination_{path.name}")
 
         # Get list of files to upload
         file_paths = []
         if path.is_file() and path.suffix.lower() in SUPPORTED_FILE_TYPES:
             file_paths = [path]
         elif path.is_dir():
-            file_paths = [
-                f for f in path.rglob("*")
-                if f.is_file() and f.suffix.lower() in SUPPORTED_FILE_TYPES
-            ]
+            file_paths = [f for f in path.rglob("*") if f.is_file() and f.suffix.lower() in SUPPORTED_FILE_TYPES]
 
         if not file_paths:
             raise ValueError(f"No supported files found in {path}")
@@ -77,10 +92,7 @@ async def create_vector_store_from_path(
         for file_path in file_paths:
             try:
                 with open(file_path, "rb") as f:
-                    file_result = await client.files.create(
-                        file=f,
-                        purpose="assistants"
-                    )
+                    file_result = await client.files.create(file=f, purpose="assistants")
                     file_ids.append(file_result.id)
                     logger.info(f"Uploaded: {file_path.name}")
             except Exception as e:
@@ -92,17 +104,12 @@ async def create_vector_store_from_path(
         # Add files to vector store
         logger.info("Adding files to vector store...")
         for file_id in file_ids:
-            await client.vector_stores.files.create(
-                vector_store_id=vector_store.id,
-                file_id=file_id
-            )
+            await client.vector_stores.files.create(vector_store_id=vector_store.id, file_id=file_id)
 
         # Wait for files to be processed
         logger.info("Waiting for files to be processed...")
         while True:
-            files = await client.vector_stores.files.list(
-                vector_store_id=vector_store.id
-            )
+            files = await client.vector_stores.files.list(vector_store_id=vector_store.id)
 
             # Check if all files are completed
             statuses = [file.status for file in files.data]
@@ -129,7 +136,7 @@ async def main():
     path = sys.argv[1]
 
     try:
-        client = AsyncOpenAI()
+        client = AsyncOpenAI(**prepare_openai_kwargs({}))
         vector_store_id = await create_vector_store_from_path(path, client)
 
         print("\n✅ Vector store created successfully!")

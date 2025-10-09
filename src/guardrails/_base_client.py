@@ -79,6 +79,7 @@ class GuardrailsBaseClient:
         Returns:
             Tuple of (message_text, message_index). Index is -1 if no user message found.
         """
+
         def _get_attr(obj, key: str):
             if isinstance(obj, dict):
                 return obj.get(key)
@@ -142,9 +143,7 @@ class GuardrailsBaseClient:
         self._validate_context(self.context)
 
     def _apply_preflight_modifications(
-        self,
-        data: list[dict[str, str]] | str,
-        preflight_results: list[GuardrailResult]
+        self, data: list[dict[str, str]] | str, preflight_results: list[GuardrailResult]
     ) -> list[dict[str, str]] | str:
         """Apply pre-flight modifications to messages or text.
 
@@ -203,9 +202,7 @@ class GuardrailsBaseClient:
 
             # Extract current content safely
             current_content = (
-                data[latest_user_idx]["content"]
-                if isinstance(data[latest_user_idx], dict)
-                else getattr(data[latest_user_idx], "content", None)
+                data[latest_user_idx]["content"] if isinstance(data[latest_user_idx], dict) else getattr(data[latest_user_idx], "content", None)
             )
 
             # Apply modifications based on content type
@@ -249,7 +246,6 @@ class GuardrailsBaseClient:
 
             return modified_messages
 
-
     def _instantiate_all_guardrails(self) -> dict[str, list]:
         """Instantiate guardrails for all stages."""
         from .registry import default_spec_registry
@@ -280,7 +276,7 @@ class GuardrailsBaseClient:
             if isinstance(value, str):
                 return value or ""
         if getattr(response, "type", None) == "response.output_text.delta":
-            return (getattr(response, "delta", "") or "")
+            return getattr(response, "delta", "") or ""
         return ""
 
     def _create_default_context(self) -> GuardrailLLMContextProto:
@@ -292,8 +288,9 @@ class GuardrailsBaseClient:
         # Check if there's a context set via ContextVars
         if has_context():
             from .context import get_context
+
             context = get_context()
-            if context and hasattr(context, 'guardrail_llm'):
+            if context and hasattr(context, "guardrail_llm"):
                 # Use the context's guardrail_llm
                 return context
 
@@ -301,12 +298,7 @@ class GuardrailsBaseClient:
         # Note: This will be overridden by subclasses to provide the correct type
         raise NotImplementedError("Subclasses must implement _create_default_context")
 
-    def _initialize_client(
-        self,
-        config: str | Path | dict[str, Any],
-        openai_kwargs: dict[str, Any],
-        client_class: type
-    ) -> None:
+    def _initialize_client(self, config: str | Path | dict[str, Any], openai_kwargs: dict[str, Any], client_class: type) -> None:
         """Initialize client with common setup.
 
         Args:

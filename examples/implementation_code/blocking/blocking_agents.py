@@ -23,10 +23,7 @@ async def main():
     while True:
         try:
             prompt = input("\nEnter a message: ")
-            result = await Runner.run(
-                agent,
-                prompt
-            )
+            result = await Runner.run(agent, prompt)
 
             print(f"\nAssistant: {result.final_output}")
 
@@ -36,6 +33,7 @@ async def main():
             stage_name = "input" if isinstance(exc, InputGuardrailTripwireTriggered) else "output"
             print(f"\n🛑 Guardrail triggered in stage '{stage_name}'!")
             continue
+
 
 if __name__ == "__main__":
     asyncio.run(main())

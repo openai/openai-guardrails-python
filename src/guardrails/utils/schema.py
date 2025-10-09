@@ -48,9 +48,7 @@ def validate_json(json_str: str, type_adapter: TypeAdapter[T], partial: bool) ->
     Raises:
         ModelBehaviorError: If JSON parsing or validation fails.
     """
-    partial_setting: bool | Literal["off", "on", "trailing-strings"] = (
-        "trailing-strings" if partial else False
-    )
+    partial_setting: bool | Literal["off", "on", "trailing-strings"] = "trailing-strings" if partial else False
     try:
         validated = type_adapter.validate_json(
             json_str,
@@ -107,11 +105,7 @@ def _ensure_strict_json_schema(
     typ = json_schema.get("type")
     if typ == "object" and "additionalProperties" not in json_schema:
         json_schema["additionalProperties"] = False
-    elif (
-        typ == "object"
-        and "additionalProperties" in json_schema
-        and json_schema["additionalProperties"]
-    ):
+    elif typ == "object" and "additionalProperties" in json_schema and json_schema["additionalProperties"]:
         raise UserError(
             "additionalProperties should not be set for object types. This could be because "
             "you're using an older version of Pydantic, or because you configured additional "
@@ -228,9 +222,7 @@ def resolve_ref(*, root: dict[str, object], ref: str) -> object:
     resolved = root
     for key in path:
         value = resolved[key]
-        assert is_dict(value), (
-            f"encountered non-dictionary entry while resolving {ref} - {resolved}"
-        )
+        assert is_dict(value), f"encountered non-dictionary entry while resolving {ref} - {resolved}"
         resolved = value
 
     return resolved

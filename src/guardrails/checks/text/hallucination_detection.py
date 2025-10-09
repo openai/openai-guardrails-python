@@ -214,10 +214,7 @@ async def hallucination_detection(
             model=config.model,
             input=validation_query,
             text_format=HallucinationDetectionOutput,
-            tools=[{
-                "type": "file_search",
-                "vector_store_ids": [config.knowledge_source]
-            }]
+            tools=[{"type": "file_search", "vector_store_ids": [config.knowledge_source]}],
         )
 
         # Get the parsed output directly

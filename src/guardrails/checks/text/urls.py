@@ -39,6 +39,7 @@ __all__ = ["urls"]
 @dataclass(frozen=True, slots=True)
 class UrlDetectionResult:
     """Result structure for URL detection and filtering."""
+
     detected: list[str]
     allowed: list[str]
     blocked: list[str]
@@ -65,10 +66,11 @@ class URLConfig(BaseModel):
         description="Allow subdomains of allowed domains (e.g. api.example.com if example.com is allowed)",
     )
 
+
 def _detect_urls(text: str) -> list[str]:
     """Detect URLs using regex."""
     # Pattern for cleaning trailing punctuation (] must be escaped)
-    PUNCTUATION_CLEANUP = r'[.,;:!?)\]]+$'
+    PUNCTUATION_CLEANUP = r"[.,;:!?)\]]+$"
 
     detected_urls = []
 
@@ -86,38 +88,38 @@ def _detect_urls(text: str) -> list[str]:
         matches = re.findall(pattern, text, re.IGNORECASE)
         for match in matches:
             # Clean trailing punctuation
-            cleaned = re.sub(PUNCTUATION_CLEANUP, '', match)
+            cleaned = re.sub(PUNCTUATION_CLEANUP, "", match)
             if cleaned:
                 detected_urls.append(cleaned)
                 # Track the domain part to avoid duplicates
-                if '://' in cleaned:
-                    domain_part = cleaned.split('://', 1)[1].split('/')[0].split('?')[0].split('#')[0]
+                if "://" in cleaned:
+                    domain_part = cleaned.split("://", 1)[1].split("/")[0].split("?")[0].split("#")[0]
                     scheme_urls.add(domain_part.lower())
 
     # Pattern 2: Domain-like patterns (scheme-less) - but skip if already found with scheme
-    domain_pattern = r'\b(?:www\.)?[a-zA-Z0-9][a-zA-Z0-9.-]*\.[a-zA-Z]{2,}(?:/[^\s]*)?'
+    domain_pattern = r"\b(?:www\.)?[a-zA-Z0-9][a-zA-Z0-9.-]*\.[a-zA-Z]{2,}(?:/[^\s]*)?"
     domain_matches = re.findall(domain_pattern, text, re.IGNORECASE)
 
     for match in domain_matches:
         # Clean trailing punctuation
-        cleaned = re.sub(PUNCTUATION_CLEANUP, '', match)
+        cleaned = re.sub(PUNCTUATION_CLEANUP, "", match)
         if cleaned:
             # Extract just the domain part for comparison
-            domain_part = cleaned.split('/')[0].split('?')[0].split('#')[0].lower()
+            domain_part = cleaned.split("/")[0].split("?")[0].split("#")[0].lower()
             # Only add if we haven't already found this domain with a scheme
             if domain_part not in scheme_urls:
                 detected_urls.append(cleaned)
 
     # Pattern 3: IP addresses - similar deduplication
-    ip_pattern = r'\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}(?::[0-9]+)?(?:/[^\s]*)?'
+    ip_pattern = r"\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}(?::[0-9]+)?(?:/[^\s]*)?"
     ip_matches = re.findall(ip_pattern, text, re.IGNORECASE)
 
     for match in ip_matches:
         # Clean trailing punctuation
-        cleaned = re.sub(PUNCTUATION_CLEANUP, '', match)
+        cleaned = re.sub(PUNCTUATION_CLEANUP, "", match)
         if cleaned:
             # Extract IP part for comparison
-            ip_part = cleaned.split('/')[0].split('?')[0].split('#')[0].lower()
+            ip_part = cleaned.split("/")[0].split("?")[0].split("#")[0].lower()
             if ip_part not in scheme_urls:
                 detected_urls.append(cleaned)
 
@@ -127,13 +129,13 @@ def _detect_urls(text: str) -> list[str]:
 
     # First pass: collect all domains from scheme-ful URLs
     for url in detected_urls:
-        if '://' in url:
+        if "://" in url:
             try:
                 parsed = urlparse(url)
                 if parsed.hostname:
                     scheme_url_domains.add(parsed.hostname.lower())
                     # Also add www-stripped version
-                    bare_domain = parsed.hostname.lower().replace('www.', '')
+                    bare_domain = parsed.hostname.lower().replace("www.", "")
                     scheme_url_domains.add(bare_domain)
             except (ValueError, UnicodeError):
                 # Skip URLs with parsing errors (malformed URLs, encoding issues)
@@ -143,9 +145,9 @@ def _detect_urls(text: str) -> list[str]:
 
     # Second pass: only add scheme-less URLs if their domain isn't already covered
     for url in detected_urls:
-        if '://' not in url:
+        if "://" not in url:
             # Check if this domain is already covered by a full URL
-            url_lower = url.lower().replace('www.', '')
+            url_lower = url.lower().replace("www.", "")
             if url_lower not in scheme_url_domains:
                 final_urls.append(url)
 
@@ -157,25 +159,25 @@ def _validate_url_security(url_string: str, config: URLConfig) -> tuple[ParseRes
     """Validate URL using stdlib urllib.parse."""
     try:
         # Parse URL - preserve original scheme for validation
-        if '://' in url_string:
+        if "://" in url_string:
             # Standard URL with double-slash scheme (http://, https://, ftp://, etc.)
             parsed_url = urlparse(url_string)
             original_scheme = parsed_url.scheme
-        elif ':' in url_string and url_string.split(':', 1)[0] in {'data', 'javascript', 'vbscript', 'mailto'}:
+        elif ":" in url_string and url_string.split(":", 1)[0] in {"data", "javascript", "vbscript", "mailto"}:
             # Special single-colon schemes
             parsed_url = urlparse(url_string)
             original_scheme = parsed_url.scheme
         else:
             # Add http scheme for parsing, but remember this is a default
-            parsed_url = urlparse(f'http://{url_string}')
-            original_scheme = 'http'  # Default scheme for scheme-less URLs
+            parsed_url = urlparse(f"http://{url_string}")
+            original_scheme = "http"  # Default scheme for scheme-less URLs
 
         # Basic validation: must have scheme and netloc (except for special schemes)
         if not parsed_url.scheme:
             return None, "Invalid URL format"
 
         # Special schemes like data: and javascript: don't need netloc
-        special_schemes = {'data', 'javascript', 'vbscript', 'mailto'}
+        special_schemes = {"data", "javascript", "vbscript", "mailto"}
         if original_scheme not in special_schemes and not parsed_url.netloc:
             return None, "Invalid URL format"
 
@@ -216,11 +218,8 @@ def _is_url_allowed(parsed_url: ParseResult, allow_list: list[str], allow_subdom
 
         # Handle IP addresses and CIDR blocks
         try:
-            ip_address(allowed_entry.split('/')[0])
-            if allowed_entry == url_host or (
-                '/' in allowed_entry and
-                ip_address(url_host) in ip_network(allowed_entry, strict=False)
-            ):
+            ip_address(allowed_entry.split("/")[0])
+            if allowed_entry == url_host or ("/" in allowed_entry and ip_address(url_host) in ip_network(allowed_entry, strict=False)):
                 return True
             continue
         except (AddressValueError, ValueError):
@@ -269,7 +268,7 @@ async def urls(ctx: Any, data: str, config: URLConfig) -> GuardrailResult:
         # Check against allow list
         # Special schemes (data:, javascript:, mailto:) don't have meaningful hosts
         # so they only need scheme validation, not host-based allow list checking
-        hostless_schemes = {'data', 'javascript', 'vbscript', 'mailto'}
+        hostless_schemes = {"data", "javascript", "vbscript", "mailto"}
         if parsed_url.scheme in hostless_schemes:
             # For hostless schemes, only scheme permission matters (no allow list needed)
             # They were already validated for scheme permission in _validate_url_security

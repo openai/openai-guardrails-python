@@ -1,5 +1,8 @@
 """Tests for the runtime module."""
 
+import sys
+import types
+from collections.abc import Iterator
 from dataclasses import dataclass
 from typing import Any, Protocol
 
@@ -22,6 +25,43 @@ from guardrails.runtime import (
 from guardrails.types import GuardrailResult
 
 THRESHOLD = 2
+
+
+@pytest.fixture(autouse=True)
+def stub_openai_module(monkeypatch: pytest.MonkeyPatch) -> Iterator[types.ModuleType]:
+    """Provide a stub ``openai.AsyncOpenAI`` and patch imports in guardrails.*.
+
+    Ensures tests don't require real OPENAI_API_KEY or networked clients.
+    """
+    module = types.ModuleType("openai")
+
+    class AsyncOpenAI:  # noqa: D401 - simple stub
+        """Stubbed AsyncOpenAI client."""
+
+        def __init__(self, **_: object) -> None:
+            pass
+
+    module.__dict__["AsyncOpenAI"] = AsyncOpenAI
+    # Ensure any downstream import finds our stub module
+    monkeypatch.setitem(sys.modules, "openai", module)
+    # Also patch already-imported symbols on guardrails modules
+    try:
+        import guardrails.runtime as gr_runtime  # type: ignore
+
+        monkeypatch.setattr(gr_runtime, "AsyncOpenAI", AsyncOpenAI, raising=False)
+    except Exception:
+        pass
+    try:
+        import guardrails.types as gr_types  # type: ignore
+
+        monkeypatch.setattr(gr_types, "AsyncOpenAI", AsyncOpenAI, raising=False)
+    except Exception:
+        pass
+    # Provide dummy API key to satisfy any code paths that inspect env
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key")
+
+    yield module
+    monkeypatch.delitem(sys.modules, "openai", raising=False)
 
 
 class LenCfg(BaseModel):
