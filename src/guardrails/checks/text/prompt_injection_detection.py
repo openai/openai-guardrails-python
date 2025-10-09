@@ -129,9 +129,7 @@ def _should_analyze(msg: Any) -> bool:
 
     # Check Choice wrapper for tool calls
     message = _get_attr(msg, "message")
-    if message and (
-        _has_attr(message, "tool_calls") or _has_attr(message, "function_call")
-    ):
+    if message and (_has_attr(message, "tool_calls") or _has_attr(message, "function_call")):
         return True
 
     return False
@@ -170,9 +168,7 @@ async def prompt_injection_detection(
         last_checked_index = ctx.get_injection_last_checked_index()
 
         # Parse only new conversation data since last check
-        user_intent_dict, llm_actions = _parse_conversation_history(
-            conversation_history, last_checked_index
-        )
+        user_intent_dict, llm_actions = _parse_conversation_history(conversation_history, last_checked_index)
 
         if not llm_actions or not user_intent_dict["most_recent_message"]:
             return _create_skip_result(
@@ -185,9 +181,7 @@ async def prompt_injection_detection(
 
         # Format user context for analysis
         if user_intent_dict["previous_context"]:
-            context_text = "\n".join(
-                [f"- {msg}" for msg in user_intent_dict["previous_context"]]
-            )
+            context_text = "\n".join([f"- {msg}" for msg in user_intent_dict["previous_context"]])
             user_goal_text = f"""Most recent request: {user_intent_dict["most_recent_message"]}
 
 Previous context:
@@ -217,17 +211,13 @@ Previous context:
 """
 
         # Call LLM for analysis
-        analysis = await _call_prompt_injection_detection_llm(
-            ctx, analysis_prompt, config
-        )
+        analysis = await _call_prompt_injection_detection_llm(ctx, analysis_prompt, config)
 
         # Update the last checked index now that we've successfully analyzed
         ctx.update_injection_last_checked_index(len(conversation_history))
 
         # Determine if tripwire should trigger
-        is_misaligned = (
-            analysis.flagged and analysis.confidence >= config.confidence_threshold
-        )
+        is_misaligned = analysis.flagged and analysis.confidence >= config.confidence_threshold
 
         result = GuardrailResult(
             tripwire_triggered=is_misaligned,
@@ -252,9 +242,7 @@ Previous context:
         )
 
 
-def _parse_conversation_history(
-    conversation_history: list, last_checked_index: int
-) -> tuple[dict[str, str | list[str]], list[dict[str, Any]]]:
+def _parse_conversation_history(conversation_history: list, last_checked_index: int) -> tuple[dict[str, str | list[str]], list[dict[str, Any]]]:
     """Parse conversation data incrementally, only analyzing new LLM actions.
 
     Args:
@@ -351,9 +339,7 @@ def _create_skip_result(
     )
 
 
-async def _call_prompt_injection_detection_llm(
-    ctx: GuardrailLLMContextProto, prompt: str, config: LLMConfig
-) -> PromptInjectionDetectionOutput:
+async def _call_prompt_injection_detection_llm(ctx: GuardrailLLMContextProto, prompt: str, config: LLMConfig) -> PromptInjectionDetectionOutput:
     """Call LLM for prompt injection detection analysis."""
     parsed_response = await ctx.guardrail_llm.responses.parse(
         model=config.model,

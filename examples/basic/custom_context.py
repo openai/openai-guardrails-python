@@ -26,14 +26,15 @@ PIPELINE_CONFIG = {
                     "system_prompt_details": "Check if the text contains any math problems.",
                 },
             },
-        ]
-    }
+        ],
+    },
 }
 
 
 async def main() -> None:
     # Use Ollama for guardrail LLM checks
     from openai import AsyncOpenAI
+
     guardrail_llm = AsyncOpenAI(
         base_url="http://127.0.0.1:11434/v1/",  # Ollama endpoint
         api_key="ollama",
@@ -50,10 +51,7 @@ async def main() -> None:
         while True:
             try:
                 user_input = input("Enter a message: ")
-                response = await client.chat.completions.create(
-                    model="gpt-4.1-nano",
-                    messages=[{"role": "user", "content": user_input}]
-                )
+                response = await client.chat.completions.create(model="gpt-4.1-nano", messages=[{"role": "user", "content": user_input}])
                 print("Assistant:", response.llm_response.choices[0].message.content)
             except EOFError:
                 break
@@ -65,5 +63,3 @@ async def main() -> None:
 
 if __name__ == "__main__":
     asyncio.run(main())
-
-

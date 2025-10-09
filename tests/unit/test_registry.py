@@ -14,7 +14,8 @@ def stub_openai_module(monkeypatch: pytest.MonkeyPatch) -> Iterator[types.Module
     module = types.ModuleType("openai")
 
     class AsyncOpenAI:
-        pass
+        def __init__(self, **_: object) -> None:
+            pass
 
     module.__dict__["AsyncOpenAI"] = AsyncOpenAI
     monkeypatch.setitem(sys.modules, "openai", module)
@@ -38,11 +39,7 @@ def test_resolve_ctx_protocol_creates_model() -> None:
 
     model = _resolve_ctx_requirements(check)
     # Prefer Pydantic v2 API without eagerly touching deprecated v1 attributes
-    fields = (
-        model.model_fields
-        if hasattr(model, "model_fields")
-        else getattr(model, "__fields__", {})
-    )
+    fields = model.model_fields if hasattr(model, "model_fields") else getattr(model, "__fields__", {})
     assert issubclass(model, BaseModel)  # noqa: S101
     assert set(fields) == {"foo"}  # noqa: S101
 

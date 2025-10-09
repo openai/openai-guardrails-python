@@ -39,6 +39,8 @@ from guardrails.registry import default_spec_registry
 from guardrails.spec import GuardrailSpecMetadata
 from guardrails.types import GuardrailResult
 
+from ..._openai_utils import prepare_openai_kwargs
+
 logger = logging.getLogger(__name__)
 
 __all__ = ["moderation", "Category", "ModerationCfg"]
@@ -127,7 +129,7 @@ def _get_moderation_client() -> AsyncOpenAI:
     Returns:
         AsyncOpenAI: Cached OpenAI API client for moderation checks.
     """
-    return AsyncOpenAI()
+    return AsyncOpenAI(**prepare_openai_kwargs({}))
 
 
 async def moderation(
@@ -149,6 +151,7 @@ async def moderation(
     Returns:
         GuardrailResult: Indicates if tripwire was triggered, and details of flagged categories.
     """
+
     # Prefer reusing an existing OpenAI client from context ONLY if it targets the
     # official OpenAI API. If it's any other provider (e.g., Ollama via base_url),
     # fall back to the default OpenAI moderation client.

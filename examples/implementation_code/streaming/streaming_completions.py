@@ -32,6 +32,7 @@ async def process_input(guardrails_client: GuardrailsAsyncOpenAI, user_input: st
     except GuardrailTripwireTriggered:
         raise
 
+
 async def main():
     # Initialize GuardrailsAsyncOpenAI with the config file
     guardrails_client = GuardrailsAsyncOpenAI(config=Path("guardrails_config.json"))
@@ -44,11 +45,12 @@ async def main():
             break
         except GuardrailTripwireTriggered as exc:
             # The stream will have already yielded the violation chunk before raising
-            os.system('cls' if os.name == 'nt' else 'clear')
+            os.system("cls" if os.name == "nt" else "clear")
             stage_name = exc.guardrail_result.info.get("stage_name", "unknown")
             guardrail_name = exc.guardrail_result.info.get("guardrail_name", "unknown")
             print(f"\n🛑 Guardrail '{guardrail_name}' triggered in stage '{stage_name}'!")
             continue
+
 
 if __name__ == "__main__":
     asyncio.run(main())

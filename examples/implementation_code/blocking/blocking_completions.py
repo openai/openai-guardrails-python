@@ -27,6 +27,7 @@ async def process_input(guardrails_client: GuardrailsAsyncOpenAI, user_input: st
         # GuardrailsClient automatically handles tripwire exceptions
         raise
 
+
 async def main():
     # Initialize GuardrailsAsyncOpenAI with the config file
     guardrails_client = GuardrailsAsyncOpenAI(config=Path("guardrails_config.json"))

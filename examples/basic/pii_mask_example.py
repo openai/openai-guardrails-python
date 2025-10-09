@@ -42,9 +42,7 @@ PIPELINE_CONFIG = {
     },
     "input": {
         "version": 1,
-        "guardrails": [
-            {"name": "Moderation", "config": {"categories": ["hate", "violence"]}}
-        ],
+        "guardrails": [{"name": "Moderation", "config": {"categories": ["hate", "violence"]}}],
         "config": {"concurrency": 5, "suppress_tripwire": False},
     },
     "output": {
@@ -98,9 +96,7 @@ async def process_input(
         # Show PII masking information if detected in pre-flight
         if response.guardrail_results.preflight:
             for result in response.guardrail_results.preflight:
-                if result.info.get(
-                    "guardrail_name"
-                ) == "Contains PII" and result.info.get("pii_detected", False):
+                if result.info.get("guardrail_name") == "Contains PII" and result.info.get("pii_detected", False):
                     detected_entities = result.info.get("detected_entities", {})
                     masked_text = result.info.get("checked_text", user_input)
 
@@ -118,9 +114,7 @@ async def process_input(
         # Show if PII was detected in output
         if response.guardrail_results.output:
             for result in response.guardrail_results.output:
-                if result.info.get(
-                    "guardrail_name"
-                ) == "Contains PII" and result.info.get("pii_detected", False):
+                if result.info.get("guardrail_name") == "Contains PII" and result.info.get("pii_detected", False):
                     detected_entities = result.info.get("detected_entities", {})
                     console.print(
                         Panel(
@@ -134,14 +128,8 @@ async def process_input(
     except GuardrailTripwireTriggered as exc:
         stage_name = exc.guardrail_result.info.get("stage_name", "unknown")
         guardrail_name = exc.guardrail_result.info.get("guardrail_name", "unknown")
-        console.print(
-            f"[bold red]Guardrail '{guardrail_name}' triggered in stage '{stage_name}'![/bold red]"
-        )
-        console.print(
-            Panel(
-                str(exc.guardrail_result), title="Guardrail Result", border_style="red"
-            )
-        )
+        console.print(f"[bold red]Guardrail '{guardrail_name}' triggered in stage '{stage_name}'![/bold red]")
+        console.print(Panel(str(exc.guardrail_result), title="Guardrail Result", border_style="red"))
         raise
 
 

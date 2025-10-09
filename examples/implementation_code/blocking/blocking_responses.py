@@ -16,11 +16,7 @@ async def process_input(guardrails_client: GuardrailsAsyncOpenAI, user_input: st
     try:
         # Use the GuardrailsClient - it handles all guardrail validation automatically
         # including pre-flight, input, and output stages, plus the LLM call
-        response = await guardrails_client.responses.create(
-            input=user_input,
-            model="gpt-4.1-nano",
-            previous_response_id=response_id
-        )
+        response = await guardrails_client.responses.create(input=user_input, model="gpt-4.1-nano", previous_response_id=response_id)
 
         print(f"\nAssistant: {response.llm_response.output_text}")
 
@@ -29,6 +25,7 @@ async def process_input(guardrails_client: GuardrailsAsyncOpenAI, user_input: st
     except GuardrailTripwireTriggered:
         # GuardrailsClient automatically handles tripwire exceptions
         raise
+
 
 async def main():
     # Initialize GuardrailsAsyncOpenAI with the config file
@@ -47,6 +44,7 @@ async def main():
             guardrail_name = exc.guardrail_result.info.get("guardrail_name", "unknown")
             print(f"\n🛑 Guardrail '{guardrail_name}' triggered in stage '{stage_name}'!")
             continue
+
 
 if __name__ == "__main__":
     asyncio.run(main())

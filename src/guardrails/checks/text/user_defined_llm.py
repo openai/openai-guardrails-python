@@ -81,8 +81,7 @@ SYSTEM_PROMPT = textwrap.dedent(
 user_defined_llm: CheckFn[GuardrailLLMContextProto, str, UserDefinedConfig] = create_llm_check_fn(
     name="Custom Prompt Check",
     description=(
-        "Runs a user-defined guardrail based on a custom system prompt. "
-        "Allows for flexible content moderation based on specific requirements."
+        "Runs a user-defined guardrail based on a custom system prompt. Allows for flexible content moderation based on specific requirements."
     ),
     system_prompt=SYSTEM_PROMPT,
     output_model=LLMOutput,

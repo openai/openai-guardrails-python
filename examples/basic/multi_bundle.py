@@ -73,9 +73,7 @@ async def process_input(
 
             # Get the response ID from the final chunk
             response_id_to_return = None
-            if hasattr(chunk.llm_response, "response") and hasattr(
-                chunk.llm_response.response, "id"
-            ):
+            if hasattr(chunk.llm_response, "response") and hasattr(chunk.llm_response.response, "id"):
                 response_id_to_return = chunk.llm_response.response.id
 
             return response_id_to_return
@@ -98,16 +96,12 @@ async def main() -> None:
         while True:
             try:
                 prompt = input("Enter a message: ")
-                response_id = await process_input(
-                    guardrails_client, prompt, response_id
-                )
+                response_id = await process_input(guardrails_client, prompt, response_id)
             except (EOFError, KeyboardInterrupt):
                 break
             except GuardrailTripwireTriggered as exc:
                 stage_name = exc.guardrail_result.info.get("stage_name", "unknown")
-                guardrail_name = exc.guardrail_result.info.get(
-                    "guardrail_name", "unknown"
-                )
+                guardrail_name = exc.guardrail_result.info.get("guardrail_name", "unknown")
                 console.print(
                     f"🛑 Guardrail '{guardrail_name}' triggered in stage '{stage_name}'!",
                     style="bold red",

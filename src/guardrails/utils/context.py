@@ -62,14 +62,8 @@ def validate_guardrail_context(
         try:
             app_ctx_fields = get_type_hints(ctx)
         except TypeError as exc2:
-            msg = (
-                "Context must support attribute access, please pass Context as a class instead of "
-                f"'{type(ctx)}'."
-            )
+            msg = f"Context must support attribute access, please pass Context as a class instead of '{type(ctx)}'."
             raise ContextValidationError(msg) from exc2
         # Raise a structured context validation error
-        msg = (
-            f"Context for '{name}' guardrail expects {ctx_requirements} which does not match ctx "
-            f"schema '{app_ctx_fields}':\n{details}"
-        )
+        msg = f"Context for '{name}' guardrail expects {ctx_requirements} which does not match ctx schema '{app_ctx_fields}':\n{details}"
         raise ContextValidationError(msg) from exc

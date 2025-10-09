@@ -169,10 +169,7 @@ class GuardrailRegistry:
         if name in self._guardrailspecs:
             existing = self._guardrailspecs[name]
             self._logger.error("Duplicate registration attempted for '%s'", name)
-            msg = (
-                f"Guardrail name '{name}' already bound to {existing.check_fn.__qualname__}. "
-                "Pick a distinct name or rename the function."
-            )
+            msg = f"Guardrail name '{name}' already bound to {existing.check_fn.__qualname__}. Pick a distinct name or rename the function."
             raise ValueError(msg)
 
         if isinstance(media_type, str) and not MIME_RE.match(media_type):

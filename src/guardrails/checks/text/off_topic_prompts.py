@@ -84,12 +84,10 @@ SYSTEM_PROMPT = textwrap.dedent(
 ).strip()
 
 
-topical_alignment: CheckFn[GuardrailLLMContextProto, str, TopicalAlignmentConfig] = (
-    create_llm_check_fn(
-        name="Off Topic Prompts",
-        description="Checks that the content stays within the defined business scope.",
-        system_prompt=SYSTEM_PROMPT,  # business_scope supplied at runtime
-        output_model=LLMOutput,
-        config_model=TopicalAlignmentConfig,
-    )
+topical_alignment: CheckFn[GuardrailLLMContextProto, str, TopicalAlignmentConfig] = create_llm_check_fn(
+    name="Off Topic Prompts",
+    description="Checks that the content stays within the defined business scope.",
+    system_prompt=SYSTEM_PROMPT,  # business_scope supplied at runtime
+    output_model=LLMOutput,
+    config_model=TopicalAlignmentConfig,
 )

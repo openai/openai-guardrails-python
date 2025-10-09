@@ -35,6 +35,8 @@ from guardrails.evals.core import (
 )
 from guardrails.evals.core.types import Context
 
+from .._openai_utils import prepare_openai_kwargs
+
 logger = logging.getLogger(__name__)
 
 # Default models for benchmark mode
@@ -102,19 +104,9 @@ class GuardrailEval:
 
         # Validate Azure configuration
         if azure_endpoint and not AsyncAzureOpenAI:
-            raise ValueError(
-                "Azure OpenAI support requires openai>=1.0.0. "
-                "Please upgrade: pip install --upgrade openai"
-            )
+            raise ValueError("Azure OpenAI support requires openai>=1.0.0. Please upgrade: pip install --upgrade openai")
 
-    def _validate_inputs(
-        self,
-        config_path: Path,
-        dataset_path: Path,
-        batch_size: int,
-        mode: str,
-        latency_iterations: int
-    ) -> None:
+    def _validate_inputs(self, config_path: Path, dataset_path: Path, batch_size: int, mode: str, latency_iterations: int) -> None:
         """Validate input parameters."""
         if not config_path.exists():
             raise ValueError(f"Config file not found: {config_path}")
@@ -167,9 +159,7 @@ class GuardrailEval:
             logger.info("Starting %s stage evaluation", stage)
 
             try:
-                stage_results = await self._evaluate_single_stage(
-                    stage, pipeline_bundles, samples, context, calculator
-                )
+                stage_results = await self._evaluate_single_stage(stage, pipeline_bundles, samples, context, calculator)
 
                 if stage_results:
                     all_results[stage] = stage_results["results"]
@@ -197,8 +187,10 @@ class GuardrailEval:
         # Validate guardrail has model configuration
         stage_bundle = getattr(pipeline_bundles, stage_to_test)
         if not self._has_model_configuration(stage_bundle):
-            raise ValueError(f"Guardrail '{guardrail_name}' does not have a model configuration. "
-                           "Benchmark mode requires LLM-based guardrails with configurable models.")
+            raise ValueError(
+                f"Guardrail '{guardrail_name}' does not have a model configuration. "
+                "Benchmark mode requires LLM-based guardrails with configurable models."
+            )
 
         logger.info("Benchmarking guardrail '%s' from stage '%s'", guardrail_name, stage_to_test)
 
@@ -222,23 +214,14 @@ class GuardrailEval:
 
         # Save benchmark results
         benchmark_dir = benchmark_reporter.save_benchmark_results(
-            results_by_model,
-            metrics_by_model,
-            latency_results,
-            guardrail_name,
-            len(samples),
-            self.latency_iterations
+            results_by_model, metrics_by_model, latency_results, guardrail_name, len(samples), self.latency_iterations
         )
 
         # Create visualizations
         logger.info("Generating visualizations")
         visualizer = BenchmarkVisualizer(benchmark_dir / "graphs")
         visualization_files = visualizer.create_all_visualizations(
-            results_by_model,
-            metrics_by_model,
-            latency_results,
-            guardrail_name,
-            samples[0].expected_triggers if samples else {}
+            results_by_model, metrics_by_model, latency_results, guardrail_name, samples[0].expected_triggers if samples else {}
         )
 
         logger.info("Benchmark completed. Results saved to: %s", benchmark_dir)
@@ -253,9 +236,9 @@ class GuardrailEval:
         if not guardrail_config:
             return False
 
-        if isinstance(guardrail_config, dict) and 'model' in guardrail_config:
+        if isinstance(guardrail_config, dict) and "model" in guardrail_config:
             return True
-        elif hasattr(guardrail_config, 'model'):
+        elif hasattr(guardrail_config, "model"):
             return True
 
         return False
@@ -266,9 +249,7 @@ class GuardrailEval:
         latency_tester = LatencyTester(iterations=self.latency_iterations)
 
         for model in self.models:
-            model_stage_bundle = self._create_model_specific_stage_bundle(
-                getattr(load_pipeline_bundles(self.config_path), stage_to_test), model
-            )
+            model_stage_bundle = self._create_model_specific_stage_bundle(getattr(load_pipeline_bundles(self.config_path), stage_to_test), model)
             model_context = self._create_context()
             latency_results[model] = await latency_tester.test_guardrail_latency_for_model(
                 model_context,
@@ -292,10 +273,7 @@ class GuardrailEval:
         # Azure OpenAI
         if self.azure_endpoint:
             if not AsyncAzureOpenAI:
-                raise ValueError(
-                    "Azure OpenAI support requires openai>=1.0.0. "
-                    "Please upgrade: pip install --upgrade openai"
-                )
+                raise ValueError("Azure OpenAI support requires openai>=1.0.0. Please upgrade: pip install --upgrade openai")
 
             azure_kwargs = {
                 "azure_endpoint": self.azure_endpoint,
@@ -304,7 +282,7 @@ class GuardrailEval:
             if self.api_key:
                 azure_kwargs["api_key"] = self.api_key
 
-            guardrail_llm = AsyncAzureOpenAI(**azure_kwargs)
+            guardrail_llm = AsyncAzureOpenAI(**prepare_openai_kwargs(azure_kwargs))
             logger.info("Created Azure OpenAI client for endpoint: %s", self.azure_endpoint)
         # OpenAI or OpenAI-compatible API
         else:
@@ -315,10 +293,9 @@ class GuardrailEval:
                 openai_kwargs["base_url"] = self.base_url
                 logger.info("Created OpenAI-compatible client for base_url: %s", self.base_url)
 
-            guardrail_llm = AsyncOpenAI(**openai_kwargs)
+            guardrail_llm = AsyncOpenAI(**prepare_openai_kwargs(openai_kwargs))
 
         return Context(guardrail_llm=guardrail_llm)
-
 
     def _is_valid_stage(self, pipeline_bundles, stage: str) -> bool:
         """Check if a stage has valid guardrails configured.
@@ -334,11 +311,7 @@ class GuardrailEval:
             return False
 
         stage_bundle = getattr(pipeline_bundles, stage)
-        return (
-            stage_bundle is not None
-            and hasattr(stage_bundle, 'guardrails')
-            and bool(stage_bundle.guardrails)
-        )
+        return stage_bundle is not None and hasattr(stage_bundle, "guardrails") and bool(stage_bundle.guardrails)
 
     def _create_model_specific_stage_bundle(self, stage_bundle, model: str):
         """Create a deep copy of the stage bundle with model-specific configuration."""
@@ -353,18 +326,16 @@ class GuardrailEval:
         guardrails_updated = 0
         for guardrail in modified_bundle.guardrails:
             try:
-                if hasattr(guardrail, 'config') and guardrail.config:
-                    if isinstance(guardrail.config, dict) and 'model' in guardrail.config:
-                        original_model = guardrail.config['model']
-                        guardrail.config['model'] = model
-                        logger.info("Updated guardrail '%s' model from '%s' to '%s'",
-                                  guardrail.name, original_model, model)
+                if hasattr(guardrail, "config") and guardrail.config:
+                    if isinstance(guardrail.config, dict) and "model" in guardrail.config:
+                        original_model = guardrail.config["model"]
+                        guardrail.config["model"] = model
+                        logger.info("Updated guardrail '%s' model from '%s' to '%s'", guardrail.name, original_model, model)
                         guardrails_updated += 1
-                    elif hasattr(guardrail.config, 'model'):
-                        original_model = getattr(guardrail.config, 'model', 'unknown')
+                    elif hasattr(guardrail.config, "model"):
+                        original_model = getattr(guardrail.config, "model", "unknown")
                         guardrail.config.model = model
-                        logger.info("Updated guardrail '%s' model from '%s' to '%s'",
-                                  guardrail.name, original_model, model)
+                        logger.info("Updated guardrail '%s' model from '%s' to '%s'", guardrail.name, original_model, model)
                         guardrails_updated += 1
             except Exception as e:
                 logger.error("Failed to update guardrail '%s' configuration: %s", guardrail.name, e)
@@ -381,10 +352,7 @@ class GuardrailEval:
         """Get list of valid stages to evaluate."""
         if self.stages is None:
             # Auto-detect all valid stages
-            available_stages = [
-                stage for stage in VALID_STAGES
-                if self._is_valid_stage(pipeline_bundles, stage)
-            ]
+            available_stages = [stage for stage in VALID_STAGES if self._is_valid_stage(pipeline_bundles, stage)]
 
             if not available_stages:
                 raise ValueError("No valid stages found in configuration")
@@ -411,12 +379,7 @@ class GuardrailEval:
             return valid_requested_stages
 
     async def _evaluate_single_stage(
-        self,
-        stage: str,
-        pipeline_bundles,
-        samples: list,
-        context: Context,
-        calculator: GuardrailMetricsCalculator
+        self, stage: str, pipeline_bundles, samples: list, context: Context, calculator: GuardrailMetricsCalculator
     ) -> dict[str, Any] | None:
         """Evaluate a single pipeline stage."""
         try:
@@ -425,19 +388,11 @@ class GuardrailEval:
 
             engine = AsyncRunEngine(guardrails)
 
-            stage_results = await engine.run(
-                context,
-                samples,
-                self.batch_size,
-                desc=f"Evaluating {stage} stage"
-            )
+            stage_results = await engine.run(context, samples, self.batch_size, desc=f"Evaluating {stage} stage")
 
             stage_metrics = calculator.calculate(stage_results)
 
-            return {
-                "results": stage_results,
-                "metrics": stage_metrics
-            }
+            return {"results": stage_results, "metrics": stage_metrics}
 
         except Exception as e:
             logger.error("Failed to evaluate stage '%s': %s", stage, e)
@@ -451,10 +406,7 @@ class GuardrailEval:
                 raise ValueError(f"Stage '{stage_to_test}' has no guardrails configured")
         else:
             # Find first valid stage
-            stage_to_test = next(
-                (stage for stage in VALID_STAGES if self._is_valid_stage(pipeline_bundles, stage)),
-                None
-            )
+            stage_to_test = next((stage for stage in VALID_STAGES if self._is_valid_stage(pipeline_bundles, stage)), None)
             if not stage_to_test:
                 raise ValueError("No valid stage found for benchmarking")
 
@@ -470,7 +422,7 @@ class GuardrailEval:
         samples: list,
         context: Context,
         benchmark_calculator: BenchmarkMetricsCalculator,
-        basic_calculator: GuardrailMetricsCalculator
+        basic_calculator: GuardrailMetricsCalculator,
     ) -> tuple[dict[str, list], dict[str, dict]]:
         """Benchmark all models for the specified stage and guardrail."""
         pipeline_bundles = load_pipeline_bundles(self.config_path)
@@ -486,8 +438,7 @@ class GuardrailEval:
                 modified_stage_bundle = self._create_model_specific_stage_bundle(stage_bundle, model)
 
                 model_results = await self._benchmark_single_model(
-                    model, modified_stage_bundle, samples, context,
-                    guardrail_name, benchmark_calculator, basic_calculator
+                    model, modified_stage_bundle, samples, context, guardrail_name, benchmark_calculator, basic_calculator
                 )
 
                 if model_results:
@@ -524,7 +475,7 @@ class GuardrailEval:
         context: Context,
         guardrail_name: str,
         benchmark_calculator: BenchmarkMetricsCalculator,
-        basic_calculator: GuardrailMetricsCalculator
+        basic_calculator: GuardrailMetricsCalculator,
     ) -> dict[str, Any] | None:
         """Benchmark a single model."""
         try:
@@ -532,18 +483,11 @@ class GuardrailEval:
 
             guardrails = instantiate_guardrails(stage_bundle)
             engine = AsyncRunEngine(guardrails)
-            model_results = await engine.run(
-                model_context,
-                samples,
-                self.batch_size,
-                desc=f"Benchmarking {model}"
-            )
+            model_results = await engine.run(model_context, samples, self.batch_size, desc=f"Benchmarking {model}")
 
             guardrail_config = stage_bundle.guardrails[0].config if stage_bundle.guardrails else None
 
-            advanced_metrics = benchmark_calculator.calculate_advanced_metrics(
-                model_results, guardrail_name, guardrail_config
-            )
+            advanced_metrics = benchmark_calculator.calculate_advanced_metrics(model_results, guardrail_name, guardrail_config)
 
             basic_metrics = basic_calculator.calculate(model_results)
 
@@ -564,10 +508,7 @@ class GuardrailEval:
 
             combined_metrics = {**basic_metrics_dict, **advanced_metrics}
 
-            return {
-                "results": model_results,
-                "metrics": combined_metrics
-            }
+            return {"results": model_results, "metrics": combined_metrics}
 
         except Exception as e:
             logger.error("Failed to benchmark model %s: %s", model, e)
@@ -602,7 +543,7 @@ Examples:
   # vLLM or other OpenAI-compatible API
   python guardrail_evals.py --config-path config.json --dataset-path data.jsonl --mode benchmark \\
     --base-url http://your-server:8000/v1 --api-key your-key --models your-model
-        """
+        """,
     )
 
     # Required arguments
@@ -713,8 +654,8 @@ Examples:
             print("⚠️  Warning: Benchmark mode only uses the first specified stage. Additional stages will be ignored.")
 
         # Validate provider configuration
-        azure_endpoint = getattr(args, 'azure_endpoint', None)
-        base_url = getattr(args, 'base_url', None)
+        azure_endpoint = getattr(args, "azure_endpoint", None)
+        base_url = getattr(args, "base_url", None)
 
         if azure_endpoint and base_url:
             print("❌ Error: Cannot specify both --azure-endpoint and --base-url. Choose one provider.")
@@ -736,9 +677,9 @@ Examples:
         print(f"   Output: {args.output_dir}")
 
         # Show provider configuration
-        if getattr(args, 'azure_endpoint', None):
+        if getattr(args, "azure_endpoint", None):
             print(f"   Provider: Azure OpenAI ({args.azure_endpoint})")
-        elif getattr(args, 'base_url', None):
+        elif getattr(args, "base_url", None):
             print(f"   Provider: OpenAI-compatible API ({args.base_url})")
         else:
             print("   Provider: OpenAI")
@@ -754,9 +695,9 @@ Examples:
             batch_size=args.batch_size,
             output_dir=args.output_dir,
             api_key=args.api_key,
-            base_url=getattr(args, 'base_url', None),
-            azure_endpoint=getattr(args, 'azure_endpoint', None),
-            azure_api_version=getattr(args, 'azure_api_version', None),
+            base_url=getattr(args, "base_url", None),
+            azure_endpoint=getattr(args, "azure_endpoint", None),
+            azure_api_version=getattr(args, "azure_api_version", None),
             mode=args.mode,
             models=args.models,
             latency_iterations=args.latency_iterations,
@@ -772,6 +713,7 @@ Examples:
         print(f"❌ Evaluation failed: {e}")
         if logger.isEnabledFor(logging.DEBUG):
             import traceback
+
             traceback.print_exc()
         sys.exit(1)
 

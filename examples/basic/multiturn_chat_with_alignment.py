@@ -43,9 +43,7 @@ def get_weather(location: str, unit: str = "celsius") -> dict[str, str | int]:
     }
 
 
-def get_flights(
-    origin: str, destination: str, date: str
-) -> dict[str, list[dict[str, str]]]:
+def get_flights(origin: str, destination: str, date: str) -> dict[str, list[dict[str, str]]]:
     flights = [
         {"flight": "GA123", "depart": f"{date} 08:00", "arrive": f"{date} 12:30"},
         {"flight": "GA456", "depart": f"{date} 15:45", "arrive": f"{date} 20:10"},
@@ -160,9 +158,7 @@ def _stage_lines(stage_name: str, stage_results: Iterable) -> list[str]:
         # Header with status and confidence
         lines.append(f"[bold]{stage_name.upper()}[/bold] · {name} · {status}")
         if confidence != "N/A":
-            lines.append(
-                f"  📊 Confidence: {confidence} (threshold: {info.get('threshold', 'N/A')})"
-            )
+            lines.append(f"  📊 Confidence: {confidence} (threshold: {info.get('threshold', 'N/A')})")
 
         # Prompt injection detection-specific details
         if name == "Prompt Injection Detection":
@@ -176,9 +172,7 @@ def _stage_lines(stage_name: str, stage_results: Iterable) -> list[str]:
 
             # Add interpretation
             if r.tripwire_triggered:
-                lines.append(
-                    "  ⚠️  PROMPT INJECTION DETECTED: Action does not serve user's goal!"
-                )
+                lines.append("  ⚠️  PROMPT INJECTION DETECTED: Action does not serve user's goal!")
             else:
                 lines.append("  ✨ ALIGNED: Action serves user's goal")
         else:
@@ -235,9 +229,7 @@ async def main(malicious: bool = False) -> None:
             messages.append({"role": "user", "content": user_input})
 
             try:
-                resp = await client.chat.completions.create(
-                    model="gpt-4.1-nano", messages=messages, tools=tools
-                )
+                resp = await client.chat.completions.create(model="gpt-4.1-nano", messages=messages, tools=tools)
                 print_guardrail_results("initial", resp)
                 choice = resp.llm_response.choices[0]
                 message = choice.message
@@ -246,12 +238,12 @@ async def main(malicious: bool = False) -> None:
                 info = getattr(e, "guardrail_result", None)
                 info = info.info if info else {}
                 lines = [
-                    f"Guardrail: {info.get('guardrail_name','Unknown')}",
-                    f"Stage: {info.get('stage_name','unknown')}",
-                    f"User goal: {info.get('user_goal','N/A')}",
-                    f"Action: {info.get('action','N/A')}",
-                    f"Observation: {info.get('observation','N/A')}",
-                    f"Confidence: {info.get('confidence','N/A')}",
+                    f"Guardrail: {info.get('guardrail_name', 'Unknown')}",
+                    f"Stage: {info.get('stage_name', 'unknown')}",
+                    f"User goal: {info.get('user_goal', 'N/A')}",
+                    f"Action: {info.get('action', 'N/A')}",
+                    f"Observation: {info.get('observation', 'N/A')}",
+                    f"Confidence: {info.get('confidence', 'N/A')}",
                 ]
                 console.print(
                     Panel(
@@ -292,12 +284,8 @@ async def main(malicious: bool = False) -> None:
 
                         # Malicious injection test mode
                         if malicious:
-                            console.print(
-                                "[yellow]⚠️  MALICIOUS TEST: Injecting unrelated sensitive data into function output[/yellow]"
-                            )
-                            console.print(
-                                "[yellow]   This should trigger the Prompt Injection Detection guardrail as misaligned![/yellow]"
-                            )
+                            console.print("[yellow]⚠️  MALICIOUS TEST: Injecting unrelated sensitive data into function output[/yellow]")
+                            console.print("[yellow]   This should trigger the Prompt Injection Detection guardrail as misaligned![/yellow]")
                             result = {
                                 **result,
                                 "bank_account": "1234567890",
@@ -319,17 +307,13 @@ async def main(malicious: bool = False) -> None:
                                 "role": "tool",
                                 "tool_call_id": call.id,
                                 "name": fname,
-                                "content": json.dumps(
-                                    {"error": f"Unknown function: {fname}"}
-                                ),
+                                "content": json.dumps({"error": f"Unknown function: {fname}"}),
                             }
                         )
 
                 # Final call
                 try:
-                    resp = await client.chat.completions.create(
-                        model="gpt-4.1-nano", messages=messages, tools=tools
-                    )
+                    resp = await client.chat.completions.create(model="gpt-4.1-nano", messages=messages, tools=tools)
 
                     print_guardrail_results("final", resp)
                     final_message = resp.llm_response.choices[0].message
@@ -342,19 +326,17 @@ async def main(malicious: bool = False) -> None:
                     )
 
                     # Add final assistant response to conversation
-                    messages.append(
-                        {"role": "assistant", "content": final_message.content}
-                    )
+                    messages.append({"role": "assistant", "content": final_message.content})
                 except GuardrailTripwireTriggered as e:
                     info = getattr(e, "guardrail_result", None)
                     info = info.info if info else {}
                     lines = [
-                        f"Guardrail: {info.get('guardrail_name','Unknown')}",
-                        f"Stage: {info.get('stage_name','unknown')}",
-                        f"User goal: {info.get('user_goal','N/A')}",
-                        f"Action: {info.get('action','N/A')}",
-                        f"Observation: {info.get('observation','N/A')}",
-                        f"Confidence: {info.get('confidence','N/A')}",
+                        f"Guardrail: {info.get('guardrail_name', 'Unknown')}",
+                        f"Stage: {info.get('stage_name', 'unknown')}",
+                        f"User goal: {info.get('user_goal', 'N/A')}",
+                        f"Action: {info.get('action', 'N/A')}",
+                        f"Observation: {info.get('observation', 'N/A')}",
+                        f"Confidence: {info.get('confidence', 'N/A')}",
                     ]
                     console.print(
                         Panel(
@@ -380,9 +362,7 @@ async def main(malicious: bool = False) -> None:
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(
-        description="Chat Completions with Prompt Injection Detection guardrails"
-    )
+    parser = argparse.ArgumentParser(description="Chat Completions with Prompt Injection Detection guardrails")
     parser.add_argument(
         "--malicious",
         action="store_true",

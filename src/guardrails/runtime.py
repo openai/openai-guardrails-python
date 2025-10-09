@@ -21,6 +21,7 @@ from typing import Any, Final, Generic, ParamSpec, TypeAlias, TypeVar, cast
 from openai import AsyncOpenAI
 from pydantic import BaseModel, ConfigDict
 
+from ._openai_utils import prepare_openai_kwargs
 from .exceptions import ConfigError, GuardrailTripwireTriggered
 from .registry import GuardrailRegistry, default_spec_registry
 from .spec import GuardrailSpec
@@ -30,8 +31,6 @@ from .utils.context import validate_guardrail_context
 logger = logging.getLogger(__name__)
 
 P = ParamSpec("P")
-
-
 
 
 @dataclass(frozen=True, slots=True)
@@ -87,9 +86,7 @@ class ConfiguredGuardrail(Generic[TContext, TIn, TCfg]):
         Returns:
             GuardrailResult: The outcome of the guardrail logic.
         """
-        return await self._ensure_async(
-            self.definition.check_fn, ctx, data, self.config
-        )
+        return await self._ensure_async(self.definition.check_fn, ctx, data, self.config)
 
 
 class GuardrailConfig(BaseModel):
@@ -185,17 +182,11 @@ class PipelineBundles(BaseModel):
     def model_post_init(self, __context: Any) -> None:
         """Validate that at least one stage is provided."""
         if not any(getattr(self, stage) is not None for stage in self._STAGE_ORDER):
-            raise ValueError(
-                "At least one stage (pre_flight, input, or output) must be provided"
-            )
+            raise ValueError("At least one stage (pre_flight, input, or output) must be provided")
 
     def stages(self) -> tuple[ConfigBundle, ...]:
         """Return non-None bundles in execution order (pre_flight → input → output)."""
-        return tuple(
-            bundle
-            for name in self._STAGE_ORDER
-            if (bundle := getattr(self, name)) is not None
-        )
+        return tuple(bundle for name in self._STAGE_ORDER if (bundle := getattr(self, name)) is not None)
 
 
 @dataclass(frozen=True, slots=True)
@@ -247,10 +238,7 @@ def _load_bundle(source: ConfigSource | PipelineSource, model: type[T]) -> T:
             logger.debug("Validating %s from JSON string", model.__name__)
             return _validate_from_json(text, model)
         case _:
-            raise ConfigError(
-                f"Unsupported source type for {model.__name__}: {type(source).__name__}. "
-                "Wrap raw JSON strings with `JsonString`."
-            )
+            raise ConfigError(f"Unsupported source type for {model.__name__}: {type(source).__name__}. Wrap raw JSON strings with `JsonString`.")
 
 
 def load_config_bundle(source: ConfigSource) -> ConfigBundle:
@@ -359,9 +347,7 @@ async def run_guardrails(
     guardrails: Iterable[ConfiguredGuardrail[TContext, TIn, Any]],
     *,
     concurrency: int = 10,
-    result_handler: (
-        Callable[[GuardrailResult], Coroutine[None, None, None]] | None
-    ) = None,
+    result_handler: (Callable[[GuardrailResult], Coroutine[None, None, None]] | None) = None,
     suppress_tripwire: bool = False,
     stage_name: str | None = None,
     raise_guardrail_errors: bool = False,
@@ -450,7 +436,7 @@ async def run_guardrails(
                     tripwire_triggered=result.tripwire_triggered,
                     execution_failed=result.execution_failed,
                     original_exception=result.original_exception,
-                    info={**result.info, "stage_name": stage_name or "unnamed"}
+                    info={**result.info, "stage_name": stage_name or "unnamed"},
                 )
 
             except Exception as exc:
@@ -470,7 +456,7 @@ async def run_guardrails(
                             "stage_name": stage_name or "unnamed",
                             "guardrail_name": g.definition.name,
                             "error": str(exc),
-                        }
+                        },
                     )
 
             # Invoke user-provided handler for each result
@@ -515,7 +501,7 @@ def _get_default_ctx():
     class DefaultCtx:
         guardrail_llm: AsyncOpenAI
 
-    return DefaultCtx(guardrail_llm=AsyncOpenAI())
+    return DefaultCtx(guardrail_llm=AsyncOpenAI(**prepare_openai_kwargs({})))
 
 
 async def check_plain_text(
@@ -576,7 +562,5 @@ async def check_plain_text(
     if ctx is None:
         ctx = _get_default_ctx()
     bundle = load_config_bundle(bundle_path)
-    guardrails: list[ConfiguredGuardrail[Any, str, Any]] = instantiate_guardrails(
-        bundle, registry=registry
-    )
+    guardrails: list[ConfiguredGuardrail[Any, str, Any]] = instantiate_guardrails(bundle, registry=registry)
     return await run_guardrails(ctx, text, "text/plain", guardrails, stage_name=bundle.stage_name, **kwargs)

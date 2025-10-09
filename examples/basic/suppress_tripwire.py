@@ -55,9 +55,7 @@ async def process_input(
             for result in response.guardrail_results.all_results:
                 guardrail_name = result.info.get("guardrail_name", "Unknown Guardrail")
                 if result.tripwire_triggered:
-                    console.print(
-                        f"[bold yellow]Guardrail '{guardrail_name}' triggered![/bold yellow]"
-                    )
+                    console.print(f"[bold yellow]Guardrail '{guardrail_name}' triggered![/bold yellow]")
                     console.print(
                         Panel(
                             str(result),
@@ -66,15 +64,11 @@ async def process_input(
                         )
                     )
                 else:
-                    console.print(
-                        f"[bold green]Guardrail '{guardrail_name}' passed.[/bold green]"
-                    )
+                    console.print(f"[bold green]Guardrail '{guardrail_name}' passed.[/bold green]")
         else:
             console.print("[bold green]No guardrails triggered.[/bold green]")
 
-        console.print(
-            f"\n[bold blue]Assistant output:[/bold blue] {response.llm_response.output_text}\n"
-        )
+        console.print(f"\n[bold blue]Assistant output:[/bold blue] {response.llm_response.output_text}\n")
         return response.llm_response.id
 
     except Exception as e:
@@ -95,9 +89,7 @@ async def main() -> None:
                 user_input = input("Enter a message: ")
             except EOFError:
                 break
-            response_id = await process_input(
-                guardrails_client, user_input, response_id
-            )
+            response_id = await process_input(guardrails_client, user_input, response_id)
 
 
 if __name__ == "__main__":

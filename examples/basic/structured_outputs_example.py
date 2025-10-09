@@ -10,6 +10,7 @@ from guardrails import GuardrailsAsyncOpenAI, GuardrailTripwireTriggered
 # Define a simple Pydantic model for structured output
 class UserInfo(BaseModel):
     """User information extracted from text."""
+
     name: str = Field(description="Full name of the user")
     age: int = Field(description="Age of the user")
     email: str = Field(description="Email address of the user")
@@ -22,8 +23,8 @@ PIPELINE_CONFIG = {
         "version": 1,
         "guardrails": [
             {"name": "Moderation", "config": {"categories": ["hate", "violence"]}},
-        ]
-    }
+        ],
+    },
 }
 
 
@@ -31,12 +32,9 @@ async def extract_user_info(guardrails_client: GuardrailsAsyncOpenAI, text: str)
     """Extract user information using responses_parse with structured output."""
     try:
         response = await guardrails_client.responses.parse(
-            input=[
-                {"role": "system", "content": "Extract user information from the provided text."},
-                {"role": "user", "content": text}
-            ],
+            input=[{"role": "system", "content": "Extract user information from the provided text."}, {"role": "user", "content": text}],
             model="gpt-4.1-nano",
-            text_format=UserInfo
+            text_format=UserInfo,
         )
 
         # Access the parsed structured output

@@ -75,18 +75,14 @@ class AsyncRunEngine(RunEngine):
 
         if use_progress:
             with tqdm(total=len(samples), desc=desc, leave=True) as progress:
-                results = await self._run_with_progress(
-                    context, samples, batch_size, progress
-                )
+                results = await self._run_with_progress(context, samples, batch_size, progress)
         else:
             results = await self._run_without_progress(context, samples, batch_size)
 
         logger.info("Evaluation completed. Processed %d samples", len(results))
         return results
 
-    async def _run_with_progress(
-        self, context: Context, samples: list[Sample], batch_size: int, progress: tqdm
-    ) -> list[SampleResult]:
+    async def _run_with_progress(self, context: Context, samples: list[Sample], batch_size: int, progress: tqdm) -> list[SampleResult]:
         """Run evaluation with progress bar."""
         results = []
         for i in range(0, len(samples), batch_size):
@@ -96,9 +92,7 @@ class AsyncRunEngine(RunEngine):
             progress.update(len(batch))
         return results
 
-    async def _run_without_progress(
-        self, context: Context, samples: list[Sample], batch_size: int
-    ) -> list[SampleResult]:
+    async def _run_without_progress(self, context: Context, samples: list[Sample], batch_size: int) -> list[SampleResult]:
         """Run evaluation without progress bar."""
         results = []
         for i in range(0, len(samples), batch_size):
@@ -107,9 +101,7 @@ class AsyncRunEngine(RunEngine):
             results.extend(batch_results)
         return results
 
-    async def _process_batch(
-        self, context: Context, batch: list[Sample]
-    ) -> list[SampleResult]:
+    async def _process_batch(self, context: Context, batch: list[Sample]) -> list[SampleResult]:
         """Process a batch of samples."""
         batch_results = await asyncio.gather(
             *(self._evaluate_sample(context, sample) for sample in batch),
@@ -162,15 +154,10 @@ class AsyncRunEngine(RunEngine):
                             "guardrails": [
                                 {
                                     "name": guardrail.definition.name,
-                                    "config": (
-                                        guardrail.config.__dict__
-                                        if hasattr(guardrail.config, "__dict__")
-                                        else guardrail.config
-                                    ),
+                                    "config": (guardrail.config.__dict__ if hasattr(guardrail.config, "__dict__") else guardrail.config),
                                 }
                                 for guardrail in self.guardrails
-                                if guardrail.definition.name
-                                == "Prompt Injection Detection"
+                                if guardrail.definition.name == "Prompt Injection Detection"
                             ],
                         },
                     }
@@ -178,8 +165,7 @@ class AsyncRunEngine(RunEngine):
                     # Create a temporary GuardrailsAsyncOpenAI client to run the prompt injection detection check
                     temp_client = GuardrailsAsyncOpenAI(
                         config=minimal_config,
-                        api_key=getattr(context.guardrail_llm, "api_key", None)
-                        or "fake-key-for-eval",
+                        api_key=getattr(context.guardrail_llm, "api_key", None) or "fake-key-for-eval",
                     )
 
                     # Use the client's _run_stage_guardrails method with conversation history

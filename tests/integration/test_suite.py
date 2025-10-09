@@ -378,11 +378,7 @@ async def run_test(
             else:
                 # Find the triggered result
                 triggered_result = next(
-                    (
-                        r
-                        for r in response.guardrail_results.all_results
-                        if r.tripwire_triggered
-                    ),
+                    (r for r in response.guardrail_results.all_results if r.tripwire_triggered),
                     None,
                 )
                 info = triggered_result.info if triggered_result else None
@@ -394,9 +390,7 @@ async def run_test(
                         "details": {"result": info},
                     },
                 )
-                print(
-                    f"❌ {test.name} - Passing case {idx} triggered when it shouldn't"
-                )
+                print(f"❌ {test.name} - Passing case {idx} triggered when it shouldn't")
                 if info:
                     print(f"  Info: {info}")
 
@@ -427,11 +421,7 @@ async def run_test(
             if tripwire_triggered:
                 # Find the triggered result
                 triggered_result = next(
-                    (
-                        r
-                        for r in response.guardrail_results.all_results
-                        if r.tripwire_triggered
-                    ),
+                    (r for r in response.guardrail_results.all_results if r.tripwire_triggered),
                     None,
                 )
                 info = triggered_result.info if triggered_result else None
@@ -517,17 +507,9 @@ async def run_test_suite(
         results["tests"].append(outcome)
 
         # Calculate test status
-        passing_fails = sum(
-            1 for c in outcome["passing_cases"] if c["status"] == "FAIL"
-        )
-        failing_fails = sum(
-            1 for c in outcome["failing_cases"] if c["status"] == "FAIL"
-        )
-        errors = sum(
-            1
-            for c in outcome["passing_cases"] + outcome["failing_cases"]
-            if c["status"] == "ERROR"
-        )
+        passing_fails = sum(1 for c in outcome["passing_cases"] if c["status"] == "FAIL")
+        failing_fails = sum(1 for c in outcome["failing_cases"] if c["status"] == "FAIL")
+        errors = sum(1 for c in outcome["passing_cases"] + outcome["failing_cases"] if c["status"] == "ERROR")
 
         if errors > 0:
             results["summary"]["error_tests"] += 1
@@ -538,16 +520,8 @@ async def run_test_suite(
 
         # Count case results
         total_cases = len(outcome["passing_cases"]) + len(outcome["failing_cases"])
-        passed_cases = sum(
-            1
-            for c in outcome["passing_cases"] + outcome["failing_cases"]
-            if c["status"] == "PASS"
-        )
-        failed_cases = sum(
-            1
-            for c in outcome["passing_cases"] + outcome["failing_cases"]
-            if c["status"] == "FAIL"
-        )
+        passed_cases = sum(1 for c in outcome["passing_cases"] + outcome["failing_cases"] if c["status"] == "PASS")
+        failed_cases = sum(1 for c in outcome["passing_cases"] + outcome["failing_cases"] if c["status"] == "FAIL")
         error_cases = errors
 
         results["summary"]["total_cases"] += total_cases
@@ -564,15 +538,10 @@ def print_summary(results: dict[str, Any]) -> None:
     print("GUARDRAILS TEST SUMMARY")
     print("=" * 50)
     print(
-        f"Tests: {summary['passed_tests']} passed, "
-        f"{summary['failed_tests']} failed, "
-        f"{summary['error_tests']} errors",
+        f"Tests: {summary['passed_tests']} passed, {summary['failed_tests']} failed, {summary['error_tests']} errors",
     )
     print(
-        f"Cases: {summary['total_cases']} total, "
-        f"{summary['passed_cases']} passed, "
-        f"{summary['failed_cases']} failed, "
-        f"{summary['error_cases']} errors",
+        f"Cases: {summary['total_cases']} total, {summary['passed_cases']} passed, {summary['failed_cases']} failed, {summary['error_cases']} errors",
     )
 
 

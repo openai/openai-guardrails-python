@@ -80,12 +80,8 @@ async def main() -> None:
                 break
             except GuardrailTripwireTriggered as exc:
                 stage_name = exc.guardrail_result.info.get("stage_name", "unknown")
-                guardrail_name = exc.guardrail_result.info.get(
-                    "guardrail_name", "unknown"
-                )
-                console.print(
-                    f"\n🛑 [bold red]Guardrail '{guardrail_name}' triggered in stage '{stage_name}'![/bold red]"
-                )
+                guardrail_name = exc.guardrail_result.info.get("guardrail_name", "unknown")
+                console.print(f"\n🛑 [bold red]Guardrail '{guardrail_name}' triggered in stage '{stage_name}'![/bold red]")
                 console.print(
                     Panel(
                         str(exc.guardrail_result),

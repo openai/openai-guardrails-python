@@ -49,15 +49,11 @@ async def process_input(
             previous_response_id=response_id,
         )
 
-        console.print(
-            f"\nAssistant output: {response.llm_response.output_text}", end="\n\n"
-        )
+        console.print(f"\nAssistant output: {response.llm_response.output_text}", end="\n\n")
 
         # Show guardrail results if any were run
         if response.guardrail_results.all_results:
-            console.print(
-                f"[dim]Guardrails checked: {len(response.guardrail_results.all_results)}[/dim]"
-            )
+            console.print(f"[dim]Guardrails checked: {len(response.guardrail_results.all_results)}[/dim]")
 
         return response.llm_response.id
 
@@ -76,16 +72,12 @@ async def main() -> None:
         while True:
             try:
                 user_input = input("Enter a message: ")
-                response_id = await process_input(
-                    guardrails_client, user_input, response_id
-                )
+                response_id = await process_input(guardrails_client, user_input, response_id)
             except EOFError:
                 break
             except GuardrailTripwireTriggered as exc:
                 stage_name = exc.guardrail_result.info.get("stage_name", "unknown")
-                console.print(
-                    f"\n🛑 [bold red]Guardrail triggered in stage '{stage_name}'![/bold red]"
-                )
+                console.print(f"\n🛑 [bold red]Guardrail triggered in stage '{stage_name}'![/bold red]")
                 console.print(
                     Panel(
                         str(exc.guardrail_result),

@@ -98,7 +98,7 @@ def match_keywords(
         GuardrailResult: Result containing match details and status.
     """
     # Sanitize keywords by stripping trailing punctuation
-    sanitized_keywords = [re.sub(r'[.,!?;:]+$', '', keyword) for keyword in config.keywords]
+    sanitized_keywords = [re.sub(r"[.,!?;:]+$", "", keyword) for keyword in config.keywords]
 
     pat = _compile_pattern(tuple(sorted(sanitized_keywords)))
     matches = [m.group(0) for m in pat.finditer(data)]

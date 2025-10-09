@@ -19,7 +19,8 @@ def stub_openai_module(monkeypatch: pytest.MonkeyPatch) -> Iterator[types.Module
     class AsyncOpenAI:  # noqa: D401 - simple stub
         """Stubbed AsyncOpenAI client."""
 
-        pass
+        def __init__(self, **_: object) -> None:
+            pass
 
     module.__dict__["AsyncOpenAI"] = AsyncOpenAI
     monkeypatch.setitem(sys.modules, "openai", module)

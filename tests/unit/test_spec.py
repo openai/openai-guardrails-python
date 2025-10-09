@@ -22,7 +22,8 @@ def stub_openai_module(monkeypatch: pytest.MonkeyPatch) -> Iterator[types.Module
     module = types.ModuleType("openai")
 
     class AsyncOpenAI:
-        pass
+        def __init__(self, **_: object) -> None:
+            pass
 
     module.__dict__["AsyncOpenAI"] = AsyncOpenAI
     monkeypatch.setitem(sys.modules, "openai", module)

@@ -247,14 +247,10 @@ def _detect_pii(text: str, config: PIIConfig) -> PiiDetectionResult:
         raise ValueError("Text cannot be empty or None")
 
     engine = _get_analyzer_engine()
-    analyzer_results = engine.analyze(
-        text, entities=[e.value for e in config.entities], language="en"
-    )
+    analyzer_results = engine.analyze(text, entities=[e.value for e in config.entities], language="en")
 
     # Filter results once and create both mapping and filtered results
-    filtered_results = [
-        res for res in analyzer_results if res.entity_type in config.entities
-    ]
+    filtered_results = [res for res in analyzer_results if res.entity_type in config.entities]
     grouped: dict[str, list[str]] = defaultdict(list)
     for res in filtered_results:
         grouped[res.entity_type].append(text[res.start : res.end])
@@ -294,9 +290,7 @@ def _mask_pii(text: str, detection: PiiDetectionResult, config: PIIConfig) -> st
         raise ValueError("Text cannot be empty or None")
 
     # Sort by start position and score for consistent handling
-    sorted_results = sorted(
-        detection.analyzer_results, key=lambda x: (x.start, -x.score, -x.end)
-    )
+    sorted_results = sorted(detection.analyzer_results, key=lambda x: (x.start, -x.score, -x.end))
 
     # Process results in order, tracking text offsets
     result = text
@@ -320,9 +314,7 @@ def _mask_pii(text: str, detection: PiiDetectionResult, config: PIIConfig) -> st
     return result
 
 
-def _as_result(
-    detection: PiiDetectionResult, config: PIIConfig, name: str, text: str
-) -> GuardrailResult:
+def _as_result(detection: PiiDetectionResult, config: PIIConfig, name: str, text: str) -> GuardrailResult:
     """Convert detection results to a GuardrailResult for reporting.
 
     Args:

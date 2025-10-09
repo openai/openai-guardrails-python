@@ -26,6 +26,7 @@ from ._base_client import (
     GuardrailsResponse,
     OpenAIResponseType,
 )
+from ._openai_utils import prepare_openai_kwargs
 from ._streaming import StreamingMixin
 from .exceptions import GuardrailTripwireTriggered
 from .runtime import run_guardrails
@@ -80,6 +81,7 @@ class GuardrailsAsyncOpenAI(AsyncOpenAI, GuardrailsBaseClient, StreamingMixin):
                 by this parameter.
             **openai_kwargs: Additional arguments passed to AsyncOpenAI constructor.
         """
+        openai_kwargs = prepare_openai_kwargs(openai_kwargs)
         # Initialize OpenAI client first
         super().__init__(**openai_kwargs)
 
@@ -110,19 +112,21 @@ class GuardrailsAsyncOpenAI(AsyncOpenAI, GuardrailsBaseClient, StreamingMixin):
         # Create separate instance with same configuration
         from openai import AsyncOpenAI
 
-        guardrail_client = AsyncOpenAI(
-            api_key=self.api_key,
-            base_url=getattr(self, "base_url", None),
-            organization=getattr(self, "organization", None),
-            timeout=getattr(self, "timeout", None),
-            max_retries=getattr(self, "max_retries", None),
-        )
+        guardrail_kwargs = {
+            "api_key": self.api_key,
+            "base_url": getattr(self, "base_url", None),
+            "organization": getattr(self, "organization", None),
+            "timeout": getattr(self, "timeout", None),
+            "max_retries": getattr(self, "max_retries", None),
+        }
+        default_headers = getattr(self, "default_headers", None)
+        if default_headers is not None:
+            guardrail_kwargs["default_headers"] = default_headers
+        guardrail_client = AsyncOpenAI(**prepare_openai_kwargs(guardrail_kwargs))
 
         return DefaultContext(guardrail_llm=guardrail_client)
 
-    def _create_context_with_conversation(
-        self, conversation_history: list
-    ) -> GuardrailLLMContextProto:
+    def _create_context_with_conversation(self, conversation_history: list) -> GuardrailLLMContextProto:
         """Create a context with conversation history for prompt injection detection guardrail."""
 
         # Create a new context that includes conversation history and prompt injection detection tracking
@@ -147,9 +151,7 @@ class GuardrailsAsyncOpenAI(AsyncOpenAI, GuardrailsBaseClient, StreamingMixin):
             _client=self,
         )
 
-    def _append_llm_response_to_conversation(
-        self, conversation_history: list | str, llm_response: Any
-    ) -> list:
+    def _append_llm_response_to_conversation(self, conversation_history: list | str, llm_response: Any) -> list:
         """Append LLM response to conversation history as-is."""
         if conversation_history is None:
             conversation_history = []
@@ -193,8 +195,7 @@ class GuardrailsAsyncOpenAI(AsyncOpenAI, GuardrailsBaseClient, StreamingMixin):
         try:
             # Check if prompt injection detection guardrail is present and we have conversation history
             has_injection_detection = any(
-                guardrail.definition.name.lower() == "prompt injection detection"
-                for guardrail in self.guardrails[stage_name]
+                guardrail.definition.name.lower() == "prompt injection detection" for guardrail in self.guardrails[stage_name]
             )
 
             if has_injection_detection and conversation_history:
@@ -235,9 +236,7 @@ class GuardrailsAsyncOpenAI(AsyncOpenAI, GuardrailsBaseClient, StreamingMixin):
     ) -> GuardrailsResponse:
         """Handle non-streaming LLM response with output guardrails."""
         # Create complete conversation history including the LLM response
-        complete_conversation = self._append_llm_response_to_conversation(
-            conversation_history, llm_response
-        )
+        complete_conversation = self._append_llm_response_to_conversation(conversation_history, llm_response)
 
         response_text = self._extract_response_text(llm_response)
         output_results = await self._run_stage_guardrails(
@@ -247,9 +246,7 @@ class GuardrailsAsyncOpenAI(AsyncOpenAI, GuardrailsBaseClient, StreamingMixin):
             suppress_tripwire=suppress_tripwire,
         )
 
-        return self._create_guardrails_response(
-            llm_response, preflight_results, input_results, output_results
-        )
+        return self._create_guardrails_response(llm_response, preflight_results, input_results, output_results)
 
 
 class GuardrailsOpenAI(OpenAI, GuardrailsBaseClient, StreamingMixin):
@@ -274,6 +271,7 @@ class GuardrailsOpenAI(OpenAI, GuardrailsBaseClient, StreamingMixin):
                 by this parameter.
             **openai_kwargs: Additional arguments passed to OpenAI constructor.
         """
+        openai_kwargs = prepare_openai_kwargs(openai_kwargs)
         # Initialize OpenAI client first
         super().__init__(**openai_kwargs)
 
@@ -304,19 +302,21 @@ class GuardrailsOpenAI(OpenAI, GuardrailsBaseClient, StreamingMixin):
         # Create separate instance with same configuration
         from openai import OpenAI
 
-        guardrail_client = OpenAI(
-            api_key=self.api_key,
-            base_url=getattr(self, "base_url", None),
-            organization=getattr(self, "organization", None),
-            timeout=getattr(self, "timeout", None),
-            max_retries=getattr(self, "max_retries", None),
-        )
+        guardrail_kwargs = {
+            "api_key": self.api_key,
+            "base_url": getattr(self, "base_url", None),
+            "organization": getattr(self, "organization", None),
+            "timeout": getattr(self, "timeout", None),
+            "max_retries": getattr(self, "max_retries", None),
+        }
+        default_headers = getattr(self, "default_headers", None)
+        if default_headers is not None:
+            guardrail_kwargs["default_headers"] = default_headers
+        guardrail_client = OpenAI(**prepare_openai_kwargs(guardrail_kwargs))
 
         return DefaultContext(guardrail_llm=guardrail_client)
 
-    def _create_context_with_conversation(
-        self, conversation_history: list
-    ) -> GuardrailLLMContextProto:
+    def _create_context_with_conversation(self, conversation_history: list) -> GuardrailLLMContextProto:
         """Create a context with conversation history for prompt injection detection guardrail."""
 
         # Create a new context that includes conversation history and prompt injection detection tracking
@@ -341,9 +341,7 @@ class GuardrailsOpenAI(OpenAI, GuardrailsBaseClient, StreamingMixin):
             _client=self,
         )
 
-    def _append_llm_response_to_conversation(
-        self, conversation_history: list | str, llm_response: Any
-    ) -> list:
+    def _append_llm_response_to_conversation(self, conversation_history: list | str, llm_response: Any) -> list:
         """Append LLM response to conversation history as-is."""
         if conversation_history is None:
             conversation_history = []
@@ -396,8 +394,7 @@ class GuardrailsOpenAI(OpenAI, GuardrailsBaseClient, StreamingMixin):
         async def _run_async():
             # Check if prompt injection detection guardrail is present and we have conversation history
             has_injection_detection = any(
-                guardrail.definition.name.lower() == "prompt injection detection"
-                for guardrail in self.guardrails[stage_name]
+                guardrail.definition.name.lower() == "prompt injection detection" for guardrail in self.guardrails[stage_name]
             )
 
             if has_injection_detection and conversation_history:
@@ -440,9 +437,7 @@ class GuardrailsOpenAI(OpenAI, GuardrailsBaseClient, StreamingMixin):
     ) -> GuardrailsResponse:
         """Handle LLM response with output guardrails."""
         # Create complete conversation history including the LLM response
-        complete_conversation = self._append_llm_response_to_conversation(
-            conversation_history, llm_response
-        )
+        complete_conversation = self._append_llm_response_to_conversation(conversation_history, llm_response)
 
         response_text = self._extract_response_text(llm_response)
         output_results = self._run_stage_guardrails(
@@ -452,9 +447,7 @@ class GuardrailsOpenAI(OpenAI, GuardrailsBaseClient, StreamingMixin):
             suppress_tripwire=suppress_tripwire,
         )
 
-        return self._create_guardrails_response(
-            llm_response, preflight_results, input_results, output_results
-        )
+        return self._create_guardrails_response(llm_response, preflight_results, input_results, output_results)
 
 
 # ---------------- Azure OpenAI Variants -----------------
@@ -477,9 +470,10 @@ if AsyncAzureOpenAI is not None:
                 raise_guardrail_errors: If True, raise exceptions when guardrails fail to execute.
                     If False (default), treat guardrail execution errors as safe and continue.
                     Note: Tripwires (guardrail violations) are handled separately and not affected
-                    by this parameter.
+                by this parameter.
                 **azure_kwargs: Additional arguments passed to AsyncAzureOpenAI constructor.
             """
+            azure_kwargs = prepare_openai_kwargs(azure_kwargs)
             # Initialize Azure client first
             super().__init__(**azure_kwargs)
 
@@ -514,9 +508,7 @@ if AsyncAzureOpenAI is not None:
             guardrail_client = _AsyncAzureOpenAI(**self._azure_kwargs)
             return DefaultContext(guardrail_llm=guardrail_client)
 
-        def _create_context_with_conversation(
-            self, conversation_history: list
-        ) -> GuardrailLLMContextProto:
+        def _create_context_with_conversation(self, conversation_history: list) -> GuardrailLLMContextProto:
             """Create a context with conversation history for prompt injection detection guardrail."""
 
             # Create a new context that includes conversation history and prompt injection detection tracking
@@ -541,18 +533,14 @@ if AsyncAzureOpenAI is not None:
                 _client=self,
             )
 
-        def _append_llm_response_to_conversation(
-            self, conversation_history: list | str, llm_response: Any
-        ) -> list:
+        def _append_llm_response_to_conversation(self, conversation_history: list | str, llm_response: Any) -> list:
             """Append LLM response to conversation history as-is."""
             if conversation_history is None:
                 conversation_history = []
 
             # Handle case where conversation_history is a string (from single input)
             if isinstance(conversation_history, str):
-                conversation_history = [
-                    {"role": "user", "content": conversation_history}
-                ]
+                conversation_history = [{"role": "user", "content": conversation_history}]
 
             # Make a copy to avoid modifying the original
             updated_history = conversation_history.copy()
@@ -587,8 +575,7 @@ if AsyncAzureOpenAI is not None:
             try:
                 # Check if prompt injection detection guardrail is present and we have conversation history
                 has_injection_detection = any(
-                    guardrail.definition.name.lower() == "prompt injection detection"
-                    for guardrail in self.guardrails[stage_name]
+                    guardrail.definition.name.lower() == "prompt injection detection" for guardrail in self.guardrails[stage_name]
                 )
 
                 if has_injection_detection and conversation_history:
@@ -629,9 +616,7 @@ if AsyncAzureOpenAI is not None:
         ) -> GuardrailsResponse:
             """Handle non-streaming LLM response with output guardrails (async)."""
             # Create complete conversation history including the LLM response
-            complete_conversation = self._append_llm_response_to_conversation(
-                conversation_history, llm_response
-            )
+            complete_conversation = self._append_llm_response_to_conversation(conversation_history, llm_response)
 
             response_text = self._extract_response_text(llm_response)
             output_results = await self._run_stage_guardrails(
@@ -641,9 +626,7 @@ if AsyncAzureOpenAI is not None:
                 suppress_tripwire=suppress_tripwire,
             )
 
-            return self._create_guardrails_response(
-                llm_response, preflight_results, input_results, output_results
-            )
+            return self._create_guardrails_response(llm_response, preflight_results, input_results, output_results)
 
 
 if AzureOpenAI is not None:
@@ -667,6 +650,7 @@ if AzureOpenAI is not None:
                     by this parameter.
                 **azure_kwargs: Additional arguments passed to AzureOpenAI constructor.
             """
+            azure_kwargs = prepare_openai_kwargs(azure_kwargs)
             super().__init__(**azure_kwargs)
 
             # Store the error handling preference
@@ -696,9 +680,7 @@ if AzureOpenAI is not None:
             guardrail_client = _AzureOpenAI(**self._azure_kwargs)
             return DefaultContext(guardrail_llm=guardrail_client)
 
-        def _create_context_with_conversation(
-            self, conversation_history: list
-        ) -> GuardrailLLMContextProto:
+        def _create_context_with_conversation(self, conversation_history: list) -> GuardrailLLMContextProto:
             """Create a context with conversation history for prompt injection detection guardrail."""
 
             # Create a new context that includes conversation history and prompt injection detection tracking
@@ -723,18 +705,14 @@ if AzureOpenAI is not None:
                 _client=self,
             )
 
-        def _append_llm_response_to_conversation(
-            self, conversation_history: list | str, llm_response: Any
-        ) -> list:
+        def _append_llm_response_to_conversation(self, conversation_history: list | str, llm_response: Any) -> list:
             """Append LLM response to conversation history as-is."""
             if conversation_history is None:
                 conversation_history = []
 
             # Handle case where conversation_history is a string (from single input)
             if isinstance(conversation_history, str):
-                conversation_history = [
-                    {"role": "user", "content": conversation_history}
-                ]
+                conversation_history = [{"role": "user", "content": conversation_history}]
 
             # Make a copy to avoid modifying the original
             updated_history = conversation_history.copy()
@@ -778,8 +756,7 @@ if AzureOpenAI is not None:
             async def _run_async():
                 # Check if prompt injection detection guardrail is present and we have conversation history
                 has_injection_detection = any(
-                    guardrail.definition.name.lower() == "prompt injection detection"
-                    for guardrail in self.guardrails[stage_name]
+                    guardrail.definition.name.lower() == "prompt injection detection" for guardrail in self.guardrails[stage_name]
                 )
 
                 if has_injection_detection and conversation_history:
@@ -822,9 +799,7 @@ if AzureOpenAI is not None:
         ) -> GuardrailsResponse:
             """Handle LLM response with output guardrails (sync)."""
             # Create complete conversation history including the LLM response
-            complete_conversation = self._append_llm_response_to_conversation(
-                conversation_history, llm_response
-            )
+            complete_conversation = self._append_llm_response_to_conversation(conversation_history, llm_response)
 
             response_text = self._extract_response_text(llm_response)
             output_results = self._run_stage_guardrails(
@@ -834,6 +809,4 @@ if AzureOpenAI is not None:
                 suppress_tripwire=suppress_tripwire,
             )
 
-            return self._create_guardrails_response(
-                llm_response, preflight_results, input_results, output_results
-            )
+            return self._create_guardrails_response(llm_response, preflight_results, input_results, output_results)

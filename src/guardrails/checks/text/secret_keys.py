@@ -172,9 +172,7 @@ def _get_analyzer_engine() -> AnalyzerEngine:
         regex=f"\\S+({'|'.join(re.escape(ext) for ext in ALLOWED_EXTENSIONS)})",
         score=1.0,
     )
-    engine.registry.add_recognizer(
-        PatternRecognizer(supported_entity="FILE_EXTENSION", patterns=[pattern])
-    )
+    engine.registry.add_recognizer(PatternRecognizer(supported_entity="FILE_EXTENSION", patterns=[pattern]))
 
     return engine
 
@@ -203,8 +201,7 @@ class SecretKeysCfg(BaseModel):
         pattern="^(strict|balanced|permissive)$",
     )
     custom_regex: list[str] | None = Field(
-        None,
-        description="Optional list of custom regex patterns to check for secrets. Each pattern must be a valid regex string."
+        None, description="Optional list of custom regex patterns to check for secrets. Each pattern must be a valid regex string."
     )
 
     model_config = ConfigDict(extra="forbid")
@@ -322,9 +319,7 @@ def _is_secret_candidate(s: str, cfg: SecretCfg, custom_regex: list[str] | None 
     return _entropy(s) >= cfg.get("min_entropy", 3.7)
 
 
-def _detect_secret_keys(
-    text: str, cfg: SecretCfg, custom_regex: list[str] | None = None
-) -> GuardrailResult:
+def _detect_secret_keys(text: str, cfg: SecretCfg, custom_regex: list[str] | None = None) -> GuardrailResult:
     """Detect potential secret keys in text.
 
     Args:
@@ -374,9 +369,7 @@ async def secret_keys(
 default_spec_registry.register(
     name="Secret Keys",
     check_fn=secret_keys,
-    description=(
-        "Checks that the text does not contain potential API keys, secrets, or other credentials."
-    ),
+    description=("Checks that the text does not contain potential API keys, secrets, or other credentials."),
     media_type="text/plain",
     metadata=GuardrailSpecMetadata(engine="RegEx"),
 )
