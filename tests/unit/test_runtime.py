@@ -1,8 +1,5 @@
 """Tests for the runtime module."""
 
-import sys
-import types
-from collections.abc import Iterator
 from dataclasses import dataclass
 from typing import Any, Protocol
 
