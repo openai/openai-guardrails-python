@@ -6,7 +6,7 @@ from collections.abc import Mapping
 from typing import Any
 
 SAFETY_IDENTIFIER_HEADER = "OpenAI-Safety-Identifier"
-SAFETY_IDENTIFIER_VALUE = "oaig"
+SAFETY_IDENTIFIER_VALUE = "oai_guardrails"
 
 
 def ensure_safety_identifier_header(default_headers: Mapping[str, str] | None) -> dict[str, str]:

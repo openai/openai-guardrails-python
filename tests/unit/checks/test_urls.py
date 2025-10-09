@@ -15,7 +15,7 @@ from guardrails.checks.text.urls import (
 
 def test_detect_urls_deduplicates_scheme_and_domain() -> None:
     """Ensure detection removes trailing punctuation and avoids duplicate domains."""
-    text = "Visit https://example.com/, http://example.com/path, " "example.com should not duplicate, and 192.168.1.10:8080."
+    text = "Visit https://example.com/, http://example.com/path, example.com should not duplicate, and 192.168.1.10:8080."
     detected = _detect_urls(text)
 
     assert "https://example.com/" in detected  # noqa: S101
@@ -66,11 +66,7 @@ async def test_urls_guardrail_reports_allowed_and_blocked() -> None:
         block_userinfo=True,
         allow_subdomains=False,
     )
-    text = (
-        "Inline data URI data:text/plain;base64,QUJD. "
-        "Use https://example.com/docs. "
-        "Avoid http://attacker.com/login and https://sub.example.com."
-    )
+    text = "Inline data URI data:text/plain;base64,QUJD. Use https://example.com/docs. Avoid http://attacker.com/login and https://sub.example.com."
 
     result = await urls(ctx=None, data=text, config=config)
 
