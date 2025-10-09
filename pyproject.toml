@@ -58,6 +58,7 @@ dev = [
   "pymdown-extensions>=10.0.0",
   "coverage>=7.8.0",
   "hypothesis>=6.131.20",
+  "pytest-cov>=6.3.0",
 ]
 
 [tool.uv.workspace]
@@ -103,8 +104,24 @@ convention = "google"
 [tool.ruff.format]
 docstring-code-format = true
 
+[tool.coverage.run]
+source = ["guardrails"]
+omit = [
+  "src/guardrails/evals/*",
+]
+
 [tool.mypy]
 strict = true
 disallow_incomplete_defs = false
 disallow_untyped_defs = false
 disallow_untyped_calls = false
+exclude = [
+  "examples",
+  "src/guardrails/evals",
+]
+
+[tool.pyright]
+ignore = [
+  "examples",
+  "src/guardrails/evals",
+]
