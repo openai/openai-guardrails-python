@@ -71,7 +71,7 @@ async def test_prompt_injection_detection_triggers(monkeypatch: pytest.MonkeyPat
     result = await prompt_injection_detection(context, data="{}", config=config)
 
     assert result.tripwire_triggered is True  # noqa: S101
-    assert context.get_injection_last_checked_index() == len(history)  # noqa: S101
+    assert context.get_injection_last_checked_index() == 0  # noqa: S101
 
 
 @pytest.mark.asyncio

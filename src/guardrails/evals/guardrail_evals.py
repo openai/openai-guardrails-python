@@ -35,7 +35,11 @@ from guardrails.evals.core import (
 )
 from guardrails.evals.core.types import Context
 
-from .._openai_utils import prepare_openai_kwargs
+try:
+    from guardrails._openai_utils import prepare_openai_kwargs
+except ImportError:  # pragma: no cover - fallback for direct script execution
+    sys.path.append(str(Path(__file__).resolve().parents[2]))
+    from guardrails._openai_utils import prepare_openai_kwargs
 
 logger = logging.getLogger(__name__)
 
