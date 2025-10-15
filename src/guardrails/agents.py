@@ -166,14 +166,6 @@ def _create_conversation_context(
         def get_conversation_history(self) -> list:
             return self.conversation_history
 
-        def get_injection_last_checked_index(self) -> int:
-            """Return 0 to check all messages (required by prompt injection check)."""
-            return 0
-
-        def update_injection_last_checked_index(self, new_index: int) -> None:
-            """No-op (required by prompt injection check interface)."""
-            pass
-
     return ToolConversationContext(
         guardrail_llm=base_context.guardrail_llm,
         conversation_history=conversation_history,

@@ -93,9 +93,6 @@ class GuardrailsAsyncOpenAI(AsyncOpenAI, GuardrailsBaseClient, StreamingMixin):
 
         self._initialize_client(config, openai_kwargs, AsyncOpenAI)
 
-        # Track last checked index for incremental prompt injection detection checking
-        self._injection_last_checked_index = 0
-
     def _create_default_context(self) -> GuardrailLLMContextProto:
         """Create default context with guardrail_llm client."""
         # First check base implementation for ContextVars
@@ -129,26 +126,18 @@ class GuardrailsAsyncOpenAI(AsyncOpenAI, GuardrailsBaseClient, StreamingMixin):
     def _create_context_with_conversation(self, conversation_history: list) -> GuardrailLLMContextProto:
         """Create a context with conversation history for prompt injection detection guardrail."""
 
-        # Create a new context that includes conversation history and prompt injection detection tracking
+        # Create a new context that includes conversation history
         @dataclass
         class ConversationContext:
             guardrail_llm: AsyncOpenAI
             conversation_history: list
-            _client: Any  # Reference to the client for index access
 
             def get_conversation_history(self) -> list:
                 return self.conversation_history
 
-            def get_injection_last_checked_index(self) -> int:
-                return self._client._injection_last_checked_index
-
-            def update_injection_last_checked_index(self, new_index: int) -> None:
-                self._client._injection_last_checked_index = new_index
-
         return ConversationContext(
             guardrail_llm=self.context.guardrail_llm,
             conversation_history=conversation_history,
-            _client=self,
         )
 
     def _append_llm_response_to_conversation(self, conversation_history: list | str, llm_response: Any) -> list:
@@ -283,9 +272,6 @@ class GuardrailsOpenAI(OpenAI, GuardrailsBaseClient, StreamingMixin):
 
         self._initialize_client(config, openai_kwargs, OpenAI)
 
-        # Track last checked index for incremental prompt injection detection checking
-        self._injection_last_checked_index = 0
-
     def _create_default_context(self) -> GuardrailLLMContextProto:
         """Create default context with guardrail_llm client."""
         # First check base implementation for ContextVars
@@ -319,26 +305,18 @@ class GuardrailsOpenAI(OpenAI, GuardrailsBaseClient, StreamingMixin):
     def _create_context_with_conversation(self, conversation_history: list) -> GuardrailLLMContextProto:
         """Create a context with conversation history for prompt injection detection guardrail."""
 
-        # Create a new context that includes conversation history and prompt injection detection tracking
+        # Create a new context that includes conversation history
         @dataclass
         class ConversationContext:
             guardrail_llm: OpenAI
             conversation_history: list
-            _client: Any  # Reference to the client for index access
 
             def get_conversation_history(self) -> list:
                 return self.conversation_history
 
-            def get_injection_last_checked_index(self) -> int:
-                return self._client._injection_last_checked_index
-
-            def update_injection_last_checked_index(self, new_index: int) -> None:
-                self._client._injection_last_checked_index = new_index
-
         return ConversationContext(
             guardrail_llm=self.context.guardrail_llm,
             conversation_history=conversation_history,
-            _client=self,
         )
 
     def _append_llm_response_to_conversation(self, conversation_history: list | str, llm_response: Any) -> list:
@@ -487,9 +465,6 @@ if AsyncAzureOpenAI is not None:
             self._azure_kwargs: dict[str, Any] = dict(azure_kwargs)
             self._initialize_client(config, azure_kwargs, _AsyncAzureOpenAI)
 
-            # Track last checked index for incremental prompt injection detection checking
-            self._injection_last_checked_index = 0
-
         def _create_default_context(self) -> GuardrailLLMContextProto:
             # Try ContextVars first
             try:
@@ -511,26 +486,18 @@ if AsyncAzureOpenAI is not None:
         def _create_context_with_conversation(self, conversation_history: list) -> GuardrailLLMContextProto:
             """Create a context with conversation history for prompt injection detection guardrail."""
 
-            # Create a new context that includes conversation history and prompt injection detection tracking
+            # Create a new context that includes conversation history
             @dataclass
             class ConversationContext:
                 guardrail_llm: Any  # AsyncAzureOpenAI
                 conversation_history: list
-                _client: Any  # Reference to the client for index access
 
                 def get_conversation_history(self) -> list:
                     return self.conversation_history
 
-                def get_injection_last_checked_index(self) -> int:
-                    return self._client._injection_last_checked_index
-
-                def update_injection_last_checked_index(self, new_index: int) -> None:
-                    self._client._injection_last_checked_index = new_index
-
             return ConversationContext(
                 guardrail_llm=self.context.guardrail_llm,
                 conversation_history=conversation_history,
-                _client=self,
             )
 
         def _append_llm_response_to_conversation(self, conversation_history: list | str, llm_response: Any) -> list:
@@ -662,9 +629,6 @@ if AzureOpenAI is not None:
             self._azure_kwargs: dict[str, Any] = dict(azure_kwargs)
             self._initialize_client(config, azure_kwargs, _AzureOpenAI)
 
-            # Track last checked index for incremental prompt injection detection checking
-            self._injection_last_checked_index = 0
-
         def _create_default_context(self) -> GuardrailLLMContextProto:
             try:
                 return super()._create_default_context()
@@ -683,26 +647,18 @@ if AzureOpenAI is not None:
         def _create_context_with_conversation(self, conversation_history: list) -> GuardrailLLMContextProto:
             """Create a context with conversation history for prompt injection detection guardrail."""
 
-            # Create a new context that includes conversation history and prompt injection detection tracking
+            # Create a new context that includes conversation history
             @dataclass
             class ConversationContext:
                 guardrail_llm: Any  # AzureOpenAI
                 conversation_history: list
-                _client: Any  # Reference to the client for index access
 
                 def get_conversation_history(self) -> list:
                     return self.conversation_history
 
-                def get_injection_last_checked_index(self) -> int:
-                    return self._client._injection_last_checked_index
-
-                def update_injection_last_checked_index(self, new_index: int) -> None:
-                    self._client._injection_last_checked_index = new_index
-
             return ConversationContext(
                 guardrail_llm=self.context.guardrail_llm,
                 conversation_history=conversation_history,
-                _client=self,
             )
 
         def _append_llm_response_to_conversation(self, conversation_history: list | str, llm_response: Any) -> list:

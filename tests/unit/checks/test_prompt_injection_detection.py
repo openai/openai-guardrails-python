@@ -22,16 +22,9 @@ class _FakeContext:
     def __init__(self, history: list[Any]) -> None:
         self._history = history
         self.guardrail_llm = SimpleNamespace()  # unused due to monkeypatch
-        self._last_index = 0
 
     def get_conversation_history(self) -> list[Any]:
         return self._history
-
-    def get_injection_last_checked_index(self) -> int:
-        return self._last_index
-
-    def update_injection_last_checked_index(self, new_index: int) -> None:
-        self._last_index = new_index
 
 
 def _make_history(action: dict[str, Any]) -> list[Any]:
@@ -71,7 +64,6 @@ async def test_prompt_injection_detection_triggers(monkeypatch: pytest.MonkeyPat
     result = await prompt_injection_detection(context, data="{}", config=config)
 
     assert result.tripwire_triggered is True  # noqa: S101
-    assert context.get_injection_last_checked_index() == 0  # noqa: S101
 
 
 @pytest.mark.asyncio

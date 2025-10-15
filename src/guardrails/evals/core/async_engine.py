@@ -75,7 +75,6 @@ async def _run_incremental_prompt_injection(
 ) -> list[Any]:
     """Run prompt injection guardrail incrementally over a conversation."""
     latest_results: list[Any] = []
-    client._injection_last_checked_index = 0
 
     for turn_index in range(len(conversation_history)):
         current_history = conversation_history[: turn_index + 1]

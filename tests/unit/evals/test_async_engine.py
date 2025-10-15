@@ -21,7 +21,6 @@ class _FakeClient:
         self._results_sequence = results_sequence
         self._histories = histories
         self._call_index = 0
-        self._injection_last_checked_index = -1
 
     async def _run_stage_guardrails(
         self,

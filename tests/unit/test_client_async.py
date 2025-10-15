@@ -39,18 +39,15 @@ async def test_default_context_uses_distinct_guardrail_client() -> None:
 
 
 @pytest.mark.asyncio
-async def test_conversation_context_tracks_injection_indices() -> None:
-    """Conversation-aware context exposes history and propagates index updates."""
+async def test_conversation_context_exposes_history() -> None:
+    """Conversation-aware context should surface conversation history only."""
     client = _build_client()
     conversation = [{"role": "user", "content": "Hello"}]
 
     conv_ctx = client._create_context_with_conversation(conversation)
 
     assert conv_ctx.get_conversation_history() == conversation  # noqa: S101
-    assert conv_ctx.get_injection_last_checked_index() == 0  # noqa: S101
-
-    conv_ctx.update_injection_last_checked_index(3)
-    assert client._injection_last_checked_index == 3  # noqa: S101
+    assert not hasattr(conv_ctx, "update_injection_last_checked_index")  # noqa: S101
 
 
 def test_append_llm_response_handles_string_history() -> None:
@@ -389,13 +386,12 @@ async def test_async_azure_handle_llm_response(monkeypatch: pytest.MonkeyPatch) 
 
 @pytest.mark.asyncio
 async def test_async_azure_context_with_conversation() -> None:
-    """Azure async conversation context should track indices."""
+    """Azure async conversation context should surface history only."""
     client = GuardrailsAsyncAzureOpenAI(config=_minimal_config(), api_key="key")
     ctx = client._create_context_with_conversation([{"role": "user", "content": "hi"}])
 
     assert ctx.get_conversation_history()[0]["content"] == "hi"  # type: ignore[index]  # noqa: S101
-    ctx.update_injection_last_checked_index(3)
-    assert client._injection_last_checked_index == 3  # noqa: S101
+    assert not hasattr(ctx, "update_injection_last_checked_index")  # noqa: S101
 
 
 @pytest.mark.asyncio
