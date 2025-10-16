@@ -34,6 +34,20 @@ class _FakeAsyncClient:
         self.chat = SimpleNamespace(completions=_FakeCompletions(content))
 
 
+class _FakeSyncCompletions:
+    def __init__(self, content: str | None) -> None:
+        self._content = content
+
+    def create(self, **kwargs: Any) -> Any:
+        _ = kwargs
+        return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content=self._content))])
+
+
+class _FakeSyncClient:
+    def __init__(self, content: str | None) -> None:
+        self.chat = SimpleNamespace(completions=_FakeSyncCompletions(content))
+
+
 def test_strip_json_code_fence_removes_wrapping() -> None:
     """Valid JSON code fences should be removed."""
     fenced = """```json
@@ -62,6 +76,23 @@ async def test_run_llm_returns_valid_output() -> None:
     )
     assert isinstance(result, LLMOutput)  # noqa: S101
     assert result.flagged is True and result.confidence == 0.9  # noqa: S101
+
+
+@pytest.mark.asyncio
+async def test_run_llm_supports_sync_clients() -> None:
+    """run_llm should invoke synchronous clients without awaiting them."""
+    client = _FakeSyncClient('{"flagged": false, "confidence": 0.25}')
+
+    result = await run_llm(
+        text="General text",
+        system_prompt="Assess text.",
+        client=client,  # type: ignore[arg-type]
+        model="gpt-test",
+        output_model=LLMOutput,
+    )
+
+    assert isinstance(result, LLMOutput)  # noqa: S101
+    assert result.flagged is False and result.confidence == 0.25  # noqa: S101
 
 
 @pytest.mark.asyncio

@@ -36,7 +36,7 @@ from guardrails.registry import default_spec_registry
 from guardrails.spec import GuardrailSpecMetadata
 from guardrails.types import GuardrailLLMContextProto, GuardrailResult
 
-from .llm_base import LLMConfig, LLMOutput
+from .llm_base import LLMConfig, LLMOutput, _invoke_openai_callable
 
 __all__ = ["prompt_injection_detection", "PromptInjectionDetectionOutput"]
 
@@ -341,9 +341,10 @@ def _create_skip_result(
 
 async def _call_prompt_injection_detection_llm(ctx: GuardrailLLMContextProto, prompt: str, config: LLMConfig) -> PromptInjectionDetectionOutput:
     """Call LLM for prompt injection detection analysis."""
-    parsed_response = await ctx.guardrail_llm.responses.parse(
-        model=config.model,
+    parsed_response = await _invoke_openai_callable(
+        ctx.guardrail_llm.responses.parse,
         input=prompt,
+        model=config.model,
         text_format=PromptInjectionDetectionOutput,
     )
 

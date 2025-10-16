@@ -52,10 +52,7 @@ from guardrails.registry import default_spec_registry
 from guardrails.spec import GuardrailSpecMetadata
 from guardrails.types import GuardrailLLMContextProto, GuardrailResult
 
-from .llm_base import (
-    LLMConfig,
-    LLMOutput,
-)
+from .llm_base import LLMConfig, LLMOutput, _invoke_openai_callable
 
 logger = logging.getLogger(__name__)
 
@@ -210,9 +207,10 @@ async def hallucination_detection(
         validation_query = f"{VALIDATION_PROMPT}\n\nText to validate:\n{candidate}"
 
         # Use the Responses API with file search and structured output
-        response = await ctx.guardrail_llm.responses.parse(
-            model=config.model,
+        response = await _invoke_openai_callable(
+            ctx.guardrail_llm.responses.parse,
             input=validation_query,
+            model=config.model,
             text_format=HallucinationDetectionOutput,
             tools=[{"type": "file_search", "vector_store_ids": [config.knowledge_source]}],
         )
