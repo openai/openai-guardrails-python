@@ -4,16 +4,26 @@ Core components for running guardrail evaluations and benchmarking.
 
 ## Quick Start
 
+### Invocation Options
+Install the project (e.g., `pip install -e .`) and run the CLI entry point:
+```bash
+guardrails-evals --help
+```
+During local development you can run the module directly:
+```bash
+python -m guardrails.evals.guardrail_evals --help
+```
+
 ### Demo
 Test the evaluation system with included demo files:
 ```bash
 # Evaluation mode
-python guardrail_evals.py \
+guardrails-evals \
   --config-path eval_demo/demo_config.json \
   --dataset-path eval_demo/demo_data.jsonl
 
 # Benchmark mode
-python guardrail_evals.py \
+guardrails-evals \
   --config-path eval_demo/demo_config.json \
   --dataset-path eval_demo/demo_data.jsonl \
   --mode benchmark \
@@ -22,14 +32,14 @@ python guardrail_evals.py \
 
 ### Basic Evaluation
 ```bash
-python guardrail_evals.py \
+guardrails-evals \
   --config-path guardrails_config.json \
   --dataset-path data.jsonl
 ```
 
 ### Benchmark Mode
 ```bash
-python guardrail_evals.py \
+guardrails-evals \
   --config-path guardrails_config.json \
   --dataset-path data.jsonl \
   --mode benchmark \
@@ -38,7 +48,7 @@ python guardrail_evals.py \
 
 ## Core Components
 
-- **`guardrail_evals.py`** - Main evaluation script
+- **`guardrail_evals.py`** - Main evaluation entry point
 - **`core/`** - Evaluation engine, metrics, and reporting
   - `async_engine.py` - Batch evaluation engine
   - `calculator.py` - Precision, recall, F1 metrics

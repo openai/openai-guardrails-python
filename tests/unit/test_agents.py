@@ -175,15 +175,13 @@ def test_build_conversation_with_tool_output_includes_output() -> None:
     assert conversation[1]["output"] == "{'result': 4}"  # noqa: S101
 
 
-def test_create_conversation_context_tracks_index() -> None:
-    """Conversation context should proxy index accessors."""
+def test_create_conversation_context_exposes_history() -> None:
+    """Conversation context should expose conversation history only."""
     base_context = SimpleNamespace(guardrail_llm="client")
     context = agents._create_conversation_context(["msg"], base_context)
 
     assert context.get_conversation_history() == ["msg"]  # noqa: S101
-    assert context.get_injection_last_checked_index() == 0  # noqa: S101
-    context.update_injection_last_checked_index(3)
-    assert context.get_injection_last_checked_index() == 0  # noqa: S101
+    assert not hasattr(context, "update_injection_last_checked_index")  # noqa: S101
 
 
 def test_create_default_tool_context_provides_async_client(monkeypatch: pytest.MonkeyPatch) -> None:

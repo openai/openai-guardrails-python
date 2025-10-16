@@ -19,6 +19,83 @@ from .types import Context, RunEngine, Sample, SampleResult
 logger = logging.getLogger(__name__)
 
 
+def _safe_getattr(obj: Any, key: str, default: Any = None) -> Any:
+    """Get attribute or dict key defensively."""
+    if isinstance(obj, dict):
+        return obj.get(key, default)
+    return getattr(obj, key, default)
+
+
+def _normalize_conversation_payload(payload: Any) -> list[Any] | None:
+    """Normalize decoded sample payload into a conversation list if possible."""
+    if isinstance(payload, list):
+        return payload
+
+    if isinstance(payload, dict):
+        for candidate_key in ("messages", "conversation", "conversation_history"):
+            value = payload.get(candidate_key)
+            if isinstance(value, list):
+                return value
+
+    return None
+
+
+def _parse_conversation_payload(data: str) -> list[Any] | None:
+    """Attempt to parse sample data into a conversation history list."""
+    try:
+        payload = json.loads(data)
+    except json.JSONDecodeError:
+        return None
+
+    return _normalize_conversation_payload(payload)
+
+
+def _annotate_prompt_injection_result(result: Any, turn_index: int, message: Any) -> None:
+    """Annotate guardrail result with incremental evaluation metadata."""
+    role = _safe_getattr(message, "role")
+    msg_type = _safe_getattr(message, "type")
+    info = result.info
+    info["last_checked_turn_index"] = turn_index
+    if role is not None:
+        info["last_checked_role"] = role
+    if msg_type is not None:
+        info["last_checked_type"] = msg_type
+    if result.tripwire_triggered:
+        info["trigger_turn_index"] = turn_index
+        if role is not None:
+            info["trigger_role"] = role
+        if msg_type is not None:
+            info["trigger_type"] = msg_type
+        info["trigger_message"] = message
+
+
+async def _run_incremental_prompt_injection(
+    client: GuardrailsAsyncOpenAI,
+    conversation_history: list[Any],
+) -> list[Any]:
+    """Run prompt injection guardrail incrementally over a conversation."""
+    latest_results: list[Any] = []
+
+    for turn_index in range(len(conversation_history)):
+        current_history = conversation_history[: turn_index + 1]
+        stage_results = await client._run_stage_guardrails(
+            stage_name="output",
+            text="",
+            conversation_history=current_history,
+            suppress_tripwire=True,
+        )
+
+        latest_results = stage_results or latest_results
+
+        for result in stage_results:
+            if result.info.get("guardrail_name") == "Prompt Injection Detection":
+                _annotate_prompt_injection_result(result, turn_index, current_history[-1])
+                if result.tripwire_triggered:
+                    return stage_results
+
+    return latest_results
+
+
 class AsyncRunEngine(RunEngine):
     """Runs guardrail evaluations asynchronously."""
 
@@ -138,7 +215,9 @@ class AsyncRunEngine(RunEngine):
             if "Prompt Injection Detection" in sample.expected_triggers:
                 try:
                     # Parse conversation history from sample.data (JSON string)
-                    conversation_history = json.loads(sample.data)
+                    conversation_history = _parse_conversation_payload(sample.data)
+                    if conversation_history is None:
+                        raise ValueError("Sample data is not a valid conversation payload")
                     logger.debug(
                         "Parsed conversation history for prompt injection detection sample %s: %d items",
                         sample.id,
@@ -169,13 +248,11 @@ class AsyncRunEngine(RunEngine):
                     )
 
                     # Use the client's _run_stage_guardrails method with conversation history
-                    results = await temp_client._run_stage_guardrails(
-                        stage_name="output",
-                        text="",  # Prompt injection detection doesn't use text data
-                        conversation_history=conversation_history,
-                        suppress_tripwire=True,
+                    results = await _run_incremental_prompt_injection(
+                        temp_client,
+                        conversation_history,
                     )
-                except (json.JSONDecodeError, TypeError) as e:
+                except (json.JSONDecodeError, TypeError, ValueError) as e:
                     logger.error(
                         "Failed to parse conversation history for prompt injection detection sample %s: %s",
                         sample.id,

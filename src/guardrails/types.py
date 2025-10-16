@@ -33,8 +33,8 @@ class GuardrailLLMContextProto(Protocol):
 
     Classes implementing this protocol must expose an OpenAI client
     via the `guardrail_llm` attribute. For conversation-aware guardrails
-    (like prompt injection detection), they can also access `conversation_history` containing
-    the full conversation history and incremental tracking methods.
+    (like prompt injection detection), they can also access `conversation_history`
+    containing the full conversation history.
 
     Attributes:
         guardrail_llm (AsyncOpenAI | OpenAI): The OpenAI client used by the guardrail.
@@ -46,16 +46,6 @@ class GuardrailLLMContextProto(Protocol):
     def get_conversation_history(self) -> list | None:
         """Get conversation history if available, None otherwise."""
         return getattr(self, "conversation_history", None)
-
-    def get_injection_last_checked_index(self) -> int:
-        """Get the last checked index for incremental prompt injection detection checking."""
-        return getattr(self, "injection_last_checked_index", 0)
-
-    def update_injection_last_checked_index(self, new_index: int) -> None:
-        """Update the last checked index for incremental prompt injection detection checking."""
-        if hasattr(self, "_client"):
-            self._client._injection_last_checked_index = new_index
-
 
 @dataclass(frozen=True, slots=True)
 class GuardrailResult:

@@ -11,6 +11,7 @@ from guardrails.checks.text import prompt_injection_detection as pid_module
 from guardrails.checks.text.llm_base import LLMConfig
 from guardrails.checks.text.prompt_injection_detection import (
     PromptInjectionDetectionOutput,
+    _extract_user_intent_from_messages,
     _should_analyze,
     prompt_injection_detection,
 )
@@ -22,16 +23,9 @@ class _FakeContext:
     def __init__(self, history: list[Any]) -> None:
         self._history = history
         self.guardrail_llm = SimpleNamespace()  # unused due to monkeypatch
-        self._last_index = 0
 
     def get_conversation_history(self) -> list[Any]:
         return self._history
-
-    def get_injection_last_checked_index(self) -> int:
-        return self._last_index
-
-    def update_injection_last_checked_index(self, new_index: int) -> None:
-        self._last_index = new_index
 
 
 def _make_history(action: dict[str, Any]) -> list[Any]:
@@ -54,6 +48,40 @@ def test_should_analyze(message: dict[str, Any], expected: bool) -> None:
     assert _should_analyze(message) is expected  # noqa: S101
 
 
+def test_extract_user_intent_from_messages_handles_content_parts() -> None:
+    """User intent extraction should normalize list-based content payloads."""
+    messages = [
+        {"role": "user", "content": [{"type": "input_text", "text": "First chunk"}, "extra"]},
+        {"role": "assistant", "content": "Response"},
+        {"role": "user", "content": [{"type": "text", "text": "Second chunk"}, {"type": "text", "content": "ignored"}]},
+    ]
+
+    result = _extract_user_intent_from_messages(messages)
+
+    assert result["previous_context"] == ["First chunk extra"]  # noqa: S101
+    assert result["most_recent_message"] == "Second chunk ignored"  # noqa: S101
+
+
+def test_extract_user_intent_from_messages_handles_object_messages() -> None:
+    """User intent extraction should support message objects with content attributes."""
+
+    class Message:
+        def __init__(self, role: str, content: Any) -> None:
+            self.role = role
+            self.content = content
+
+    messages = [
+        Message(role="user", content="Plain text content"),
+        Message(role="assistant", content="Assistant text"),
+        Message(role="user", content=[{"text": "Nested dict text"}, {"content": "secondary"}]),
+    ]
+
+    result = _extract_user_intent_from_messages(messages)
+
+    assert result["previous_context"] == ["Plain text content"]  # noqa: S101
+    assert result["most_recent_message"] == "Nested dict text secondary"  # noqa: S101
+
+
 @pytest.mark.asyncio
 async def test_prompt_injection_detection_triggers(monkeypatch: pytest.MonkeyPatch) -> None:
     """Guardrail should trigger when analysis flags misalignment above threshold."""
@@ -71,7 +99,6 @@ async def test_prompt_injection_detection_triggers(monkeypatch: pytest.MonkeyPat
     result = await prompt_injection_detection(context, data="{}", config=config)
 
     assert result.tripwire_triggered is True  # noqa: S101
-    assert context.get_injection_last_checked_index() == len(history)  # noqa: S101
 
 
 @pytest.mark.asyncio

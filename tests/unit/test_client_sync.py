@@ -53,18 +53,15 @@ def test_default_context_uses_distinct_guardrail_client() -> None:
     assert client.context.guardrail_llm.base_url == "http://example.com"  # type: ignore[attr-defined]  # noqa: S101
 
 
-def test_conversation_context_tracks_injection_indices() -> None:
-    """Conversation-aware context exposes history and propagates index updates."""
+def test_conversation_context_exposes_history() -> None:
+    """Conversation-aware context should surface conversation history only."""
     client = _build_client()
     conversation = [{"role": "user", "content": "Hello"}]
 
     conv_ctx = client._create_context_with_conversation(conversation)
 
     assert conv_ctx.get_conversation_history() == conversation  # noqa: S101
-    assert conv_ctx.get_injection_last_checked_index() == 0  # noqa: S101
-
-    conv_ctx.update_injection_last_checked_index(5)
-    assert client._injection_last_checked_index == 5  # noqa: S101
+    assert not hasattr(conv_ctx, "update_injection_last_checked_index")  # noqa: S101
 
 
 def test_create_default_context_uses_contextvar() -> None:
@@ -194,26 +191,6 @@ def test_run_stage_guardrails_raises_on_error(monkeypatch: pytest.MonkeyPatch) -
 
     with pytest.raises(RuntimeError):
         client._run_stage_guardrails("output", "payload")
-
-
-def test_run_stage_guardrails_updates_conversation_index(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Prompt injection guardrail should update injection index after run."""
-    client = _build_client()
-    guardrail = _guardrail("Prompt Injection Detection")
-    client.guardrails["output"] = [guardrail]
-    client._injection_last_checked_index = 0
-
-    captured_ctx: list[Any] = []
-
-    async def fake_run_guardrails(**kwargs: Any) -> list[GuardrailResult]:
-        captured_ctx.append(kwargs["ctx"])
-        return [GuardrailResult(tripwire_triggered=False)]
-
-    monkeypatch.setattr(client_module, "run_guardrails", fake_run_guardrails)
-
-    client._run_stage_guardrails("output", "payload", conversation_history=[{"role": "user", "content": "hi"}])
-
-    assert captured_ctx[0].get_conversation_history() == [{"role": "user", "content": "hi"}]  # noqa: S101
 
 
 def test_run_stage_guardrails_creates_event_loop(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -550,13 +527,12 @@ def test_azure_sync_handle_llm_response(monkeypatch: pytest.MonkeyPatch) -> None
 
 
 def test_azure_sync_context_with_conversation() -> None:
-    """Azure sync conversation context should track indices."""
+    """Azure sync conversation context should surface history only."""
     client = GuardrailsAzureOpenAI(config=_minimal_config(), api_key="key")
     context = client._create_context_with_conversation([{"role": "user", "content": "hi"}])
 
     assert context.get_conversation_history()[0]["content"] == "hi"  # type: ignore[index]  # noqa: S101
-    context.update_injection_last_checked_index(4)
-    assert client._injection_last_checked_index == 4  # noqa: S101
+    assert not hasattr(context, "update_injection_last_checked_index")  # noqa: S101
 
 
 def test_azure_sync_run_stage_guardrails_suppressed(monkeypatch: pytest.MonkeyPatch) -> None:
