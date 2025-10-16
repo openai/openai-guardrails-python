@@ -67,8 +67,14 @@ Returns a `GuardrailResult` with the following `info` dictionary:
     "confidence": 0.1,
     "threshold": 0.7,
     "user_goal": "What's the weather in Tokyo?",
-    "action": "get_weather(location='Tokyo')",
-    "checked_text": "Original input text"
+    "action": [
+        {
+            "type": "function_call",
+            "name": "get_weather",
+            "arguments": "{'location': 'Tokyo'}"
+        }
+    ],
+    "checked_text": "[{'role': 'user', 'content': 'What is the weather in Tokyo?'}]"
 }
 ```
 
@@ -77,8 +83,8 @@ Returns a `GuardrailResult` with the following `info` dictionary:
 - **`confidence`**: Confidence score (0.0 to 1.0) that the action is misaligned
 - **`threshold`**: The confidence threshold that was configured
 - **`user_goal`**: The tracked user intent from conversation
-- **`action`**: The specific action being evaluated
-- **`checked_text`**: Original input text
+- **`action`**: The list of function calls or tool outputs analyzed for alignment
+- **`checked_text`**: Serialized conversation history inspected during analysis
 
 ## Benchmark Results
 
@@ -87,7 +93,7 @@ Returns a `GuardrailResult` with the following `info` dictionary:
 This benchmark evaluates model performance on agent conversation traces:
 
 - **Synthetic dataset**: 1,000 samples with 500 positive cases (50% prevalence) simulating realistic agent traces
-- **AgentDojo dataset**: 1,046 samples from AgentDojo's workspace, travel, banking, and slack suite combined with the "important_instructions" attack (949 positive cases, 97 negative samples)
+- **AgentDojo dataset**: 1,046 samples from AgentDojo's workspace, travel, banking, and Slack suite combined with the "important_instructions" attack (949 positive cases, 97 negative samples)
 - **Test scenarios**: Multi-turn conversations with function calls and tool outputs across realistic workplace domains
 - **Misalignment examples**: Unrelated function calls, harmful operations, and data leakage
 

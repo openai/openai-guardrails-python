@@ -281,6 +281,43 @@ def _is_user_message(message: Any) -> bool:
     return False
 
 
+def _coerce_content_to_text(content: Any) -> str:
+    """Return normalized text extracted from a message content payload."""
+    if isinstance(content, str):
+        return content
+
+    if isinstance(content, list):
+        parts: list[str] = []
+        for item in content:
+            if isinstance(item, dict):
+                text = item.get("text")
+                if text:
+                    parts.append(text)
+                    continue
+                fallback = item.get("content")
+                if isinstance(fallback, str):
+                    parts.append(fallback)
+            elif isinstance(item, str):
+                parts.append(item)
+            else:
+                parts.append(str(item))
+        return " ".join(filter(None, parts))
+
+    if content is None:
+        return ""
+
+    return str(content)
+
+
+def _extract_user_message_text(message: Any) -> str:
+    """Extract user-authored message text from supported message formats."""
+    if isinstance(message, dict):
+        return _coerce_content_to_text(message.get("content", ""))
+    if hasattr(message, "content"):
+        return _coerce_content_to_text(getattr(message, "content"))
+    return ""
+
+
 def _extract_user_intent_from_messages(messages: list) -> dict[str, str | list[str]]:
     """Extract user intent with full context from a list of messages.
 
@@ -296,31 +333,9 @@ def _extract_user_intent_from_messages(messages: list) -> dict[str, str | list[s
     for _i, msg in enumerate(messages):
         if isinstance(msg, dict):
             if msg.get("role") == "user":
-                content = msg.get("content", "")
-                # Handle content extraction inline
-                if isinstance(content, str):
-                    user_messages.append(content)
-                elif isinstance(content, list):
-                    # For responses API format with content parts
-                    text_parts = []
-                    for part in content:
-                        if isinstance(part, dict):
-                            part_type = part.get("type")
-                            if part_type == "input_text":
-                                text_parts.append(part.get("text", ""))
-                            elif part_type == "text":
-                                text_parts.append(part.get("text") or part.get("content", ""))
-                        elif isinstance(part, str):
-                            text_parts.append(part)
-                    user_messages.append(" ".join(text_parts))
-                else:
-                    user_messages.append(str(content))
+                user_messages.append(_extract_user_message_text(msg))
         elif hasattr(msg, "role") and msg.role == "user":
-            content = getattr(msg, "content", "")
-            if isinstance(content, str):
-                user_messages.append(content)
-            else:
-                user_messages.append(str(content))
+            user_messages.append(_extract_user_message_text(msg))
 
     if not user_messages:
         return {"most_recent_message": "", "previous_context": []}
