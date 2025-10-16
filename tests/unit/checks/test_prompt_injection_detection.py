@@ -147,3 +147,21 @@ async def test_prompt_injection_detection_handles_analysis_error(monkeypatch: py
 
     assert result.tripwire_triggered is False  # noqa: S101
     assert "Error during prompt injection detection check" in result.info["observation"]  # noqa: S101
+
+
+@pytest.mark.asyncio
+async def test_prompt_injection_detection_llm_supports_sync_responses() -> None:
+    """Underlying responses.parse may be synchronous for some clients."""
+    analysis = PromptInjectionDetectionOutput(flagged=True, confidence=0.4, observation="Action summary")
+
+    class _SyncResponses:
+        def parse(self, **kwargs: Any) -> Any:
+            _ = kwargs
+            return SimpleNamespace(output_parsed=analysis)
+
+    context = SimpleNamespace(guardrail_llm=SimpleNamespace(responses=_SyncResponses()))
+    config = LLMConfig(model="gpt-test", confidence_threshold=0.5)
+
+    parsed = await pid_module._call_prompt_injection_detection_llm(context, "prompt", config)
+
+    assert parsed is analysis  # noqa: S101

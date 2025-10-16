@@ -31,12 +31,16 @@ Examples:
 
 from __future__ import annotations
 
+import asyncio
+import functools
+import inspect
 import json
 import logging
 import textwrap
-from typing import TYPE_CHECKING, TypeVar
+from collections.abc import Callable
+from typing import TYPE_CHECKING, Any, TypeVar
 
-from openai import AsyncOpenAI
+from openai import AsyncOpenAI, OpenAI
 from pydantic import BaseModel, ConfigDict, Field
 
 from guardrails.registry import default_spec_registry
@@ -45,7 +49,13 @@ from guardrails.types import CheckFn, GuardrailLLMContextProto, GuardrailResult
 from guardrails.utils.output import OutputSchema
 
 if TYPE_CHECKING:
-    from openai import AsyncOpenAI
+    from openai import AsyncAzureOpenAI, AzureOpenAI  # type: ignore[unused-import]
+else:
+    try:
+        from openai import AsyncAzureOpenAI, AzureOpenAI  # type: ignore
+    except Exception:  # pragma: no cover - optional dependency
+        AsyncAzureOpenAI = object  # type: ignore[assignment]
+        AzureOpenAI = object  # type: ignore[assignment]
 
 logger = logging.getLogger(__name__)
 
@@ -165,10 +175,46 @@ def _strip_json_code_fence(text: str) -> str:
     return candidate
 
 
+async def _invoke_openai_callable(
+    method: Callable[..., Any],
+    /,
+    *args: Any,
+    **kwargs: Any,
+) -> Any:
+    """Invoke OpenAI SDK methods that may be sync or async."""
+    if inspect.iscoroutinefunction(method):
+        return await method(*args, **kwargs)
+
+    loop = asyncio.get_running_loop()
+    result = await loop.run_in_executor(
+        None,
+        functools.partial(method, *args, **kwargs),
+    )
+    if inspect.isawaitable(result):
+        return await result
+    return result
+
+
+async def _request_chat_completion(
+    client: AsyncOpenAI | OpenAI | AsyncAzureOpenAI | AzureOpenAI,
+    *,
+    messages: list[dict[str, str]],
+    model: str,
+    response_format: dict[str, Any],
+) -> Any:
+    """Invoke chat.completions.create on sync or async OpenAI clients."""
+    return await _invoke_openai_callable(
+        client.chat.completions.create,
+        messages=messages,
+        model=model,
+        response_format=response_format,
+    )
+
+
 async def run_llm(
     text: str,
     system_prompt: str,
-    client: AsyncOpenAI,
+    client: AsyncOpenAI | OpenAI | AsyncAzureOpenAI | AzureOpenAI,
     model: str,
     output_model: type[LLMOutput],
 ) -> LLMOutput:
@@ -180,7 +226,7 @@ async def run_llm(
     Args:
         text (str): Text to analyze.
         system_prompt (str): Prompt instructions for the LLM.
-        client (AsyncOpenAI): OpenAI client for LLM inference.
+        client (AsyncOpenAI | OpenAI | AsyncAzureOpenAI | AzureOpenAI): OpenAI client used for guardrails.
         model (str): Identifier for which LLM model to use.
         output_model (type[LLMOutput]): Model for parsing and validating the LLM's response.
 
@@ -190,7 +236,8 @@ async def run_llm(
     full_prompt = _build_full_prompt(system_prompt)
 
     try:
-        response = await client.chat.completions.create(
+        response = await _request_chat_completion(
+            client=client,
             messages=[
                 {"role": "system", "content": full_prompt},
                 {"role": "user", "content": f"# Text\n\n{text}"},
