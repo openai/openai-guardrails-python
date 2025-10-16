@@ -76,6 +76,7 @@ packages = ["src/guardrails"]
 
 [project.scripts]
 guardrails = "guardrails.cli:main"
+guardrails-evals = "guardrails.evals.guardrail_evals:main"
 
 [tool.ruff]
 line-length = 150

@@ -23,6 +23,7 @@ except ImportError:
 
 
 from guardrails import instantiate_guardrails, load_pipeline_bundles
+from guardrails._openai_utils import prepare_openai_kwargs
 from guardrails.evals.core import (
     AsyncRunEngine,
     BenchmarkMetricsCalculator,
@@ -34,12 +35,6 @@ from guardrails.evals.core import (
     LatencyTester,
 )
 from guardrails.evals.core.types import Context
-
-try:
-    from guardrails._openai_utils import prepare_openai_kwargs
-except ImportError:  # pragma: no cover - fallback for direct script execution
-    sys.path.append(str(Path(__file__).resolve().parents[2]))
-    from guardrails._openai_utils import prepare_openai_kwargs
 
 logger = logging.getLogger(__name__)
 
@@ -527,26 +522,29 @@ def main() -> None:
         epilog="""
 Examples:
   # Standard evaluation of all stages
-  python guardrail_evals.py --config-path config.json --dataset-path data.jsonl
+  guardrails-evals --config-path config.json --dataset-path data.jsonl
 
   # Multi-stage evaluation
-  python guardrail_evals.py --config-path config.json --dataset-path data.jsonl --stages pre_flight input
+  guardrails-evals --config-path config.json --dataset-path data.jsonl --stages pre_flight input
 
   # Benchmark mode with OpenAI models
-  python guardrail_evals.py --config-path config.json --dataset-path data.jsonl --mode benchmark --models gpt-5 gpt-5-mini
+  guardrails-evals --config-path config.json --dataset-path data.jsonl --mode benchmark --models gpt-5 gpt-5-mini
 
   # Azure OpenAI benchmark
-  python guardrail_evals.py --config-path config.json --dataset-path data.jsonl --mode benchmark \\
+  guardrails-evals --config-path config.json --dataset-path data.jsonl --mode benchmark \\
     --azure-endpoint https://your-resource.openai.azure.com --api-key your-key \\
     --models gpt-4o gpt-4o-mini
 
   # Ollama local models
-  python guardrail_evals.py --config-path config.json --dataset-path data.jsonl --mode benchmark \\
+  guardrails-evals --config-path config.json --dataset-path data.jsonl --mode benchmark \\
     --base-url http://localhost:11434/v1 --api-key fake-key --models llama3 mistral
 
   # vLLM or other OpenAI-compatible API
-  python guardrail_evals.py --config-path config.json --dataset-path data.jsonl --mode benchmark \\
+  guardrails-evals --config-path config.json --dataset-path data.jsonl --mode benchmark \\
     --base-url http://your-server:8000/v1 --api-key your-key --models your-model
+
+  # Module execution during local development
+  python -m guardrails.evals.guardrail_evals --config-path config.json --dataset-path data.jsonl
         """,
     )
 

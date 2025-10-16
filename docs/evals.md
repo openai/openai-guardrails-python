@@ -4,16 +4,26 @@ Evaluate guardrail performance against labeled datasets with precision, recall, 
 
 ## Quick Start
 
+### Invocation Options
+Install the project (e.g., `pip install -e .`) and run the CLI entry point:
+```bash
+guardrails-evals --help
+```
+During local development you can run the module directly:
+```bash
+python -m guardrails.evals.guardrail_evals --help
+```
+
 ### Basic Evaluation
 ```bash
-python guardrail_evals.py \
+guardrails-evals \
   --config-path guardrails_config.json \
   --dataset-path data.jsonl
 ```
 
 ### Benchmark Mode
 ```bash
-python guardrail_evals.py \
+guardrails-evals \
   --config-path guardrails_config.json \
   --dataset-path data.jsonl \
   --mode benchmark \
@@ -154,7 +164,7 @@ The evaluation tool supports OpenAI, Azure OpenAI, and any OpenAI-compatible API
 
 ### OpenAI (Default)
 ```bash
-python guardrail_evals.py \
+guardrails-evals \
   --config-path config.json \
   --dataset-path data.jsonl \
   --api-key sk-...
@@ -162,7 +172,7 @@ python guardrail_evals.py \
 
 ### Azure OpenAI
 ```bash
-python guardrail_evals.py \
+guardrails-evals \
   --config-path config.json \
   --dataset-path data.jsonl \
   --azure-endpoint https://your-resource.openai.azure.com \
@@ -176,7 +186,7 @@ python guardrail_evals.py \
 Any model which supports the OpenAI interface can be used with `--base-url` and `--api-key`.
 
 ```bash
-python guardrail_evals.py \
+guardrails-evals \
   --config-path config.json \
   --dataset-path data.jsonl \
   --base-url http://localhost:11434/v1 \
