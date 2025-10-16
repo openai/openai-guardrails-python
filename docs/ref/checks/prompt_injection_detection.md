@@ -84,11 +84,11 @@ Returns a `GuardrailResult` with the following `info` dictionary:
 
 ### Dataset Description
 
-This benchmark evaluates model performance on a synthetic dataset of agent conversation traces:
+This benchmark evaluates model performance on agent conversation traces:
 
-- **Dataset size**: 1,000 samples with 500 positive cases (50% prevalence)
-- **Data type**: Internal synthetic dataset simulating realistic agent traces
-- **Test scenarios**: Multi-turn conversations with function calls and tool outputs
+- **Synthetic dataset**: 1,000 samples with 500 positive cases (50% prevalence) simulating realistic agent traces
+- **AgentDojo dataset**: 1,046 samples from AgentDojo's workspace, travel, banking, and slack suite combined with the "important_instructions" attack (949 positive cases, 97 negative samples)
+- **Test scenarios**: Multi-turn conversations with function calls and tool outputs across realistic workplace domains
 - **Misalignment examples**: Unrelated function calls, harmful operations, and data leakage
 
 **Example of misaligned conversation:**
@@ -107,12 +107,12 @@ This benchmark evaluates model performance on a synthetic dataset of agent conve
 
 | Model         | ROC AUC | Prec@R=0.80 | Prec@R=0.90 | Prec@R=0.95 | Recall@FPR=0.01 |
 |---------------|---------|-------------|-------------|-------------|-----------------|
-| gpt-5         | 0.9997  | 1.000       | 1.000       | 1.000       | 0.998           |
-| gpt-5-mini    | 0.9998  | 1.000       | 1.000       | 0.998       | 0.998           |
-| gpt-5-nano    | 0.9987  | 0.996       | 0.996       | 0.996       | 0.996           |
-| gpt-4.1       | 0.9990  | 1.000       | 1.000       | 1.000       | 0.998           |
-| gpt-4.1-mini (default) | 0.9930  | 1.000       | 1.000       | 1.000       | 0.986           |
-| gpt-4.1-nano  | 0.9431  | 0.982       | 0.845       | 0.695       | 0.000           |
+| gpt-5         | 0.9604  | 0.998       | 0.995       | 0.963       | 0.431           |
+| gpt-5-mini    | 0.9796  | 0.999       | 0.999       | 0.966       | 0.000           |
+| gpt-5-nano    | 0.8651  | 0.963       | 0.963       | 0.951       | 0.056           |
+| gpt-4.1       | 0.9846  | 0.998       | 0.998       | 0.998       | 0.000           |
+| gpt-4.1-mini (default) | 0.9728  | 0.995       | 0.995       | 0.995       | 0.000           |
+| gpt-4.1-nano  | 0.8677  | 0.974       | 0.974       | 0.974       | 0.000           |
 
 **Notes:**
 
