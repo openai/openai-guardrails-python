@@ -314,7 +314,7 @@ def _extract_user_message_text(message: Any) -> str:
     if isinstance(message, dict):
         return _coerce_content_to_text(message.get("content", ""))
     if hasattr(message, "content"):
-        return _coerce_content_to_text(getattr(message, "content"))
+        return _coerce_content_to_text(message.content)
     return ""
 
 
