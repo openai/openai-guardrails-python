@@ -5,9 +5,11 @@ These include:
 - response parsing
 - strict schema enforcement
 - context validation
+- conversation history normalization
 
 Modules:
     schema: Utilities for enforcing strict JSON schema standards.
     parsing: Tools for parsing and formatting response items.
     context: Functions for validating guardrail contexts.
+    conversation: Helpers for normalizing conversation payloads across APIs.
 """

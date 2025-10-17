@@ -23,10 +23,11 @@ agents_module = types.ModuleType("agents")
 
 @dataclass
 class ToolContext:
-    """Stub tool context carrying name and arguments."""
+    """Stub tool context carrying name, arguments, and optional call id."""
 
     tool_name: str
-    tool_arguments: dict[str, Any]
+    tool_arguments: dict[str, Any] | str
+    tool_call_id: str | None = None
 
 
 @dataclass
@@ -99,6 +100,14 @@ class Agent:
     tools: list[Any] | None = None
 
 
+class AgentRunner:
+    """Minimal AgentRunner stub so guardrails patching succeeds."""
+
+    async def run(self, *args: Any, **kwargs: Any) -> Any:
+        """Return a sentinel result."""
+        return SimpleNamespace()
+
+
 agents_module.ToolGuardrailFunctionOutput = ToolGuardrailFunctionOutput
 agents_module.ToolInputGuardrailData = ToolInputGuardrailData
 agents_module.ToolOutputGuardrailData = ToolOutputGuardrailData
@@ -109,8 +118,14 @@ agents_module.Agent = Agent
 agents_module.GuardrailFunctionOutput = GuardrailFunctionOutput
 agents_module.input_guardrail = _decorator_passthrough
 agents_module.output_guardrail = _decorator_passthrough
+agents_module.AgentRunner = AgentRunner
 
 sys.modules.setdefault("agents", agents_module)
+
+agents_run_module = types.ModuleType("agents.run")
+agents_run_module.AgentRunner = AgentRunner
+sys.modules.setdefault("agents.run", agents_run_module)
+agents_module.run = agents_run_module
 
 import guardrails.agents as agents  # noqa: E402  (import after stubbing)
 import guardrails.runtime as runtime_module  # noqa: E402
@@ -135,44 +150,75 @@ def _make_guardrail(name: str) -> Any:
 
 
 @pytest.fixture(autouse=True)
-def reset_user_messages() -> None:
-    """Ensure user message context is reset for each test."""
-    agents._user_messages.set([])
+def reset_agent_context() -> None:
+    """Ensure agent conversation context vars are reset for each test."""
+    agents._agent_session.set(None)
+    agents._agent_conversation.set(None)
 
 
-def test_get_user_messages_initializes_list() -> None:
-    """_get_user_messages should return the same list instance across calls."""
-    msgs1 = agents._get_user_messages()
-    msgs1.append("hello")
-    msgs2 = agents._get_user_messages()
+@pytest.mark.asyncio
+async def test_conversation_with_tool_call_updates_fallback_history() -> None:
+    """Fallback conversation should include previous history and new tool call."""
+    agents._agent_session.set(None)
+    agents._agent_conversation.set(({"role": "user", "content": "Hi there"},))
+    data = SimpleNamespace(context=ToolContext(tool_name="math", tool_arguments={"x": 1}, tool_call_id="call-1"))
 
-    assert msgs2 == ["hello"]  # noqa: S101
-    assert msgs1 is msgs2  # noqa: S101
+    conversation = await agents._conversation_with_tool_call(data)
 
-
-def test_build_conversation_with_tool_call_includes_user_messages() -> None:
-    """Conversation builder should include stored user messages and tool call details."""
-    agents._user_messages.set(["Hi there"])
-    data = SimpleNamespace(context=ToolContext(tool_name="math", tool_arguments={"x": 1}))
-
-    conversation = agents._build_conversation_with_tool_call(data)
-
-    assert conversation[0] == {"role": "user", "content": "Hi there"}  # noqa: S101
-    assert conversation[1]["tool_name"] == "math"  # noqa: S101
-    assert conversation[1]["arguments"] == {"x": 1}  # noqa: S101
+    assert conversation[0]["content"] == "Hi there"  # noqa: S101
+    assert conversation[-1]["type"] == "function_call"  # noqa: S101
+    assert conversation[-1]["tool_name"] == "math"  # noqa: S101
+    stored = agents._agent_conversation.get()
+    assert stored is not None and stored[-1]["call_id"] == "call-1"  # type: ignore[index]  # noqa: S101
 
 
-def test_build_conversation_with_tool_output_includes_output() -> None:
-    """Tool output conversation should include function output payload."""
-    agents._user_messages.set(["User request"])
+@pytest.mark.asyncio
+async def test_conversation_with_tool_call_uses_session_history() -> None:
+    """When session is available, its items form the conversation baseline."""
+
+    class StubSession:
+        def __init__(self) -> None:
+            self.items = [{"role": "user", "content": "Remember me"}]
+
+        async def get_items(self, limit: int | None = None) -> list[dict[str, Any]]:
+            return self.items
+
+        async def add_items(self, items: list[Any]) -> None:
+            self.items.extend(items)
+
+        async def pop_item(self) -> Any | None:
+            return None
+
+        async def clear_session(self) -> None:
+            self.items.clear()
+
+    session = StubSession()
+    agents._agent_session.set(session)
+    agents._agent_conversation.set(None)
+
+    data = SimpleNamespace(context=ToolContext(tool_name="lookup", tool_arguments={"zip": 12345}, tool_call_id="call-2"))
+
+    conversation = await agents._conversation_with_tool_call(data)
+
+    assert conversation[0]["content"] == "Remember me"  # noqa: S101
+    assert conversation[-1]["call_id"] == "call-2"  # noqa: S101
+    cached = agents._agent_conversation.get()
+    assert cached is not None and cached[-1]["call_id"] == "call-2"  # type: ignore[index]  # noqa: S101
+
+
+@pytest.mark.asyncio
+async def test_conversation_with_tool_output_includes_output() -> None:
+    """Tool output conversation should include serialized output payload."""
+    agents._agent_session.set(None)
+    agents._agent_conversation.set(({"role": "user", "content": "Compute"},))
     data = SimpleNamespace(
-        context=ToolContext(tool_name="calc", tool_arguments={"y": 2}),
+        context=ToolContext(tool_name="calc", tool_arguments={"y": 2}, tool_call_id="call-3"),
         output={"result": 4},
     )
 
-    conversation = agents._build_conversation_with_tool_output(data)
+    conversation = await agents._conversation_with_tool_output(data)
 
-    assert conversation[1]["output"] == "{'result': 4}"  # noqa: S101
+    assert conversation[-1]["output"] == "{'result': 4}"  # noqa: S101
 
 
 def test_create_conversation_context_exposes_history() -> None:
@@ -216,12 +262,6 @@ def test_attach_guardrail_to_tools_initializes_lists() -> None:
     assert tool.tool_output_guardrails == [fn]  # type: ignore[attr-defined]  # noqa: S101
 
 
-def test_needs_conversation_history() -> None:
-    """Guardrails requiring conversation history should be detected."""
-    assert agents._needs_conversation_history(_make_guardrail("Prompt Injection Detection")) is True  # noqa: S101
-    assert agents._needs_conversation_history(_make_guardrail("Other Guard")) is False  # noqa: S101
-
-
 def test_separate_tool_level_from_agent_level() -> None:
     """Prompt injection guardrails should be classified as tool-level."""
     tool, agent_level = agents._separate_tool_level_from_agent_level([_make_guardrail("Prompt Injection Detection"), _make_guardrail("Other Guard")])
@@ -235,9 +275,13 @@ async def test_create_tool_guardrail_rejects_on_tripwire(monkeypatch: pytest.Mon
     """Tool guardrail should reject content when run_guardrails flags a violation."""
     guardrail = _make_guardrail("Test Guardrail")
     expected_info = {"observation": "violation"}
+    agents._agent_session.set(None)
+    agents._agent_conversation.set(({"role": "user", "content": "Original request"},))
 
     async def fake_run_guardrails(**kwargs: Any) -> list[GuardrailResult]:
         assert kwargs["stage_name"] == "tool_input_test_guardrail"  # noqa: S101
+        history = kwargs["ctx"].get_conversation_history()
+        assert history[-1]["tool_name"] == "weather"  # noqa: S101
         return [GuardrailResult(tripwire_triggered=True, info=expected_info)]
 
     monkeypatch.setattr(runtime_module, "run_guardrails", fake_run_guardrails)
@@ -245,8 +289,7 @@ async def test_create_tool_guardrail_rejects_on_tripwire(monkeypatch: pytest.Mon
     tool_fn = agents._create_tool_guardrail(
         guardrail=guardrail,
         guardrail_type="input",
-        needs_conv_history=False,
-        context=SimpleNamespace(),
+        context=SimpleNamespace(guardrail_llm="client"),
         raise_guardrail_errors=False,
         block_on_violations=False,
     )
@@ -268,12 +311,13 @@ async def test_create_tool_guardrail_blocks_on_violation(monkeypatch: pytest.Mon
         return [GuardrailResult(tripwire_triggered=True, info={})]
 
     monkeypatch.setattr(runtime_module, "run_guardrails", fake_run_guardrails)
+    agents._agent_session.set(None)
+    agents._agent_conversation.set(({"role": "user", "content": "Hi"},))
 
     tool_fn = agents._create_tool_guardrail(
         guardrail=guardrail,
         guardrail_type="input",
-        needs_conv_history=False,
-        context=SimpleNamespace(),
+        context=SimpleNamespace(guardrail_llm="client"),
         raise_guardrail_errors=False,
         block_on_violations=True,
     )
@@ -293,12 +337,13 @@ async def test_create_tool_guardrail_propagates_errors(monkeypatch: pytest.Monke
         raise RuntimeError("guardrail failure")
 
     monkeypatch.setattr(runtime_module, "run_guardrails", failing_run_guardrails)
+    agents._agent_session.set(None)
+    agents._agent_conversation.set(({"role": "user", "content": "Hi"},))
 
     tool_fn = agents._create_tool_guardrail(
         guardrail=guardrail,
         guardrail_type="input",
-        needs_conv_history=False,
-        context=SimpleNamespace(),
+        context=SimpleNamespace(guardrail_llm="client"),
         raise_guardrail_errors=True,
         block_on_violations=False,
     )
@@ -310,21 +355,23 @@ async def test_create_tool_guardrail_propagates_errors(monkeypatch: pytest.Monke
 
 
 @pytest.mark.asyncio
-async def test_create_tool_guardrail_skips_without_user_messages(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Conversation-aware tool guardrails should skip when no user intent is recorded."""
+async def test_create_tool_guardrail_handles_empty_conversation(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Guardrail executes even when no prior conversation is present."""
     guardrail = _make_guardrail("Prompt Injection Detection")
-    agents._user_messages.set([])  # Reset stored messages
 
     async def fake_run_guardrails(**kwargs: Any) -> list[GuardrailResult]:
-        raise AssertionError("run_guardrails should not be called when skipping")
+        history = kwargs["ctx"].get_conversation_history()
+        assert history[-1]["output"] == "ok"  # noqa: S101
+        return [GuardrailResult(tripwire_triggered=False, info={})]
 
-    monkeypatch.setattr(agents, "run_guardrails", fake_run_guardrails, raising=False)
+    monkeypatch.setattr(runtime_module, "run_guardrails", fake_run_guardrails)
+    agents._agent_session.set(None)
+    agents._agent_conversation.set(None)
 
     tool_fn = agents._create_tool_guardrail(
         guardrail=guardrail,
         guardrail_type="output",
-        needs_conv_history=True,
-        context=SimpleNamespace(),
+        context=SimpleNamespace(guardrail_llm="client"),
         raise_guardrail_errors=False,
         block_on_violations=False,
     )
@@ -335,13 +382,12 @@ async def test_create_tool_guardrail_skips_without_user_messages(monkeypatch: py
     )
     result = await tool_fn(data)
 
-    assert "Skipped" in result.output_info  # noqa: S101
     assert result.tripwire_triggered is False  # noqa: S101
 
 
 @pytest.mark.asyncio
 async def test_create_agents_guardrails_from_config_success(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Agent-level guardrail functions should execute run_guardrails and capture user messages."""
+    """Agent-level guardrail functions should execute run_guardrails."""
     pipeline = SimpleNamespace(pre_flight=None, input=SimpleNamespace(), output=None)
     monkeypatch.setattr(runtime_module, "load_pipeline_bundles", lambda config: pipeline)
     monkeypatch.setattr(
@@ -371,7 +417,7 @@ async def test_create_agents_guardrails_from_config_success(monkeypatch: pytest.
 
     assert output.tripwire_triggered is False  # noqa: S101
     assert captured["stage_name"] == "input"  # noqa: S101
-    assert agents._get_user_messages()[-1] == "hello"  # noqa: S101
+    assert captured["data"] == "hello"  # noqa: S101
 
 
 @pytest.mark.asyncio
@@ -489,7 +535,6 @@ async def test_create_agents_guardrails_from_config_output_stage(monkeypatch: py
     result = await guardrails[0](agents_module.RunContextWrapper(None), Agent("n", "i"), "response")
 
     assert result.tripwire_triggered is False  # noqa: S101
-    assert agents._get_user_messages() == []  # noqa: S101
 
 
 def test_guardrail_agent_attaches_tool_guardrails(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -540,68 +585,6 @@ def test_guardrail_agent_attaches_tool_guardrails(monkeypatch: pytest.MonkeyPatc
     assert len(tool.tool_input_guardrails) == 1  # type: ignore[attr-defined]  # noqa: S101
     # Agent-level guardrails should be attached (one for Sensitive Data Check)
     assert len(agent_instance.input_guardrails or []) >= 1  # noqa: S101
-
-
-@pytest.mark.asyncio
-async def test_guardrail_agent_captures_user_messages(monkeypatch: pytest.MonkeyPatch) -> None:
-    """GuardrailAgent should capture user messages and invoke tool guardrails."""
-    prompt_guard = _make_guardrail("Prompt Injection Detection")
-    input_guard = _make_guardrail("Agent Guard")
-
-    class FakePipeline:
-        def __init__(self) -> None:
-            self.pre_flight = SimpleNamespace()
-            self.input = SimpleNamespace()
-            self.output = None
-
-        def stages(self) -> list[Any]:
-            return [self.pre_flight, self.input]
-
-    pipeline = FakePipeline()
-
-    def fake_load_pipeline_bundles(config: Any) -> FakePipeline:
-        return pipeline
-
-    def fake_instantiate_guardrails(stage: Any, registry: Any | None = None) -> list[Any]:
-        if stage is pipeline.pre_flight:
-            return [prompt_guard]
-        if stage is pipeline.input:
-            return [input_guard]
-        return []
-
-    calls: list[str] = []
-
-    async def fake_run_guardrails(**kwargs: Any) -> list[GuardrailResult]:
-        calls.append(kwargs["stage_name"])
-        return [GuardrailResult(tripwire_triggered=False, info={})]
-
-    monkeypatch.setattr(runtime_module, "load_pipeline_bundles", fake_load_pipeline_bundles, raising=False)
-    monkeypatch.setattr(runtime_module, "instantiate_guardrails", fake_instantiate_guardrails, raising=False)
-    monkeypatch.setattr(runtime_module, "run_guardrails", fake_run_guardrails)
-
-    tool = SimpleNamespace()
-    agent_instance = agents.GuardrailAgent(
-        config={"version": 1},
-        name="Test",
-        instructions="Help",
-        tools=[tool],
-    )
-
-    # Call the first input guardrail (capture function)
-    capture_fn = agent_instance.input_guardrails[0]
-    await capture_fn(agents_module.RunContextWrapper(None), agent_instance, "user question")
-
-    assert agents._get_user_messages() == ["user question"]  # noqa: S101
-
-    # Run actual agent guardrail
-    guard_fn = agent_instance.input_guardrails[1]
-    await guard_fn(agents_module.RunContextWrapper(None), agent_instance, "user question")
-
-    # Tool guardrail should be attached and callable
-    data = agents_module.ToolInputGuardrailData(context=ToolContext("tool", {}))
-    await tool.tool_input_guardrails[0](data)  # type: ignore[attr-defined]
-
-    assert any(name.startswith("tool_input") for name in calls)  # noqa: S101
 
 
 def test_guardrail_agent_without_tools(monkeypatch: pytest.MonkeyPatch) -> None:

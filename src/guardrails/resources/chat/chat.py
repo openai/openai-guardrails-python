@@ -66,13 +66,14 @@ class ChatCompletions:
 
         Runs preflight first, then executes input guardrails concurrently with the LLM call.
         """
+        normalized_conversation = self._client._normalize_conversation(messages)
         latest_message, _ = self._client._extract_latest_user_message(messages)
 
         # Preflight first (synchronous wrapper)
         preflight_results = self._client._run_stage_guardrails(
             "pre_flight",
             latest_message,
-            conversation_history=messages,  # Pass full conversation for prompt injection detection
+            conversation_history=normalized_conversation,
             suppress_tripwire=suppress_tripwire,
         )
 
@@ -91,7 +92,7 @@ class ChatCompletions:
             input_results = self._client._run_stage_guardrails(
                 "input",
                 latest_message,
-                conversation_history=messages,  # Pass full conversation for prompt injection detection
+                conversation_history=normalized_conversation,
                 suppress_tripwire=suppress_tripwire,
             )
             llm_response = llm_future.result()
@@ -102,6 +103,7 @@ class ChatCompletions:
                 llm_response,
                 preflight_results,
                 input_results,
+                conversation_history=normalized_conversation,
                 suppress_tripwire=suppress_tripwire,
             )
         else:
@@ -109,7 +111,7 @@ class ChatCompletions:
                 llm_response,
                 preflight_results,
                 input_results,
-                conversation_history=messages,
+                conversation_history=normalized_conversation,
                 suppress_tripwire=suppress_tripwire,
             )
 
@@ -129,13 +131,14 @@ class AsyncChatCompletions:
         self, messages: list[dict[str, str]], model: str, stream: bool = False, suppress_tripwire: bool = False, **kwargs
     ) -> Any | AsyncIterator[Any]:
         """Create chat completion with guardrails."""
+        normalized_conversation = self._client._normalize_conversation(messages)
         latest_message, _ = self._client._extract_latest_user_message(messages)
 
         # Run pre-flight guardrails
         preflight_results = await self._client._run_stage_guardrails(
             "pre_flight",
             latest_message,
-            conversation_history=messages,  # Pass full conversation for prompt injection detection
+            conversation_history=normalized_conversation,
             suppress_tripwire=suppress_tripwire,
         )
 
@@ -146,7 +149,7 @@ class AsyncChatCompletions:
         input_check = self._client._run_stage_guardrails(
             "input",
             latest_message,
-            conversation_history=messages,  # Pass full conversation for prompt injection detection
+            conversation_history=normalized_conversation,
             suppress_tripwire=suppress_tripwire,
         )
         llm_call = self._client._resource_client.chat.completions.create(
@@ -163,6 +166,7 @@ class AsyncChatCompletions:
                 llm_response,
                 preflight_results,
                 input_results,
+                conversation_history=normalized_conversation,
                 suppress_tripwire=suppress_tripwire,
             )
         else:
@@ -170,6 +174,6 @@ class AsyncChatCompletions:
                 llm_response,
                 preflight_results,
                 input_results,
-                conversation_history=messages,
+                conversation_history=normalized_conversation,
                 suppress_tripwire=suppress_tripwire,
             )

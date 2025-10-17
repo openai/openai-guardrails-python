@@ -47,6 +47,7 @@ class GuardrailLLMContextProto(Protocol):
         """Get conversation history if available, None otherwise."""
         return getattr(self, "conversation_history", None)
 
+
 @dataclass(frozen=True, slots=True)
 class GuardrailResult:
     """Result returned from a guardrail check.

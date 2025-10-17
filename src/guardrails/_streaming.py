@@ -13,6 +13,7 @@ from typing import Any
 from ._base_client import GuardrailsResponse
 from .exceptions import GuardrailTripwireTriggered
 from .types import GuardrailResult
+from .utils.conversation import merge_conversation_with_items
 
 logger = logging.getLogger(__name__)
 
@@ -25,6 +26,7 @@ class StreamingMixin:
         llm_stream: Any,  # coroutine or async iterator of OpenAI chunks
         preflight_results: list[GuardrailResult],
         input_results: list[GuardrailResult],
+        conversation_history: list[dict[str, Any]] | None = None,
         check_interval: int = 100,
         suppress_tripwire: bool = False,
     ) -> AsyncIterator[GuardrailsResponse]:
@@ -46,7 +48,16 @@ class StreamingMixin:
                 # Run output guardrails periodically
                 if chunk_count % check_interval == 0:
                     try:
-                        await self._run_stage_guardrails("output", accumulated_text, suppress_tripwire=suppress_tripwire)
+                        history = merge_conversation_with_items(
+                            conversation_history or [],
+                            [{"role": "assistant", "content": accumulated_text}],
+                        )
+                        await self._run_stage_guardrails(
+                            "output",
+                            accumulated_text,
+                            conversation_history=history,
+                            suppress_tripwire=suppress_tripwire,
+                        )
                     except GuardrailTripwireTriggered:
                         # Clear accumulated output and re-raise
                         accumulated_text = ""
@@ -57,7 +68,16 @@ class StreamingMixin:
 
         # Final output check
         if accumulated_text:
-            await self._run_stage_guardrails("output", accumulated_text, suppress_tripwire=suppress_tripwire)
+            history = merge_conversation_with_items(
+                conversation_history or [],
+                [{"role": "assistant", "content": accumulated_text}],
+            )
+            await self._run_stage_guardrails(
+                "output",
+                accumulated_text,
+                conversation_history=history,
+                suppress_tripwire=suppress_tripwire,
+            )
             # Note: This final result won't be yielded since stream is complete
             # but the results are available in the last chunk
 
@@ -66,6 +86,7 @@ class StreamingMixin:
         llm_stream: Any,  # iterator of OpenAI chunks
         preflight_results: list[GuardrailResult],
         input_results: list[GuardrailResult],
+        conversation_history: list[dict[str, Any]] | None = None,
         check_interval: int = 100,
         suppress_tripwire: bool = False,
     ):
@@ -83,7 +104,16 @@ class StreamingMixin:
                 # Run output guardrails periodically
                 if chunk_count % check_interval == 0:
                     try:
-                        self._run_stage_guardrails("output", accumulated_text, suppress_tripwire=suppress_tripwire)
+                        history = merge_conversation_with_items(
+                            conversation_history or [],
+                            [{"role": "assistant", "content": accumulated_text}],
+                        )
+                        self._run_stage_guardrails(
+                            "output",
+                            accumulated_text,
+                            conversation_history=history,
+                            suppress_tripwire=suppress_tripwire,
+                        )
                     except GuardrailTripwireTriggered:
                         # Clear accumulated output and re-raise
                         accumulated_text = ""
@@ -94,6 +124,15 @@ class StreamingMixin:
 
         # Final output check
         if accumulated_text:
-            self._run_stage_guardrails("output", accumulated_text, suppress_tripwire=suppress_tripwire)
+            history = merge_conversation_with_items(
+                conversation_history or [],
+                [{"role": "assistant", "content": accumulated_text}],
+            )
+            self._run_stage_guardrails(
+                "output",
+                accumulated_text,
+                conversation_history=history,
+                suppress_tripwire=suppress_tripwire,
+            )
             # Note: This final result won't be yielded since stream is complete
             # but the results are available in the last chunk

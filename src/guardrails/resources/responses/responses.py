@@ -34,6 +34,16 @@ class Responses:
 
         Runs preflight first, then executes input guardrails concurrently with the LLM call.
         """
+        previous_response_id = kwargs.get("previous_response_id")
+        prior_history = self._client._load_conversation_history_from_previous_response(previous_response_id)
+
+        current_turn = self._client._normalize_conversation(input)
+        if prior_history:
+            normalized_conversation = [entry.copy() for entry in prior_history]
+            normalized_conversation.extend(current_turn)
+        else:
+            normalized_conversation = current_turn
+
         # Determine latest user message text when a list of messages is provided
         if isinstance(input, list):
             latest_message, _ = self._client._extract_latest_user_message(input)
@@ -44,7 +54,7 @@ class Responses:
         preflight_results = self._client._run_stage_guardrails(
             "pre_flight",
             latest_message,
-            conversation_history=input,  # Pass full conversation for prompt injection detection
+            conversation_history=normalized_conversation,
             suppress_tripwire=suppress_tripwire,
         )
 
@@ -64,7 +74,7 @@ class Responses:
             input_results = self._client._run_stage_guardrails(
                 "input",
                 latest_message,
-                conversation_history=input,  # Pass full conversation for prompt injection detection
+                conversation_history=normalized_conversation,
                 suppress_tripwire=suppress_tripwire,
             )
             llm_response = llm_future.result()
@@ -75,6 +85,7 @@ class Responses:
                 llm_response,
                 preflight_results,
                 input_results,
+                conversation_history=normalized_conversation,
                 suppress_tripwire=suppress_tripwire,
             )
         else:
@@ -82,19 +93,28 @@ class Responses:
                 llm_response,
                 preflight_results,
                 input_results,
-                conversation_history=input,
+                conversation_history=normalized_conversation,
                 suppress_tripwire=suppress_tripwire,
             )
 
     def parse(self, input: list[dict[str, str]], model: str, text_format: type[BaseModel], suppress_tripwire: bool = False, **kwargs):
         """Parse response with structured output and guardrails (synchronous)."""
+        previous_response_id = kwargs.get("previous_response_id")
+        prior_history = self._client._load_conversation_history_from_previous_response(previous_response_id)
+
+        current_turn = self._client._normalize_conversation(input)
+        if prior_history:
+            normalized_conversation = [entry.copy() for entry in prior_history]
+            normalized_conversation.extend(current_turn)
+        else:
+            normalized_conversation = current_turn
         latest_message, _ = self._client._extract_latest_user_message(input)
 
         # Preflight first
         preflight_results = self._client._run_stage_guardrails(
             "pre_flight",
             latest_message,
-            conversation_history=input,  # Pass full conversation for prompt injection detection
+            conversation_history=normalized_conversation,
             suppress_tripwire=suppress_tripwire,
         )
 
@@ -113,7 +133,7 @@ class Responses:
             input_results = self._client._run_stage_guardrails(
                 "input",
                 latest_message,
-                conversation_history=input,  # Pass full conversation for prompt injection detection
+                conversation_history=normalized_conversation,
                 suppress_tripwire=suppress_tripwire,
             )
             llm_response = llm_future.result()
@@ -122,7 +142,7 @@ class Responses:
             llm_response,
             preflight_results,
             input_results,
-            conversation_data=input,
+            conversation_history=normalized_conversation,
             suppress_tripwire=suppress_tripwire,
         )
 
@@ -165,6 +185,15 @@ class AsyncResponses:
         **kwargs,
     ) -> Any | AsyncIterator[Any]:
         """Create response with guardrails."""
+        previous_response_id = kwargs.get("previous_response_id")
+        prior_history = await self._client._load_conversation_history_from_previous_response(previous_response_id)
+
+        current_turn = self._client._normalize_conversation(input)
+        if prior_history:
+            normalized_conversation = [entry.copy() for entry in prior_history]
+            normalized_conversation.extend(current_turn)
+        else:
+            normalized_conversation = current_turn
         # Determine latest user message text when a list of messages is provided
         if isinstance(input, list):
             latest_message, _ = self._client._extract_latest_user_message(input)
@@ -175,7 +204,7 @@ class AsyncResponses:
         preflight_results = await self._client._run_stage_guardrails(
             "pre_flight",
             latest_message,
-            conversation_history=input,  # Pass full conversation for prompt injection detection
+            conversation_history=normalized_conversation,
             suppress_tripwire=suppress_tripwire,
         )
 
@@ -186,7 +215,7 @@ class AsyncResponses:
         input_check = self._client._run_stage_guardrails(
             "input",
             latest_message,
-            conversation_history=input,  # Pass full conversation for prompt injection detection
+            conversation_history=normalized_conversation,
             suppress_tripwire=suppress_tripwire,
         )
         llm_call = self._client._resource_client.responses.create(
@@ -204,6 +233,7 @@ class AsyncResponses:
                 llm_response,
                 preflight_results,
                 input_results,
+                conversation_history=normalized_conversation,
                 suppress_tripwire=suppress_tripwire,
             )
         else:
@@ -211,7 +241,7 @@ class AsyncResponses:
                 llm_response,
                 preflight_results,
                 input_results,
-                conversation_history=input,
+                conversation_history=normalized_conversation,
                 suppress_tripwire=suppress_tripwire,
             )
 
@@ -219,13 +249,22 @@ class AsyncResponses:
         self, input: list[dict[str, str]], model: str, text_format: type[BaseModel], stream: bool = False, suppress_tripwire: bool = False, **kwargs
     ) -> Any | AsyncIterator[Any]:
         """Parse response with structured output and guardrails."""
+        previous_response_id = kwargs.get("previous_response_id")
+        prior_history = await self._client._load_conversation_history_from_previous_response(previous_response_id)
+
+        current_turn = self._client._normalize_conversation(input)
+        if prior_history:
+            normalized_conversation = [entry.copy() for entry in prior_history]
+            normalized_conversation.extend(current_turn)
+        else:
+            normalized_conversation = current_turn
         latest_message, _ = self._client._extract_latest_user_message(input)
 
         # Run pre-flight guardrails
         preflight_results = await self._client._run_stage_guardrails(
             "pre_flight",
             latest_message,
-            conversation_history=input,  # Pass full conversation for prompt injection detection
+            conversation_history=normalized_conversation,
             suppress_tripwire=suppress_tripwire,
         )
 
@@ -236,7 +275,7 @@ class AsyncResponses:
         input_check = self._client._run_stage_guardrails(
             "input",
             latest_message,
-            conversation_history=input,  # Pass full conversation for prompt injection detection
+            conversation_history=normalized_conversation,
             suppress_tripwire=suppress_tripwire,
         )
         llm_call = self._client._resource_client.responses.parse(
@@ -254,6 +293,7 @@ class AsyncResponses:
                 llm_response,
                 preflight_results,
                 input_results,
+                conversation_history=normalized_conversation,
                 suppress_tripwire=suppress_tripwire,
             )
         else:
@@ -261,7 +301,7 @@ class AsyncResponses:
                 llm_response,
                 preflight_results,
                 input_results,
-                conversation_history=input,
+                conversation_history=normalized_conversation,
                 suppress_tripwire=suppress_tripwire,
             )
 

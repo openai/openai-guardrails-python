@@ -8,6 +8,7 @@ from typing import Any
 import pytest
 
 from guardrails.resources.chat.chat import AsyncChatCompletions, ChatCompletions
+from guardrails.utils.conversation import normalize_conversation
 
 
 class _InlineExecutor:
@@ -48,6 +49,7 @@ class _SyncClient:
                 completions=SimpleNamespace(create=self._llm_call),
             )
         )
+        self._normalize_conversation = normalize_conversation
         self._llm_response = SimpleNamespace(type="llm")
         self._stream_result = "stream"
         self._handle_result = "handled"
@@ -106,6 +108,8 @@ class _SyncClient:
         llm_stream: Any,
         preflight_results: list[Any],
         input_results: list[Any],
+        conversation_history: list[dict[str, Any]] | None = None,
+        check_interval: int = 100,
         suppress_tripwire: bool = False,
     ) -> Any:
         self.stream_calls.append(
@@ -113,6 +117,8 @@ class _SyncClient:
                 "stream": llm_stream,
                 "preflight": preflight_results,
                 "input": input_results,
+                "history": conversation_history,
+                "interval": check_interval,
                 "suppress": suppress_tripwire,
             }
         )
@@ -134,6 +140,7 @@ class _AsyncClient:
                 completions=SimpleNamespace(create=self._llm_call),
             )
         )
+        self._normalize_conversation = normalize_conversation
         self._llm_response = SimpleNamespace(type="llm")
         self._stream_result = "async-stream"
         self._handle_result = "async-handled"
@@ -192,6 +199,8 @@ class _AsyncClient:
         llm_stream: Any,
         preflight_results: list[Any],
         input_results: list[Any],
+        conversation_history: list[dict[str, Any]] | None = None,
+        check_interval: int = 100,
         suppress_tripwire: bool = False,
     ) -> Any:
         self.stream_calls.append(
@@ -199,6 +208,8 @@ class _AsyncClient:
                 "stream": llm_stream,
                 "preflight": preflight_results,
                 "input": input_results,
+                "history": conversation_history,
+                "interval": check_interval,
                 "suppress": suppress_tripwire,
             }
         )

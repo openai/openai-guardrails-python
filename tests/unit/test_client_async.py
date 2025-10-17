@@ -61,7 +61,8 @@ def test_append_llm_response_handles_string_history() -> None:
     updated_history = client._append_llm_response_to_conversation("hi there", response)
 
     assert updated_history[0]["content"] == "hi there"  # noqa: S101
-    assert updated_history[1].message.content == "assistant reply"  # type: ignore[union-attr]  # noqa: S101
+    assert updated_history[0]["role"] == "user"  # noqa: S101
+    assert updated_history[1]["content"] == "assistant reply"  # noqa: S101
 
 
 def test_append_llm_response_handles_response_output() -> None:
@@ -182,7 +183,7 @@ async def test_handle_llm_response_runs_output_guardrails(monkeypatch: pytest.Mo
     )
 
     assert captured_text == ["LLM response"]  # noqa: S101
-    assert captured_history[-1][-1].message.content == "LLM response"  # type: ignore[index]  # noqa: S101
+    assert captured_history[-1][-1]["content"] == "LLM response"  # noqa: S101
     assert response.guardrail_results.output == [output_result]  # noqa: S101
 
 

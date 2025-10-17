@@ -19,6 +19,7 @@ from .context import has_context
 from .runtime import load_pipeline_bundles
 from .types import GuardrailLLMContextProto, GuardrailResult
 from .utils.context import validate_guardrail_context
+from .utils.conversation import append_assistant_response, normalize_conversation
 
 logger = logging.getLogger(__name__)
 
@@ -256,6 +257,18 @@ class GuardrailsBaseClient:
             stage = getattr(self.pipeline, stage_name)
             guardrails[stage_name] = instantiate_guardrails(stage, default_spec_registry) if stage else []
         return guardrails
+
+    def _normalize_conversation(self, payload: Any) -> list[dict[str, Any]]:
+        """Normalize arbitrary conversation payloads."""
+        return normalize_conversation(payload)
+
+    def _conversation_with_response(
+        self,
+        conversation: list[dict[str, Any]],
+        response: Any,
+    ) -> list[dict[str, Any]]:
+        """Append the assistant response to a normalized conversation."""
+        return append_assistant_response(conversation, response)
 
     def _validate_context(self, context: Any) -> None:
         """Validate context against all guardrails."""

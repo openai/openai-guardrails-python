@@ -19,37 +19,107 @@ from pathlib import Path
 from typing import Any
 
 from ._openai_utils import prepare_openai_kwargs
+from .utils.conversation import merge_conversation_with_items, normalize_conversation
 
 logger = logging.getLogger(__name__)
 
 __all__ = ["GuardrailAgent"]
 
-# Guardrails that require conversation history context
-_NEEDS_CONVERSATION_HISTORY = ["Prompt Injection Detection"]
-
 # Guardrails that should run at tool level (before/after each tool call)
 # instead of at agent level (before/after entire agent interaction)
 _TOOL_LEVEL_GUARDRAILS = ["Prompt Injection Detection"]
 
-# Context variable for tracking user messages across conversation turns
-# Only stores user messages - NOT full conversation history
-# This persists across turns to maintain multi-turn context
-# Only used when a guardrail in _NEEDS_CONVERSATION_HISTORY is configured
-_user_messages: ContextVar[list[str]] = ContextVar("user_messages", default=[])  # noqa: B039
+# Context variables used to expose conversation information during guardrail checks.
+_agent_session: ContextVar[Any | None] = ContextVar("guardrails_agent_session", default=None)
+_agent_conversation: ContextVar[tuple[dict[str, Any], ...] | None] = ContextVar(
+    "guardrails_agent_conversation",
+    default=None,
+)
+_AGENT_RUNNER_PATCHED = False
 
 
-def _get_user_messages() -> list[str]:
-    """Get user messages from context variable with proper error handling.
+def _ensure_agent_runner_patch() -> None:
+    """Patch AgentRunner.run once so sessions are exposed via ContextVars."""
+    global _AGENT_RUNNER_PATCHED
+    if _AGENT_RUNNER_PATCHED:
+        return
 
-    Returns:
-        List of user messages, or empty list if not yet initialized
-    """
     try:
-        return _user_messages.get()
-    except LookupError:
-        user_msgs: list[str] = []
-        _user_messages.set(user_msgs)
-        return user_msgs
+        from agents.run import AgentRunner  # type: ignore
+    except ImportError:
+        return
+
+    original_run = AgentRunner.run
+
+    async def _patched_run(self, starting_agent, input, **kwargs):  # type: ignore[override]
+        session = kwargs.get("session")
+        fallback_history: list[dict[str, Any]] | None = None
+        if session is None:
+            fallback_history = normalize_conversation(input)
+
+        session_token = _agent_session.set(session)
+        conversation_token = _agent_conversation.set(tuple(dict(item) for item in fallback_history) if fallback_history else None)
+
+        try:
+            return await original_run(self, starting_agent, input, **kwargs)
+        finally:
+            _agent_session.reset(session_token)
+            _agent_conversation.reset(conversation_token)
+
+    AgentRunner.run = _patched_run  # type: ignore[assignment]
+    _AGENT_RUNNER_PATCHED = True
+
+
+def _cache_conversation(conversation: list[dict[str, Any]]) -> None:
+    """Cache the normalized conversation for the current run."""
+    _agent_conversation.set(tuple(dict(item) for item in conversation))
+
+
+async def _load_agent_conversation() -> list[dict[str, Any]]:
+    """Load the latest conversation snapshot from session or fallback storage."""
+    cached = _agent_conversation.get()
+    if cached is not None:
+        return [dict(item) for item in cached]
+
+    session = _agent_session.get()
+    if session is not None:
+        items = await session.get_items()
+        conversation = normalize_conversation(items)
+        _cache_conversation(conversation)
+        return conversation
+
+    return []
+
+
+async def _conversation_with_items(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Return conversation history including additional items."""
+    base_history = await _load_agent_conversation()
+    conversation = merge_conversation_with_items(base_history, items)
+    _cache_conversation(conversation)
+    return conversation
+
+
+async def _conversation_with_tool_call(data: Any) -> list[dict[str, Any]]:
+    """Build conversation history including the current tool call."""
+    event = {
+        "type": "function_call",
+        "tool_name": data.context.tool_name,
+        "arguments": data.context.tool_arguments,
+        "call_id": getattr(data.context, "tool_call_id", None),
+    }
+    return await _conversation_with_items([event])
+
+
+async def _conversation_with_tool_output(data: Any) -> list[dict[str, Any]]:
+    """Build conversation history including the current tool output."""
+    event = {
+        "type": "function_call_output",
+        "tool_name": data.context.tool_name,
+        "arguments": data.context.tool_arguments,
+        "output": str(data.output),
+        "call_id": getattr(data.context, "tool_call_id", None),
+    }
+    return await _conversation_with_items([event])
 
 
 def _separate_tool_level_from_agent_level(guardrails: list[Any]) -> tuple[list[Any], list[Any]]:
@@ -71,50 +141,6 @@ def _separate_tool_level_from_agent_level(guardrails: list[Any]) -> tuple[list[A
             agent_level.append(guardrail)
 
     return tool_level, agent_level
-
-
-def _needs_conversation_history(guardrail: Any) -> bool:
-    """Check if a guardrail needs conversation history context.
-
-    Args:
-        guardrail: Configured guardrail to check
-
-    Returns:
-        True if guardrail needs conversation history, False otherwise
-    """
-    return guardrail.definition.name in _NEEDS_CONVERSATION_HISTORY
-
-
-def _build_conversation_with_tool_call(data: Any) -> list:
-    """Build conversation history with user messages + tool call.
-
-    Args:
-        data: ToolInputGuardrailData containing tool call information
-
-    Returns:
-        List of conversation messages including user context and tool call
-    """
-    user_msgs = _get_user_messages()
-    conversation = [{"role": "user", "content": msg} for msg in user_msgs]
-    conversation.append({"type": "function_call", "tool_name": data.context.tool_name, "arguments": data.context.tool_arguments})
-    return conversation
-
-
-def _build_conversation_with_tool_output(data: Any) -> list:
-    """Build conversation history with user messages + tool output.
-
-    Args:
-        data: ToolOutputGuardrailData containing tool output information
-
-    Returns:
-        List of conversation messages including user context and tool output
-    """
-    user_msgs = _get_user_messages()
-    conversation = [{"role": "user", "content": msg} for msg in user_msgs]
-    conversation.append(
-        {"type": "function_call_output", "tool_name": data.context.tool_name, "arguments": data.context.tool_arguments, "output": str(data.output)}
-    )
-    return conversation
 
 
 def _attach_guardrail_to_tools(tools: list[Any], guardrail: Callable, guardrail_type: str) -> None:
@@ -173,14 +199,17 @@ def _create_conversation_context(
 
 
 def _create_tool_guardrail(
-    guardrail: Any, guardrail_type: str, needs_conv_history: bool, context: Any, raise_guardrail_errors: bool, block_on_violations: bool
+    guardrail: Any,
+    guardrail_type: str,
+    context: Any,
+    raise_guardrail_errors: bool,
+    block_on_violations: bool,
 ) -> Callable:
     """Create a generic tool-level guardrail wrapper.
 
     Args:
         guardrail: The configured guardrail
         guardrail_type: "input" (before tool execution) or "output" (after tool execution)
-        needs_conv_history: Whether this guardrail needs conversation history context
         context: Guardrail context for LLM client
         raise_guardrail_errors: Whether to raise on errors
         block_on_violations: If True, use raise_exception (halt). If False, use reject_content (continue).
@@ -209,26 +238,18 @@ def _create_tool_guardrail(
             guardrail_name = guardrail.definition.name
 
             try:
-                # Build context based on whether conversation history is needed
-                if needs_conv_history:
-                    # Get user messages and check if available
-                    user_msgs = _get_user_messages()
-
-                    if not user_msgs:
-                        return ToolGuardrailFunctionOutput(output_info=f"Skipped: no user intent available for {guardrail_name}")
-
-                    # Build conversation history with user messages + tool call
-                    conversation_history = _build_conversation_with_tool_call(data)
-                    ctx = _create_conversation_context(
-                        conversation_history=conversation_history,
-                        base_context=context,
-                    )
-                    check_data = ""  # Unused for conversation-history-aware guardrails
-                else:
-                    # Use simple context without conversation history
-                    ctx = context
-                    # Format tool call data for non-conversation-aware guardrails
-                    check_data = json.dumps({"tool_name": data.context.tool_name, "arguments": data.context.tool_arguments})
+                conversation_history = await _conversation_with_tool_call(data)
+                ctx = _create_conversation_context(
+                    conversation_history=conversation_history,
+                    base_context=context,
+                )
+                check_data = json.dumps(
+                    {
+                        "tool_name": data.context.tool_name,
+                        "arguments": data.context.tool_arguments,
+                        "call_id": getattr(data.context, "tool_call_id", None),
+                    }
+                )
 
                 # Run the guardrail
                 results = await run_guardrails(
@@ -271,28 +292,19 @@ def _create_tool_guardrail(
             guardrail_name = guardrail.definition.name
 
             try:
-                # Build context based on whether conversation history is needed
-                if needs_conv_history:
-                    # Get user messages and check if available
-                    user_msgs = _get_user_messages()
-
-                    if not user_msgs:
-                        return ToolGuardrailFunctionOutput(output_info=f"Skipped: no user intent available for {guardrail_name}")
-
-                    # Build conversation history with user messages + tool output
-                    conversation_history = _build_conversation_with_tool_output(data)
-                    ctx = _create_conversation_context(
-                        conversation_history=conversation_history,
-                        base_context=context,
-                    )
-                    check_data = ""  # Unused for conversation-history-aware guardrails
-                else:
-                    # Use simple context without conversation history
-                    ctx = context
-                    # Format tool output data for non-conversation-aware guardrails
-                    check_data = json.dumps(
-                        {"tool_name": data.context.tool_name, "arguments": data.context.tool_arguments, "output": str(data.output)}
-                    )
+                conversation_history = await _conversation_with_tool_output(data)
+                ctx = _create_conversation_context(
+                    conversation_history=conversation_history,
+                    base_context=context,
+                )
+                check_data = json.dumps(
+                    {
+                        "tool_name": data.context.tool_name,
+                        "arguments": data.context.tool_arguments,
+                        "output": str(data.output),
+                        "call_id": getattr(data.context, "tool_call_id", None),
+                    }
+                )
 
                 # Run the guardrail
                 results = await run_guardrails(
@@ -387,15 +399,6 @@ def _create_agents_guardrails_from_config(
         async def stage_guardrail(ctx: RunContextWrapper[None], agent: Agent, input_data: str) -> GuardrailFunctionOutput:
             """Guardrail function for a specific pipeline stage."""
             try:
-                # If this is an input guardrail, capture user messages for tool-level alignment
-                if guardrail_type == "input":
-                    # Parse input_data to extract user message
-                    # input_data is typically a string containing the user's message
-                    if input_data and input_data.strip():
-                        user_msgs = _get_user_messages()
-                        if input_data not in user_msgs:
-                            user_msgs.append(input_data)
-
                 # Get guardrails for this stage (already filtered to exclude prompt injection)
                 guardrails = stage_guardrails.get(stage_name, [])
                 if not guardrails:
@@ -456,6 +459,11 @@ class GuardrailAgent:
 
     Prompt Injection Detection guardrails are applied at the tool level (before and
     after each tool call), while other guardrails run at the agent level.
+
+    When you supply an Agents Session via ``Runner.run(..., session=...)`` the
+    guardrails automatically read the persisted conversation history. Without a
+    session, guardrails operate on the conversation passed to ``Runner.run`` for
+    the current turn.
 
     Example:
         ```python
@@ -527,6 +535,8 @@ class GuardrailAgent:
         from .registry import default_spec_registry
         from .runtime import instantiate_guardrails, load_pipeline_bundles
 
+        _ensure_agent_runner_patch()
+
         # Load and instantiate guardrails from config
         pipeline = load_pipeline_bundles(config)
 
@@ -538,10 +548,6 @@ class GuardrailAgent:
             else:
                 stage_guardrails[stage_name] = []
 
-        # Check if ANY guardrail in the entire pipeline needs conversation history
-        all_guardrails = stage_guardrails.get("pre_flight", []) + stage_guardrails.get("input", []) + stage_guardrails.get("output", [])
-        needs_user_tracking = any(gr.definition.name in _NEEDS_CONVERSATION_HISTORY for gr in all_guardrails)
-
         # Separate tool-level from agent-level guardrails in each stage
         preflight_tool, preflight_agent = _separate_tool_level_from_agent_level(stage_guardrails.get("pre_flight", []))
         input_tool, input_agent = _separate_tool_level_from_agent_level(stage_guardrails.get("input", []))
@@ -549,25 +555,6 @@ class GuardrailAgent:
 
         # Create agent-level INPUT guardrails
         input_guardrails = []
-
-        # ONLY create user message capture guardrail if needed
-        if needs_user_tracking:
-            try:
-                from agents import Agent as AgentType, GuardrailFunctionOutput, RunContextWrapper, input_guardrail
-            except ImportError as e:
-                raise ImportError("The 'agents' package is required. Please install it with: pip install openai-agents") from e
-
-            @input_guardrail
-            async def capture_user_message(ctx: RunContextWrapper[None], agent: AgentType, input_data: str) -> GuardrailFunctionOutput:
-                """Capture user messages for conversation-history-aware guardrails."""
-                if input_data and input_data.strip():
-                    user_msgs = _get_user_messages()
-                    if input_data not in user_msgs:
-                        user_msgs.append(input_data)
-
-                return GuardrailFunctionOutput(output_info=None, tripwire_triggered=False)
-
-            input_guardrails.append(capture_user_message)
 
         # Add agent-level guardrails from pre_flight and input stages
         agent_input_stages = []
@@ -610,7 +597,6 @@ class GuardrailAgent:
                 tool_input_gr = _create_tool_guardrail(
                     guardrail=guardrail,
                     guardrail_type="input",
-                    needs_conv_history=_needs_conversation_history(guardrail),
                     context=context,
                     raise_guardrail_errors=raise_guardrail_errors,
                     block_on_violations=block_on_tool_violations,
@@ -622,7 +608,6 @@ class GuardrailAgent:
                 tool_output_gr = _create_tool_guardrail(
                     guardrail=guardrail,
                     guardrail_type="output",
-                    needs_conv_history=_needs_conversation_history(guardrail),
                     context=context,
                     raise_guardrail_errors=raise_guardrail_errors,
                     block_on_violations=block_on_tool_violations,
