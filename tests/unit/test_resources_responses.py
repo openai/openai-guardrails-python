@@ -25,6 +25,8 @@ class _SyncResponsesClient:
         self.create_calls: list[dict[str, Any]] = []
         self.parse_calls: list[dict[str, Any]] = []
         self.retrieve_calls: list[dict[str, Any]] = []
+        self.history_requests: list[str | None] = []
+        self.history_lookup: dict[str, list[dict[str, Any]]] = {}
         self._llm_response = SimpleNamespace(output_text="result", type="llm")
         self._stream_result = "stream"
         self._handle_result = "handled"
@@ -79,6 +81,14 @@ class _SyncResponsesClient:
         if isinstance(data, list):
             return [{"role": "user", "content": "modified"}]
         return "modified"
+
+    def _load_conversation_history_from_previous_response(self, previous_response_id: str | None) -> list[dict[str, Any]]:
+        self.history_requests.append(previous_response_id)
+        if not previous_response_id:
+            return []
+
+        history = self.history_lookup.get(previous_response_id, [])
+        return [entry.copy() for entry in history]
 
     def _handle_llm_response(
         self,
@@ -136,7 +146,6 @@ class _SyncResponsesClient:
             "output": output_results,
         }
 
-
 class _AsyncResponsesClient:
     """Fake asynchronous guardrails client for AsyncResponses tests."""
 
@@ -148,14 +157,12 @@ class _AsyncResponsesClient:
         self.handle_calls: list[dict[str, Any]] = []
         self.stream_calls: list[dict[str, Any]] = []
         self.create_calls: list[dict[str, Any]] = []
+        self.history_requests: list[str | None] = []
+        self.history_lookup: dict[str, list[dict[str, Any]]] = {}
         self._llm_response = SimpleNamespace(output_text="async", type="llm")
         self._stream_result = "async-stream"
         self._handle_result = "async-handled"
-        self._resource_client = SimpleNamespace(
-            responses=SimpleNamespace(
-                create=self._llm_create,
-            )
-        )
+        self._resource_client = SimpleNamespace(responses=SimpleNamespace(create=self._llm_create))
         self._normalize_conversation = normalize_conversation
 
     async def _llm_create(self, **kwargs: Any) -> Any:
@@ -192,6 +199,14 @@ class _AsyncResponsesClient:
         if isinstance(data, list):
             return [{"role": "user", "content": "modified"}]
         return "modified"
+
+    async def _load_conversation_history_from_previous_response(self, previous_response_id: str | None) -> list[dict[str, Any]]:
+        self.history_requests.append(previous_response_id)
+        if not previous_response_id:
+            return []
+
+        history = self.history_lookup.get(previous_response_id, [])
+        return [entry.copy() for entry in history]
 
     async def _handle_llm_response(
         self,
@@ -293,6 +308,27 @@ def test_responses_create_stream_returns_stream(monkeypatch: pytest.MonkeyPatch)
     assert stream_call["history"] == normalize_conversation(_messages())  # noqa: S101
 
 
+def test_responses_create_merges_previous_history(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Responses.create should merge stored conversation history when provided."""
+    client = _SyncResponsesClient()
+    responses = Responses(client)
+    _inline_executor(monkeypatch)
+
+    previous_turn = [
+        {"role": "user", "content": "old question"},
+        {"role": "assistant", "content": "old answer"},
+    ]
+    client.history_lookup["resp-prev"] = normalize_conversation(previous_turn)
+
+    messages = _messages()
+    responses.create(input=messages, model="gpt-test", previous_response_id="resp-prev")
+
+    expected_history = client.history_lookup["resp-prev"] + normalize_conversation(messages)
+    assert client.preflight_calls[0]["history"] == expected_history  # noqa: S101
+    assert client.history_requests == ["resp-prev"]  # noqa: S101
+    assert client.create_calls[0]["previous_response_id"] == "resp-prev"  # noqa: S101
+
+
 def test_responses_parse_runs_guardrails(monkeypatch: pytest.MonkeyPatch) -> None:
     """Responses.parse should run guardrails and pass modified input."""
     client = _SyncResponsesClient()
@@ -308,6 +344,34 @@ def test_responses_parse_runs_guardrails(monkeypatch: pytest.MonkeyPatch) -> Non
     assert result == "handled"  # noqa: S101
     assert client.parse_calls[0]["input"][0]["content"] == "modified"  # noqa: S101
     assert client.handle_calls[0]["history"] == normalize_conversation(messages)  # noqa: S101
+
+
+def test_responses_parse_merges_previous_history(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Responses.parse should include stored conversation history."""
+    client = _SyncResponsesClient()
+    responses = Responses(client)
+    _inline_executor(monkeypatch)
+
+    previous_turn = [
+        {"role": "user", "content": "first step"},
+        {"role": "assistant", "content": "ack"},
+    ]
+    client.history_lookup["resp-prev"] = normalize_conversation(previous_turn)
+
+    class _Schema(BaseModel):
+        text: str
+
+    messages = _messages()
+    responses.parse(
+        input=messages,
+        model="gpt-test",
+        text_format=_Schema,
+        previous_response_id="resp-prev",
+    )
+
+    expected_history = client.history_lookup["resp-prev"] + normalize_conversation(messages)
+    assert client.preflight_calls[0]["history"] == expected_history  # noqa: S101
+    assert client.parse_calls[0]["previous_response_id"] == "resp-prev"  # noqa: S101
 
 
 def test_responses_retrieve_wraps_output() -> None:
@@ -349,3 +413,23 @@ async def test_async_responses_stream_returns_wrapper() -> None:
     assert stream_call["preflight"] == ["preflight"]  # noqa: S101
     assert stream_call["input"] == ["input"]  # noqa: S101
     assert stream_call["history"] == normalize_conversation(_messages())  # noqa: S101
+
+
+@pytest.mark.asyncio
+async def test_async_responses_create_merges_previous_history() -> None:
+    """AsyncResponses.create should merge stored conversation history."""
+    client = _AsyncResponsesClient()
+    responses = AsyncResponses(client)
+
+    previous_turn = [
+        {"role": "user", "content": "old question"},
+        {"role": "assistant", "content": "old answer"},
+    ]
+    client.history_lookup["resp-prev"] = normalize_conversation(previous_turn)
+
+    await responses.create(input=_messages(), model="gpt-test", previous_response_id="resp-prev")
+
+    expected_history = client.history_lookup["resp-prev"] + normalize_conversation(_messages())
+    assert client.preflight_calls[0]["history"] == expected_history  # noqa: S101
+    assert client.history_requests == ["resp-prev"]  # noqa: S101
+    assert client.create_calls[0]["previous_response_id"] == "resp-prev"  # noqa: S101

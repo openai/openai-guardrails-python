@@ -50,6 +50,92 @@ INPUT_STAGE = "input"
 OUTPUT_STAGE = "output"
 
 
+def _collect_conversation_items_sync(resource_client: Any, previous_response_id: str) -> list[Any]:
+    """Return all conversation items for a previous response using sync client APIs."""
+    try:
+        response = resource_client.responses.retrieve(previous_response_id)
+    except Exception:  # pragma: no cover - upstream client/network errors
+        return []
+
+    conversation = getattr(response, "conversation", None)
+    conversation_id = getattr(conversation, "id", None) if conversation else None
+
+    items: list[Any] = []
+
+    if conversation_id and hasattr(resource_client, "conversations"):
+        try:
+            page = resource_client.conversations.items.list(
+                conversation_id=conversation_id,
+                order="asc",
+                limit=100,
+            )
+            for item in page:
+                items.append(item)
+        except Exception:  # pragma: no cover - upstream client/network errors
+            items = []
+
+    if not items:
+        try:
+            page = resource_client.responses.input_items.list(
+                previous_response_id,
+                order="asc",
+                limit=100,
+            )
+            for item in page:
+                items.append(item)
+        except Exception:  # pragma: no cover - upstream client/network errors
+            items = []
+
+        output_items = getattr(response, "output", None)
+        if output_items:
+            items.extend(output_items)
+
+    return items
+
+
+async def _collect_conversation_items_async(resource_client: Any, previous_response_id: str) -> list[Any]:
+    """Return all conversation items for a previous response using async client APIs."""
+    try:
+        response = await resource_client.responses.retrieve(previous_response_id)
+    except Exception:  # pragma: no cover - upstream client/network errors
+        return []
+
+    conversation = getattr(response, "conversation", None)
+    conversation_id = getattr(conversation, "id", None) if conversation else None
+
+    items: list[Any] = []
+
+    if conversation_id and hasattr(resource_client, "conversations"):
+        try:
+            page = await resource_client.conversations.items.list(
+                conversation_id=conversation_id,
+                order="asc",
+                limit=100,
+            )
+            async for item in page:  # type: ignore[attr-defined]
+                items.append(item)
+        except Exception:  # pragma: no cover - upstream client/network errors
+            items = []
+
+    if not items:
+        try:
+            page = await resource_client.responses.input_items.list(
+                previous_response_id,
+                order="asc",
+                limit=100,
+            )
+            async for item in page:  # type: ignore[attr-defined]
+                items.append(item)
+        except Exception:  # pragma: no cover - upstream client/network errors
+            items = []
+
+        output_items = getattr(response, "output", None)
+        if output_items:
+            items.extend(output_items)
+
+    return items
+
+
 class GuardrailsAsyncOpenAI(AsyncOpenAI, GuardrailsBaseClient, StreamingMixin):
     """AsyncOpenAI subclass with automatic guardrail integration.
 
@@ -144,6 +230,16 @@ class GuardrailsAsyncOpenAI(AsyncOpenAI, GuardrailsBaseClient, StreamingMixin):
         """Append LLM response to conversation history as-is."""
         normalized_history = self._normalize_conversation(conversation_history)
         return self._conversation_with_response(normalized_history, llm_response)
+
+    async def _load_conversation_history_from_previous_response(self, previous_response_id: str | None) -> list[dict[str, Any]]:
+        """Load full conversation history for a stored previous response."""
+        if not previous_response_id:
+            return []
+
+        items = await _collect_conversation_items_async(self._resource_client, previous_response_id)
+        if not items:
+            return []
+        return self._normalize_conversation(items)
 
     def _override_resources(self):
         """Override chat and responses with our guardrail-enhanced versions."""
@@ -302,6 +398,16 @@ class GuardrailsOpenAI(OpenAI, GuardrailsBaseClient, StreamingMixin):
         """Append LLM response to conversation history as-is."""
         normalized_history = self._normalize_conversation(conversation_history)
         return self._conversation_with_response(normalized_history, llm_response)
+
+    def _load_conversation_history_from_previous_response(self, previous_response_id: str | None) -> list[dict[str, Any]]:
+        """Load full conversation history for a stored previous response."""
+        if not previous_response_id:
+            return []
+
+        items = _collect_conversation_items_sync(self._resource_client, previous_response_id)
+        if not items:
+            return []
+        return self._normalize_conversation(items)
 
     def _override_resources(self):
         """Override chat and responses with our guardrail-enhanced versions."""
@@ -464,6 +570,16 @@ if AsyncAzureOpenAI is not None:
             normalized_history = self._normalize_conversation(conversation_history)
             return self._conversation_with_response(normalized_history, llm_response)
 
+        async def _load_conversation_history_from_previous_response(self, previous_response_id: str | None) -> list[dict[str, Any]]:
+            """Load full conversation history for a stored previous response."""
+            if not previous_response_id:
+                return []
+
+            items = await _collect_conversation_items_async(self._resource_client, previous_response_id)
+            if not items:
+                return []
+            return self._normalize_conversation(items)
+
         def _override_resources(self):
             from .resources.chat import AsyncChat
             from .resources.responses import AsyncResponses
@@ -619,6 +735,16 @@ if AzureOpenAI is not None:
                 updated_history.append(llm_response.choices[0])
 
             return updated_history
+
+        def _load_conversation_history_from_previous_response(self, previous_response_id: str | None) -> list[dict[str, Any]]:
+            """Load full conversation history for a stored previous response."""
+            if not previous_response_id:
+                return []
+
+            items = _collect_conversation_items_sync(self._resource_client, previous_response_id)
+            if not items:
+                return []
+            return self._normalize_conversation(items)
 
         def _override_resources(self):
             from .resources.chat import Chat
