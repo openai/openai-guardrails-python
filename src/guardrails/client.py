@@ -142,24 +142,8 @@ class GuardrailsAsyncOpenAI(AsyncOpenAI, GuardrailsBaseClient, StreamingMixin):
 
     def _append_llm_response_to_conversation(self, conversation_history: list | str, llm_response: Any) -> list:
         """Append LLM response to conversation history as-is."""
-        if conversation_history is None:
-            conversation_history = []
-
-        # Handle case where conversation_history is a string (from single input)
-        if isinstance(conversation_history, str):
-            conversation_history = [{"role": "user", "content": conversation_history}]
-
-        # Make a copy to avoid modifying the original
-        updated_history = conversation_history.copy()
-
-        # For responses API: append the output directly
-        if hasattr(llm_response, "output") and llm_response.output:
-            updated_history.extend(llm_response.output)
-        # For chat completions: append the choice message directly (prompt injection detection check will parse)
-        elif hasattr(llm_response, "choices") and llm_response.choices:
-            updated_history.append(llm_response.choices[0])
-
-        return updated_history
+        normalized_history = self._normalize_conversation(conversation_history)
+        return self._conversation_with_response(normalized_history, llm_response)
 
     def _override_resources(self):
         """Override chat and responses with our guardrail-enhanced versions."""
@@ -174,7 +158,7 @@ class GuardrailsAsyncOpenAI(AsyncOpenAI, GuardrailsBaseClient, StreamingMixin):
         self,
         stage_name: str,
         text: str,
-        conversation_history: list = None,
+        conversation_history: list | None = None,
         suppress_tripwire: bool = False,
     ) -> list[GuardrailResult]:
         """Run guardrails for a specific pipeline stage."""
@@ -182,15 +166,9 @@ class GuardrailsAsyncOpenAI(AsyncOpenAI, GuardrailsBaseClient, StreamingMixin):
             return []
 
         try:
-            # Check if prompt injection detection guardrail is present and we have conversation history
-            has_injection_detection = any(
-                guardrail.definition.name.lower() == "prompt injection detection" for guardrail in self.guardrails[stage_name]
-            )
-
-            if has_injection_detection and conversation_history:
+            ctx = self.context
+            if conversation_history:
                 ctx = self._create_context_with_conversation(conversation_history)
-            else:
-                ctx = self.context
 
             results = await run_guardrails(
                 ctx=ctx,
@@ -225,7 +203,8 @@ class GuardrailsAsyncOpenAI(AsyncOpenAI, GuardrailsBaseClient, StreamingMixin):
     ) -> GuardrailsResponse:
         """Handle non-streaming LLM response with output guardrails."""
         # Create complete conversation history including the LLM response
-        complete_conversation = self._append_llm_response_to_conversation(conversation_history, llm_response)
+        normalized_history = conversation_history or []
+        complete_conversation = self._conversation_with_response(normalized_history, llm_response)
 
         response_text = self._extract_response_text(llm_response)
         output_results = await self._run_stage_guardrails(
@@ -321,24 +300,8 @@ class GuardrailsOpenAI(OpenAI, GuardrailsBaseClient, StreamingMixin):
 
     def _append_llm_response_to_conversation(self, conversation_history: list | str, llm_response: Any) -> list:
         """Append LLM response to conversation history as-is."""
-        if conversation_history is None:
-            conversation_history = []
-
-        # Handle case where conversation_history is a string (from single input)
-        if isinstance(conversation_history, str):
-            conversation_history = [{"role": "user", "content": conversation_history}]
-
-        # Make a copy to avoid modifying the original
-        updated_history = conversation_history.copy()
-
-        # For responses API: append the output directly
-        if hasattr(llm_response, "output") and llm_response.output:
-            updated_history.extend(llm_response.output)
-        # For chat completions: append the choice message directly (prompt injection detection check will parse)
-        elif hasattr(llm_response, "choices") and llm_response.choices:
-            updated_history.append(llm_response.choices[0])
-
-        return updated_history
+        normalized_history = self._normalize_conversation(conversation_history)
+        return self._conversation_with_response(normalized_history, llm_response)
 
     def _override_resources(self):
         """Override chat and responses with our guardrail-enhanced versions."""
@@ -371,14 +334,9 @@ class GuardrailsOpenAI(OpenAI, GuardrailsBaseClient, StreamingMixin):
 
         async def _run_async():
             # Check if prompt injection detection guardrail is present and we have conversation history
-            has_injection_detection = any(
-                guardrail.definition.name.lower() == "prompt injection detection" for guardrail in self.guardrails[stage_name]
-            )
-
-            if has_injection_detection and conversation_history:
+            ctx = self.context
+            if conversation_history:
                 ctx = self._create_context_with_conversation(conversation_history)
-            else:
-                ctx = self.context
 
             results = await run_guardrails(
                 ctx=ctx,
@@ -415,7 +373,8 @@ class GuardrailsOpenAI(OpenAI, GuardrailsBaseClient, StreamingMixin):
     ) -> GuardrailsResponse:
         """Handle LLM response with output guardrails."""
         # Create complete conversation history including the LLM response
-        complete_conversation = self._append_llm_response_to_conversation(conversation_history, llm_response)
+        normalized_history = conversation_history or []
+        complete_conversation = self._conversation_with_response(normalized_history, llm_response)
 
         response_text = self._extract_response_text(llm_response)
         output_results = self._run_stage_guardrails(
@@ -502,24 +461,8 @@ if AsyncAzureOpenAI is not None:
 
         def _append_llm_response_to_conversation(self, conversation_history: list | str, llm_response: Any) -> list:
             """Append LLM response to conversation history as-is."""
-            if conversation_history is None:
-                conversation_history = []
-
-            # Handle case where conversation_history is a string (from single input)
-            if isinstance(conversation_history, str):
-                conversation_history = [{"role": "user", "content": conversation_history}]
-
-            # Make a copy to avoid modifying the original
-            updated_history = conversation_history.copy()
-
-            # For responses API: append the output directly
-            if hasattr(llm_response, "output") and llm_response.output:
-                updated_history.extend(llm_response.output)
-            # For chat completions: append the choice message directly (prompt injection detection check will parse)
-            elif hasattr(llm_response, "choices") and llm_response.choices:
-                updated_history.append(llm_response.choices[0])
-
-            return updated_history
+            normalized_history = self._normalize_conversation(conversation_history)
+            return self._conversation_with_response(normalized_history, llm_response)
 
         def _override_resources(self):
             from .resources.chat import AsyncChat
@@ -540,15 +483,9 @@ if AsyncAzureOpenAI is not None:
                 return []
 
             try:
-                # Check if prompt injection detection guardrail is present and we have conversation history
-                has_injection_detection = any(
-                    guardrail.definition.name.lower() == "prompt injection detection" for guardrail in self.guardrails[stage_name]
-                )
-
-                if has_injection_detection and conversation_history:
+                ctx = self.context
+                if conversation_history:
                     ctx = self._create_context_with_conversation(conversation_history)
-                else:
-                    ctx = self.context
 
                 results = await run_guardrails(
                     ctx=ctx,
@@ -583,7 +520,8 @@ if AsyncAzureOpenAI is not None:
         ) -> GuardrailsResponse:
             """Handle non-streaming LLM response with output guardrails (async)."""
             # Create complete conversation history including the LLM response
-            complete_conversation = self._append_llm_response_to_conversation(conversation_history, llm_response)
+            normalized_history = conversation_history or []
+            complete_conversation = self._conversation_with_response(normalized_history, llm_response)
 
             response_text = self._extract_response_text(llm_response)
             output_results = await self._run_stage_guardrails(

@@ -9,6 +9,7 @@ import pytest
 from pydantic import BaseModel
 
 from guardrails.resources.responses.responses import AsyncResponses, Responses
+from guardrails.utils.conversation import normalize_conversation
 
 
 class _SyncResponsesClient:
@@ -34,6 +35,7 @@ class _SyncResponsesClient:
                 retrieve=self._llm_retrieve,
             )
         )
+        self._normalize_conversation = normalize_conversation
 
     def _llm_create(self, **kwargs: Any) -> Any:
         self.create_calls.append(kwargs)
@@ -103,6 +105,8 @@ class _SyncResponsesClient:
         llm_stream: Any,
         preflight_results: list[Any],
         input_results: list[Any],
+        conversation_history: list[dict[str, Any]] | None = None,
+        check_interval: int = 100,
         suppress_tripwire: bool = False,
     ) -> Any:
         self.stream_calls.append(
@@ -110,6 +114,8 @@ class _SyncResponsesClient:
                 "stream": llm_stream,
                 "preflight": preflight_results,
                 "input": input_results,
+                "history": conversation_history,
+                "interval": check_interval,
                 "suppress": suppress_tripwire,
             }
         )
@@ -150,6 +156,7 @@ class _AsyncResponsesClient:
                 create=self._llm_create,
             )
         )
+        self._normalize_conversation = normalize_conversation
 
     async def _llm_create(self, **kwargs: Any) -> Any:
         self.create_calls.append(kwargs)
@@ -209,6 +216,8 @@ class _AsyncResponsesClient:
         llm_stream: Any,
         preflight_results: list[Any],
         input_results: list[Any],
+        conversation_history: list[dict[str, Any]] | None = None,
+        check_interval: int = 100,
         suppress_tripwire: bool = False,
     ) -> Any:
         self.stream_calls.append(
@@ -216,6 +225,8 @@ class _AsyncResponsesClient:
                 "stream": llm_stream,
                 "preflight": preflight_results,
                 "input": input_results,
+                "history": conversation_history,
+                "interval": check_interval,
                 "suppress": suppress_tripwire,
             }
         )
@@ -279,6 +290,7 @@ def test_responses_create_stream_returns_stream(monkeypatch: pytest.MonkeyPatch)
     stream_call = client.stream_calls[0]
     assert stream_call["suppress"] is True  # noqa: S101
     assert stream_call["preflight"] == ["preflight"]  # noqa: S101
+    assert stream_call["history"] == normalize_conversation(_messages())  # noqa: S101
 
 
 def test_responses_parse_runs_guardrails(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -295,7 +307,7 @@ def test_responses_parse_runs_guardrails(monkeypatch: pytest.MonkeyPatch) -> Non
 
     assert result == "handled"  # noqa: S101
     assert client.parse_calls[0]["input"][0]["content"] == "modified"  # noqa: S101
-    assert client.handle_calls[0]["extra"]["conversation_data"] == messages  # noqa: S101
+    assert client.handle_calls[0]["history"] == normalize_conversation(messages)  # noqa: S101
 
 
 def test_responses_retrieve_wraps_output() -> None:
@@ -336,3 +348,4 @@ async def test_async_responses_stream_returns_wrapper() -> None:
     stream_call = client.stream_calls[0]
     assert stream_call["preflight"] == ["preflight"]  # noqa: S101
     assert stream_call["input"] == ["input"]  # noqa: S101
+    assert stream_call["history"] == normalize_conversation(_messages())  # noqa: S101

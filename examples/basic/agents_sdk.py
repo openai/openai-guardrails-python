@@ -7,6 +7,7 @@ from agents import (
     InputGuardrailTripwireTriggered,
     OutputGuardrailTripwireTriggered,
     Runner,
+    SQLiteSession,
 )
 from agents.run import RunConfig
 
@@ -50,6 +51,9 @@ PIPELINE_CONFIG = {
 
 async def main() -> None:
     """Main input loop for the customer support agent with input/output guardrails."""
+    # Create a session for the agent to store the conversation history
+    session = SQLiteSession("guardrails-session")
+
     # Create agent with guardrails automatically configured from pipeline configuration
     AGENT = GuardrailAgent(
         config=PIPELINE_CONFIG,
@@ -65,6 +69,7 @@ async def main() -> None:
                     AGENT,
                     user_input,
                     run_config=RunConfig(tracing_disabled=True),
+                    session=session,
                 )
                 print(f"Assistant: {result.final_output}")
             except EOFError:
