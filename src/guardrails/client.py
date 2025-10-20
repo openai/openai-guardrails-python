@@ -50,6 +50,92 @@ INPUT_STAGE = "input"
 OUTPUT_STAGE = "output"
 
 
+def _collect_conversation_items_sync(resource_client: Any, previous_response_id: str) -> list[Any]:
+    """Return all conversation items for a previous response using sync client APIs."""
+    try:
+        response = resource_client.responses.retrieve(previous_response_id)
+    except Exception:  # pragma: no cover - upstream client/network errors
+        return []
+
+    conversation = getattr(response, "conversation", None)
+    conversation_id = getattr(conversation, "id", None) if conversation else None
+
+    items: list[Any] = []
+
+    if conversation_id and hasattr(resource_client, "conversations"):
+        try:
+            page = resource_client.conversations.items.list(
+                conversation_id=conversation_id,
+                order="asc",
+                limit=100,
+            )
+            for item in page:
+                items.append(item)
+        except Exception:  # pragma: no cover - upstream client/network errors
+            items = []
+
+    if not items:
+        try:
+            page = resource_client.responses.input_items.list(
+                previous_response_id,
+                order="asc",
+                limit=100,
+            )
+            for item in page:
+                items.append(item)
+        except Exception:  # pragma: no cover - upstream client/network errors
+            items = []
+
+        output_items = getattr(response, "output", None)
+        if output_items:
+            items.extend(output_items)
+
+    return items
+
+
+async def _collect_conversation_items_async(resource_client: Any, previous_response_id: str) -> list[Any]:
+    """Return all conversation items for a previous response using async client APIs."""
+    try:
+        response = await resource_client.responses.retrieve(previous_response_id)
+    except Exception:  # pragma: no cover - upstream client/network errors
+        return []
+
+    conversation = getattr(response, "conversation", None)
+    conversation_id = getattr(conversation, "id", None) if conversation else None
+
+    items: list[Any] = []
+
+    if conversation_id and hasattr(resource_client, "conversations"):
+        try:
+            page = await resource_client.conversations.items.list(
+                conversation_id=conversation_id,
+                order="asc",
+                limit=100,
+            )
+            async for item in page:  # type: ignore[attr-defined]
+                items.append(item)
+        except Exception:  # pragma: no cover - upstream client/network errors
+            items = []
+
+    if not items:
+        try:
+            page = await resource_client.responses.input_items.list(
+                previous_response_id,
+                order="asc",
+                limit=100,
+            )
+            async for item in page:  # type: ignore[attr-defined]
+                items.append(item)
+        except Exception:  # pragma: no cover - upstream client/network errors
+            items = []
+
+        output_items = getattr(response, "output", None)
+        if output_items:
+            items.extend(output_items)
+
+    return items
+
+
 class GuardrailsAsyncOpenAI(AsyncOpenAI, GuardrailsBaseClient, StreamingMixin):
     """AsyncOpenAI subclass with automatic guardrail integration.
 
@@ -142,24 +228,18 @@ class GuardrailsAsyncOpenAI(AsyncOpenAI, GuardrailsBaseClient, StreamingMixin):
 
     def _append_llm_response_to_conversation(self, conversation_history: list | str, llm_response: Any) -> list:
         """Append LLM response to conversation history as-is."""
-        if conversation_history is None:
-            conversation_history = []
+        normalized_history = self._normalize_conversation(conversation_history)
+        return self._conversation_with_response(normalized_history, llm_response)
 
-        # Handle case where conversation_history is a string (from single input)
-        if isinstance(conversation_history, str):
-            conversation_history = [{"role": "user", "content": conversation_history}]
+    async def _load_conversation_history_from_previous_response(self, previous_response_id: str | None) -> list[dict[str, Any]]:
+        """Load full conversation history for a stored previous response."""
+        if not previous_response_id:
+            return []
 
-        # Make a copy to avoid modifying the original
-        updated_history = conversation_history.copy()
-
-        # For responses API: append the output directly
-        if hasattr(llm_response, "output") and llm_response.output:
-            updated_history.extend(llm_response.output)
-        # For chat completions: append the choice message directly (prompt injection detection check will parse)
-        elif hasattr(llm_response, "choices") and llm_response.choices:
-            updated_history.append(llm_response.choices[0])
-
-        return updated_history
+        items = await _collect_conversation_items_async(self._resource_client, previous_response_id)
+        if not items:
+            return []
+        return self._normalize_conversation(items)
 
     def _override_resources(self):
         """Override chat and responses with our guardrail-enhanced versions."""
@@ -174,7 +254,7 @@ class GuardrailsAsyncOpenAI(AsyncOpenAI, GuardrailsBaseClient, StreamingMixin):
         self,
         stage_name: str,
         text: str,
-        conversation_history: list = None,
+        conversation_history: list | None = None,
         suppress_tripwire: bool = False,
     ) -> list[GuardrailResult]:
         """Run guardrails for a specific pipeline stage."""
@@ -182,15 +262,9 @@ class GuardrailsAsyncOpenAI(AsyncOpenAI, GuardrailsBaseClient, StreamingMixin):
             return []
 
         try:
-            # Check if prompt injection detection guardrail is present and we have conversation history
-            has_injection_detection = any(
-                guardrail.definition.name.lower() == "prompt injection detection" for guardrail in self.guardrails[stage_name]
-            )
-
-            if has_injection_detection and conversation_history:
+            ctx = self.context
+            if conversation_history:
                 ctx = self._create_context_with_conversation(conversation_history)
-            else:
-                ctx = self.context
 
             results = await run_guardrails(
                 ctx=ctx,
@@ -225,7 +299,8 @@ class GuardrailsAsyncOpenAI(AsyncOpenAI, GuardrailsBaseClient, StreamingMixin):
     ) -> GuardrailsResponse:
         """Handle non-streaming LLM response with output guardrails."""
         # Create complete conversation history including the LLM response
-        complete_conversation = self._append_llm_response_to_conversation(conversation_history, llm_response)
+        normalized_history = conversation_history or []
+        complete_conversation = self._conversation_with_response(normalized_history, llm_response)
 
         response_text = self._extract_response_text(llm_response)
         output_results = await self._run_stage_guardrails(
@@ -321,24 +396,18 @@ class GuardrailsOpenAI(OpenAI, GuardrailsBaseClient, StreamingMixin):
 
     def _append_llm_response_to_conversation(self, conversation_history: list | str, llm_response: Any) -> list:
         """Append LLM response to conversation history as-is."""
-        if conversation_history is None:
-            conversation_history = []
+        normalized_history = self._normalize_conversation(conversation_history)
+        return self._conversation_with_response(normalized_history, llm_response)
 
-        # Handle case where conversation_history is a string (from single input)
-        if isinstance(conversation_history, str):
-            conversation_history = [{"role": "user", "content": conversation_history}]
+    def _load_conversation_history_from_previous_response(self, previous_response_id: str | None) -> list[dict[str, Any]]:
+        """Load full conversation history for a stored previous response."""
+        if not previous_response_id:
+            return []
 
-        # Make a copy to avoid modifying the original
-        updated_history = conversation_history.copy()
-
-        # For responses API: append the output directly
-        if hasattr(llm_response, "output") and llm_response.output:
-            updated_history.extend(llm_response.output)
-        # For chat completions: append the choice message directly (prompt injection detection check will parse)
-        elif hasattr(llm_response, "choices") and llm_response.choices:
-            updated_history.append(llm_response.choices[0])
-
-        return updated_history
+        items = _collect_conversation_items_sync(self._resource_client, previous_response_id)
+        if not items:
+            return []
+        return self._normalize_conversation(items)
 
     def _override_resources(self):
         """Override chat and responses with our guardrail-enhanced versions."""
@@ -371,14 +440,9 @@ class GuardrailsOpenAI(OpenAI, GuardrailsBaseClient, StreamingMixin):
 
         async def _run_async():
             # Check if prompt injection detection guardrail is present and we have conversation history
-            has_injection_detection = any(
-                guardrail.definition.name.lower() == "prompt injection detection" for guardrail in self.guardrails[stage_name]
-            )
-
-            if has_injection_detection and conversation_history:
+            ctx = self.context
+            if conversation_history:
                 ctx = self._create_context_with_conversation(conversation_history)
-            else:
-                ctx = self.context
 
             results = await run_guardrails(
                 ctx=ctx,
@@ -415,7 +479,8 @@ class GuardrailsOpenAI(OpenAI, GuardrailsBaseClient, StreamingMixin):
     ) -> GuardrailsResponse:
         """Handle LLM response with output guardrails."""
         # Create complete conversation history including the LLM response
-        complete_conversation = self._append_llm_response_to_conversation(conversation_history, llm_response)
+        normalized_history = conversation_history or []
+        complete_conversation = self._conversation_with_response(normalized_history, llm_response)
 
         response_text = self._extract_response_text(llm_response)
         output_results = self._run_stage_guardrails(
@@ -502,24 +567,18 @@ if AsyncAzureOpenAI is not None:
 
         def _append_llm_response_to_conversation(self, conversation_history: list | str, llm_response: Any) -> list:
             """Append LLM response to conversation history as-is."""
-            if conversation_history is None:
-                conversation_history = []
+            normalized_history = self._normalize_conversation(conversation_history)
+            return self._conversation_with_response(normalized_history, llm_response)
 
-            # Handle case where conversation_history is a string (from single input)
-            if isinstance(conversation_history, str):
-                conversation_history = [{"role": "user", "content": conversation_history}]
+        async def _load_conversation_history_from_previous_response(self, previous_response_id: str | None) -> list[dict[str, Any]]:
+            """Load full conversation history for a stored previous response."""
+            if not previous_response_id:
+                return []
 
-            # Make a copy to avoid modifying the original
-            updated_history = conversation_history.copy()
-
-            # For responses API: append the output directly
-            if hasattr(llm_response, "output") and llm_response.output:
-                updated_history.extend(llm_response.output)
-            # For chat completions: append the choice message directly (prompt injection detection check will parse)
-            elif hasattr(llm_response, "choices") and llm_response.choices:
-                updated_history.append(llm_response.choices[0])
-
-            return updated_history
+            items = await _collect_conversation_items_async(self._resource_client, previous_response_id)
+            if not items:
+                return []
+            return self._normalize_conversation(items)
 
         def _override_resources(self):
             from .resources.chat import AsyncChat
@@ -540,15 +599,9 @@ if AsyncAzureOpenAI is not None:
                 return []
 
             try:
-                # Check if prompt injection detection guardrail is present and we have conversation history
-                has_injection_detection = any(
-                    guardrail.definition.name.lower() == "prompt injection detection" for guardrail in self.guardrails[stage_name]
-                )
-
-                if has_injection_detection and conversation_history:
+                ctx = self.context
+                if conversation_history:
                     ctx = self._create_context_with_conversation(conversation_history)
-                else:
-                    ctx = self.context
 
                 results = await run_guardrails(
                     ctx=ctx,
@@ -583,7 +636,8 @@ if AsyncAzureOpenAI is not None:
         ) -> GuardrailsResponse:
             """Handle non-streaming LLM response with output guardrails (async)."""
             # Create complete conversation history including the LLM response
-            complete_conversation = self._append_llm_response_to_conversation(conversation_history, llm_response)
+            normalized_history = conversation_history or []
+            complete_conversation = self._conversation_with_response(normalized_history, llm_response)
 
             response_text = self._extract_response_text(llm_response)
             output_results = await self._run_stage_guardrails(
@@ -681,6 +735,16 @@ if AzureOpenAI is not None:
                 updated_history.append(llm_response.choices[0])
 
             return updated_history
+
+        def _load_conversation_history_from_previous_response(self, previous_response_id: str | None) -> list[dict[str, Any]]:
+            """Load full conversation history for a stored previous response."""
+            if not previous_response_id:
+                return []
+
+            items = _collect_conversation_items_sync(self._resource_client, previous_response_id)
+            if not items:
+                return []
+            return self._normalize_conversation(items)
 
         def _override_resources(self):
             from .resources.chat import Chat

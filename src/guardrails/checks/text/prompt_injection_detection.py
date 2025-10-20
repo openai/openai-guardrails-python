@@ -35,6 +35,7 @@ from pydantic import Field
 from guardrails.registry import default_spec_registry
 from guardrails.spec import GuardrailSpecMetadata
 from guardrails.types import GuardrailLLMContextProto, GuardrailResult
+from guardrails.utils.conversation import normalize_conversation
 
 from .llm_base import LLMConfig, LLMOutput, _invoke_openai_callable
 
@@ -171,7 +172,7 @@ async def prompt_injection_detection(
     """
     try:
         # Get conversation history for evaluating the latest exchange
-        conversation_history = ctx.get_conversation_history()
+        conversation_history = normalize_conversation(ctx.get_conversation_history())
         if not conversation_history:
             return _create_skip_result(
                 "No conversation history available",
@@ -271,14 +272,7 @@ def _find_latest_user_index(conversation_history: list[Any]) -> int | None:
 
 def _is_user_message(message: Any) -> bool:
     """Check whether a message originates from the user role."""
-    if isinstance(message, dict) and message.get("role") == "user":
-        return True
-    if hasattr(message, "role") and message.role == "user":
-        return True
-    embedded_message = message.message if hasattr(message, "message") else None
-    if embedded_message is not None:
-        return _is_user_message(embedded_message)
-    return False
+    return isinstance(message, dict) and message.get("role") == "user"
 
 
 def _coerce_content_to_text(content: Any) -> str:
@@ -327,25 +321,16 @@ def _extract_user_intent_from_messages(messages: list) -> dict[str, str | list[s
         - "most_recent_message": The latest user message as a string
         - "previous_context": List of previous user messages for context
     """
-    user_messages = []
+    normalized_messages = normalize_conversation(messages)
+    user_texts = [entry["content"] for entry in normalized_messages if entry.get("role") == "user" and isinstance(entry.get("content"), str)]
 
-    # Extract all user messages in chronological order and track indices
-    for _i, msg in enumerate(messages):
-        if isinstance(msg, dict):
-            if msg.get("role") == "user":
-                user_messages.append(_extract_user_message_text(msg))
-        elif hasattr(msg, "role") and msg.role == "user":
-            user_messages.append(_extract_user_message_text(msg))
-
-    if not user_messages:
+    if not user_texts:
         return {"most_recent_message": "", "previous_context": []}
 
-    user_intent_dict = {
-        "most_recent_message": user_messages[-1],
-        "previous_context": user_messages[:-1],
+    return {
+        "most_recent_message": user_texts[-1],
+        "previous_context": user_texts[:-1],
     }
-
-    return user_intent_dict
 
 
 def _create_skip_result(
