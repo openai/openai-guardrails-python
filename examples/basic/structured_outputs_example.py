@@ -23,39 +23,64 @@ PIPELINE_CONFIG = {
         "version": 1,
         "guardrails": [
             {"name": "Moderation", "config": {"categories": ["hate", "violence"]}},
+            {
+                "name": "Custom Prompt Check",
+                "config": {
+                    "model": "gpt-4.1-nano",
+                    "confidence_threshold": 0.7,
+                    "system_prompt_details": "Check if the text contains any math problems.",
+                },
+            },
         ],
     },
 }
 
 
-async def extract_user_info(guardrails_client: GuardrailsAsyncOpenAI, text: str) -> UserInfo:
-    """Extract user information using responses_parse with structured output."""
+async def extract_user_info(
+    guardrails_client: GuardrailsAsyncOpenAI,
+    text: str,
+    previous_response_id: str | None = None,
+) -> tuple[UserInfo, str]:
+    """Extract user information using responses.parse with structured output."""
     try:
+        # Use responses.parse() for structured outputs with guardrails
+        # Note: responses.parse() requires input as a list of message dicts
         response = await guardrails_client.responses.parse(
-            input=[{"role": "system", "content": "Extract user information from the provided text."}, {"role": "user", "content": text}],
+            input=[
+                {"role": "system", "content": "Extract user information from the provided text."},
+                {"role": "user", "content": text},
+            ],
             model="gpt-4.1-nano",
             text_format=UserInfo,
+            previous_response_id=previous_response_id,
         )
 
         # Access the parsed structured output
         user_info = response.llm_response.output_parsed
         print(f"✅ Successfully extracted: {user_info.name}, {user_info.age}, {user_info.email}")
 
-        return user_info
+        # Return user info and response ID (only returned if guardrails pass)
+        return user_info, response.llm_response.id
 
-    except GuardrailTripwireTriggered as exc:
-        print(f"❌ Guardrail triggered: {exc}")
+    except GuardrailTripwireTriggered:
+        # Guardrail blocked - no response ID returned, conversation history unchanged
         raise
 
 
 async def main() -> None:
-    """Interactive loop demonstrating structured outputs."""
+    """Interactive loop demonstrating structured outputs with conversation history."""
     # Initialize GuardrailsAsyncOpenAI
     guardrails_client = GuardrailsAsyncOpenAI(config=PIPELINE_CONFIG)
+
+    # Use previous_response_id to maintain conversation history with responses API
+    response_id: str | None = None
+
     while True:
         try:
             text = input("Enter text to extract user info. Include name, age, and email: ")
-            user_info = await extract_user_info(guardrails_client, text)
+
+            # Extract user info - only updates response_id if guardrails pass
+            user_info, response_id = await extract_user_info(guardrails_client, text, response_id)
 
             # Demonstrate structured output clearly
             print("\n✅ Parsed structured output:")
@@ -66,6 +91,7 @@ async def main() -> None:
             print("\nExiting.")
             break
         except GuardrailTripwireTriggered as exc:
+            # Guardrail blocked - response_id unchanged, so blocked message not in history
             print(f"🛑 Guardrail triggered: {exc}")
             continue
         except Exception as e:

@@ -113,11 +113,6 @@ class ConfigBundle(BaseModel):
     Attributes:
         guardrails (list[GuardrailConfig]): The configured guardrails.
         version (int): Format version for forward/backward compatibility.
-        stage_name (str): User-defined name for the pipeline stage this bundle is for.
-            This can be any string that helps identify which part of your pipeline
-            triggered the guardrail (e.g., "user_input_validation", "content_generation",
-            "pre_processing", etc.). It will be included in GuardrailResult info for
-            easy identification.
         config (dict[str, Any]): Execution configuration for this bundle.
             Optional fields include:
             - concurrency (int): Maximum number of guardrails to run in parallel (default: 10)
@@ -126,7 +121,6 @@ class ConfigBundle(BaseModel):
 
     guardrails: list[GuardrailConfig]
     version: int = 1
-    stage_name: str = "unnamed"
     config: dict[str, Any] = {}
 
     model_config = ConfigDict(frozen=True, extra="forbid")
@@ -563,4 +557,4 @@ async def check_plain_text(
         ctx = _get_default_ctx()
     bundle = load_config_bundle(bundle_path)
     guardrails: list[ConfiguredGuardrail[Any, str, Any]] = instantiate_guardrails(bundle, registry=registry)
-    return await run_guardrails(ctx, text, "text/plain", guardrails, stage_name=bundle.stage_name, **kwargs)
+    return await run_guardrails(ctx, text, "text/plain", guardrails, **kwargs)

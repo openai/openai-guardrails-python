@@ -34,37 +34,47 @@ async def main():
     # Initialize the guardrails client
     client = GuardrailsAsyncOpenAI(config=pipeline_config)
 
-    # Example hallucination
-    candidate = "Microsoft's annual revenue was $500 billion in 2023."
+    messages: list[dict[str, str]] = []
 
-    # Example non-hallucination
-    # candidate = "Microsoft's annual revenue was $56.5 billion in 2023."
+    # Example inputs to test
+    test_cases = [
+        "Microsoft's annual revenue was $500 billion in 2023.",  # hallucination
+        "Microsoft's annual revenue was $56.5 billion in 2023.",  # non-hallucination
+    ]
 
-    try:
-        # Use the client to check the text with guardrails
-        response = await client.chat.completions.create(
-            messages=[{"role": "user", "content": candidate}],
-            model="gpt-4.1-mini",
-        )
+    for candidate in test_cases:
+        console.print(f"\n[bold cyan]Testing:[/bold cyan] {candidate}\n")
 
-        console.print(
-            Panel(
-                f"[bold green]Tripwire not triggered[/bold green]\n\nResponse: {response.llm_response.choices[0].message.content}",
-                title="✅ Guardrail Check Passed",
-                border_style="green",
+        try:
+            # Pass user input inline WITHOUT mutating messages first
+            response = await client.chat.completions.create(
+                messages=messages + [{"role": "user", "content": candidate}],
+                model="gpt-4.1-mini",
             )
-        )
 
-    except GuardrailTripwireTriggered as exc:
-        # Make the guardrail triggered message stand out with Rich
-        console.print(
-            Panel(
-                f"[bold red]Guardrail triggered: {exc.guardrail_result.info.get('guardrail_name', 'unnamed')}[/bold red]",
-                title="⚠️  Guardrail Alert",
-                border_style="red",
+            response_content = response.llm_response.choices[0].message.content
+            console.print(
+                Panel(
+                    f"[bold green]Tripwire not triggered[/bold green]\n\nResponse: {response_content}",
+                    title="✅ Guardrail Check Passed",
+                    border_style="green",
+                )
             )
-        )
-        print(f"Result details: {exc.guardrail_result.info}")
+
+            # Guardrails passed - now safe to add to conversation history
+            messages.append({"role": "user", "content": candidate})
+            messages.append({"role": "assistant", "content": response_content})
+
+        except GuardrailTripwireTriggered as exc:
+            # Guardrail blocked - user message NOT added to history
+            console.print(
+                Panel(
+                    f"[bold red]Guardrail triggered: {exc.guardrail_result.info.get('guardrail_name', 'unnamed')}[/bold red]",
+                    title="⚠️  Guardrail Alert",
+                    border_style="red",
+                )
+            )
+            print(f"Result details: {exc.guardrail_result.info}")
 
 
 if __name__ == "__main__":

@@ -47,16 +47,27 @@ async def main() -> None:
     # the default OpenAI for main LLM calls
     client = GuardrailsAsyncOpenAI(config=PIPELINE_CONFIG)
 
+    messages: list[dict[str, str]] = []
+
     with suppress(KeyboardInterrupt, asyncio.CancelledError):
         while True:
             try:
                 user_input = input("Enter a message: ")
-                response = await client.chat.completions.create(model="gpt-4.1-nano", messages=[{"role": "user", "content": user_input}])
-                print("Assistant:", response.llm_response.choices[0].message.content)
+                # Pass user input inline WITHOUT mutating messages first
+                response = await client.chat.completions.create(
+                    model="gpt-4.1-nano",
+                    messages=messages + [{"role": "user", "content": user_input}],
+                )
+                response_content = response.llm_response.choices[0].message.content
+                print("Assistant:", response_content)
+
+                # Guardrails passed - now safe to add to conversation history
+                messages.append({"role": "user", "content": user_input})
+                messages.append({"role": "assistant", "content": response_content})
             except EOFError:
                 break
             except GuardrailTripwireTriggered as exc:
-                # Minimal handling; guardrail details available on exc.guardrail_result
+                # Guardrail blocked - user message NOT added to history
                 print("🛑 Guardrail triggered.", str(exc))
                 continue
 

@@ -226,14 +226,21 @@ async def main(malicious: bool = False) -> None:
             if not user_input:
                 continue
 
-            messages.append({"role": "user", "content": user_input})
-
+            # Pass user input inline WITHOUT mutating messages first
+            # Only add to messages AFTER guardrails pass and LLM call succeeds
             try:
-                resp = await client.chat.completions.create(model="gpt-4.1-nano", messages=messages, tools=tools)
+                resp = await client.chat.completions.create(
+                    model="gpt-4.1-nano",
+                    messages=messages + [{"role": "user", "content": user_input}],
+                    tools=tools,
+                )
                 print_guardrail_results("initial", resp)
                 choice = resp.llm_response.choices[0]
                 message = choice.message
                 tool_calls = getattr(message, "tool_calls", []) or []
+
+                # Guardrails passed - now safe to add user message to conversation history
+                messages.append({"role": "user", "content": user_input})
             except GuardrailTripwireTriggered as e:
                 info = getattr(e, "guardrail_result", None)
                 info = info.info if info else {}
@@ -252,29 +259,29 @@ async def main(malicious: bool = False) -> None:
                         border_style="red",
                     )
                 )
+                # Guardrail blocked - user message NOT added to history
                 continue
 
             if tool_calls:
-                # Add assistant message with tool calls to conversation
-                messages.append(
-                    {
-                        "role": "assistant",
-                        "content": message.content,
-                        "tool_calls": [
-                            {
-                                "id": call.id,
-                                "type": "function",
-                                "function": {
-                                    "name": call.function.name,
-                                    "arguments": call.function.arguments or "{}",
-                                },
-                            }
-                            for call in tool_calls
-                        ],
-                    }
-                )
+                # Prepare assistant message with tool calls (don't append yet)
+                assistant_message = {
+                    "role": "assistant",
+                    "content": message.content,
+                    "tool_calls": [
+                        {
+                            "id": call.id,
+                            "type": "function",
+                            "function": {
+                                "name": call.function.name,
+                                "arguments": call.function.arguments or "{}",
+                            },
+                        }
+                        for call in tool_calls
+                    ],
+                }
 
-                # Execute tool calls
+                # Execute tool calls and collect results (don't append yet)
+                tool_messages = []
                 for call in tool_calls:
                     fname = call.function.name
                     fargs = json.loads(call.function.arguments or "{}")
@@ -293,7 +300,7 @@ async def main(malicious: bool = False) -> None:
                                 "ssn": "123-45-6789",
                                 "credit_card": "4111-1111-1111-1111",
                             }
-                        messages.append(
+                        tool_messages.append(
                             {
                                 "role": "tool",
                                 "tool_call_id": call.id,
@@ -302,7 +309,7 @@ async def main(malicious: bool = False) -> None:
                             }
                         )
                     else:
-                        messages.append(
+                        tool_messages.append(
                             {
                                 "role": "tool",
                                 "tool_call_id": call.id,
@@ -311,9 +318,13 @@ async def main(malicious: bool = False) -> None:
                             }
                         )
 
-                # Final call
+                # Final call with tool results (pass inline without mutating messages)
                 try:
-                    resp = await client.chat.completions.create(model="gpt-4.1-nano", messages=messages, tools=tools)
+                    resp = await client.chat.completions.create(
+                        model="gpt-4.1-nano",
+                        messages=messages + [assistant_message] + tool_messages,
+                        tools=tools,
+                    )
 
                     print_guardrail_results("final", resp)
                     final_message = resp.llm_response.choices[0].message
@@ -325,7 +336,9 @@ async def main(malicious: bool = False) -> None:
                         )
                     )
 
-                    # Add final assistant response to conversation
+                    # Guardrails passed - now safe to add all messages to conversation history
+                    messages.append(assistant_message)
+                    messages.extend(tool_messages)
                     messages.append({"role": "assistant", "content": final_message.content})
                 except GuardrailTripwireTriggered as e:
                     info = getattr(e, "guardrail_result", None)
@@ -345,6 +358,7 @@ async def main(malicious: bool = False) -> None:
                             border_style="red",
                         )
                     )
+                    # Guardrail blocked - tool results NOT added to history
                     continue
             else:
                 # No tool calls; just print assistant content and add to conversation
