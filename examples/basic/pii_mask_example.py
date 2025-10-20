@@ -69,23 +69,20 @@ PIPELINE_CONFIG = {
 async def process_input(
     guardrails_client: GuardrailsAsyncOpenAI,
     user_input: str,
+    messages: list[dict],
 ) -> None:
     """Process user input using GuardrailsClient with automatic PII masking.
 
     Args:
         guardrails_client: GuardrailsClient instance with PII masking configuration.
         user_input: User's input text.
+        messages: Conversation history (modified in place after guardrails pass).
     """
     try:
-        # Use GuardrailsClient - it handles all PII masking automatically
+        # Pass user input inline WITHOUT mutating messages first
+        # Only add to messages AFTER guardrails pass and LLM call succeeds
         response = await guardrails_client.chat.completions.create(
-            messages=[
-                {
-                    "role": "system",
-                    "content": "You are a helpful assistant. Comply with the user's request.",
-                },
-                {"role": "user", "content": user_input},
-            ],
+            messages=messages + [{"role": "user", "content": user_input}],
             model="gpt-4",
         )
 
@@ -125,11 +122,16 @@ async def process_input(
                         )
                     )
 
+        # Guardrails passed - now safe to add to conversation history
+        messages.append({"role": "user", "content": user_input})
+        messages.append({"role": "assistant", "content": content})
+
     except GuardrailTripwireTriggered as exc:
         stage_name = exc.guardrail_result.info.get("stage_name", "unknown")
         guardrail_name = exc.guardrail_result.info.get("guardrail_name", "unknown")
         console.print(f"[bold red]Guardrail '{guardrail_name}' triggered in stage '{stage_name}'![/bold red]")
         console.print(Panel(str(exc.guardrail_result), title="Guardrail Result", border_style="red"))
+        # Guardrail blocked - user message NOT added to history
         raise
 
 
@@ -138,6 +140,13 @@ async def main() -> None:
     # Initialize GuardrailsAsyncOpenAI with PII masking configuration
     guardrails_client = GuardrailsAsyncOpenAI(config=PIPELINE_CONFIG)
 
+    messages: list[dict] = [
+        {
+            "role": "system",
+            "content": "You are a helpful assistant. Comply with the user's request.",
+        }
+    ]
+
     with suppress(KeyboardInterrupt, asyncio.CancelledError):
         while True:
             try:
@@ -145,7 +154,7 @@ async def main() -> None:
                 if user_input.lower() == "exit":
                     break
 
-                await process_input(guardrails_client, user_input)
+                await process_input(guardrails_client, user_input, messages)
 
             except EOFError:
                 break

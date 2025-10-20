@@ -14,17 +14,22 @@ from guardrails import GuardrailsAsyncOpenAI, GuardrailTripwireTriggered
 async def process_input(guardrails_client: GuardrailsAsyncOpenAI, user_input: str) -> None:
     """Process user input with complete response validation using the new GuardrailsClient."""
     try:
-        # Use the GuardrailsClient - it handles all guardrail validation automatically
-        # including pre-flight, input, and output stages, plus the LLM call
+        # Pass user input inline WITHOUT mutating messages first
+        # Only add to messages AFTER guardrails pass and LLM call succeeds
         response = await guardrails_client.chat.completions.create(
-            messages=[{"role": "user", "content": user_input}],
+            messages=messages + [{"role": "user", "content": user_input}],
             model="gpt-4.1-nano",
         )
 
-        print(f"\nAssistant: {response.llm_response.choices[0].message.content}")
+        response_content = response.llm_response.choices[0].message.content
+        print(f"\nAssistant: {response_content}")
+
+        # Guardrails passed - now safe to add to conversation history
+        messages.append({"role": "user", "content": user_input})
+        messages.append({"role": "assistant", "content": response_content})
 
     except GuardrailTripwireTriggered:
-        # GuardrailsClient automatically handles tripwire exceptions
+        # Guardrail blocked - user message NOT added to history
         raise
 
 
@@ -32,10 +37,12 @@ async def main():
     # Initialize GuardrailsAsyncOpenAI with the config file
     guardrails_client = GuardrailsAsyncOpenAI(config=Path("guardrails_config.json"))
 
+    messages: list[dict] = []
+
     while True:
         try:
             prompt = input("\nEnter a message: ")
-            await process_input(guardrails_client, prompt)
+            await process_input(guardrails_client, prompt, messages)
         except (EOFError, KeyboardInterrupt):
             break
         except GuardrailTripwireTriggered as e:

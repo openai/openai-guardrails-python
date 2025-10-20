@@ -177,6 +177,23 @@ def test_load_pipeline_bundles_errors_on_invalid_dict() -> None:
         load_pipeline_bundles({"version": 1, "invalid": "field"})
 
 
+def test_config_bundle_rejects_stage_name_override() -> None:
+    """ConfigBundle forbids overriding stage names."""
+    with pytest.raises(ValidationError):
+        ConfigBundle(guardrails=[], version=1, stage_name="custom")  # type: ignore[call-arg]
+
+
+def test_pipeline_bundles_reject_stage_name_override() -> None:
+    """Pipeline bundle stages disallow custom stage_name field."""
+    with pytest.raises(ValidationError):
+        load_pipeline_bundles(
+            {
+                "version": 1,
+                "pre_flight": {"version": 1, "guardrails": [], "stage_name": "custom"},
+            }
+        )
+
+
 @given(st.text())
 def test_load_pipeline_bundles_plain_string_invalid(text: str) -> None:
     """Plain strings are rejected."""

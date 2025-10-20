@@ -81,6 +81,38 @@ asyncio.run(main())
 
 **That's it!** Your existing OpenAI code now includes automatic guardrail validation based on your pipeline configuration. Just use `response.llm_response` instead of `response`.
 
+## Multi-Turn Conversations
+
+When maintaining conversation history across multiple turns, **only append messages after guardrails pass**. This prevents blocked input messages from polluting your conversation context.
+
+```python
+messages: list[dict] = []
+
+while True:
+    user_input = input("You: ")
+    
+    try:
+        # ✅ Pass user input inline (don't mutate messages first)
+        response = await client.chat.completions.create(
+            messages=messages + [{"role": "user", "content": user_input}],
+            model="gpt-4o"
+        )
+        
+        response_content = response.llm_response.choices[0].message.content
+        print(f"Assistant: {response_content}")
+        
+        # ✅ Only append AFTER guardrails pass
+        messages.append({"role": "user", "content": user_input})
+        messages.append({"role": "assistant", "content": response_content})
+        
+    except GuardrailTripwireTriggered:
+        # ❌ Guardrail blocked - message NOT added to history
+        print("Message blocked by guardrails")
+        continue
+```
+
+**Why this matters**: If you append the user message before the guardrail check, blocked messages remain in your conversation history and get sent on every subsequent turn, even though they violated your safety policies.
+
 ## Guardrail Execution Error Handling
 
 Guardrails supports two error handling modes for guardrail execution failures:

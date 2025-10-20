@@ -15,21 +15,30 @@ from guardrails import GuardrailsAsyncOpenAI, GuardrailTripwireTriggered
 async def process_input(guardrails_client: GuardrailsAsyncOpenAI, user_input: str) -> str:
     """Process user input with streaming output and guardrails using the GuardrailsClient."""
     try:
-        # Use the GuardrailsClient - it handles all guardrail validation automatically
-        # including pre-flight, input, and output stages, plus the LLM call
+        # Pass user input inline WITHOUT mutating messages first
+        # Only add to messages AFTER guardrails pass and streaming completes
         stream = await guardrails_client.chat.completions.create(
-            messages=[{"role": "user", "content": user_input}],
+            messages=messages + [{"role": "user", "content": user_input}],
             model="gpt-4.1-nano",
             stream=True,
         )
 
-        # Stream with output guardrail checks
+        # Stream with output guardrail checks and accumulate response
+        response_content = ""
         async for chunk in stream:
             if chunk.llm_response.choices[0].delta.content:
-                print(chunk.llm_response.choices[0].delta.content, end="", flush=True)
-        return "Stream completed successfully"
+                delta = chunk.llm_response.choices[0].delta.content
+                print(delta, end="", flush=True)
+                response_content += delta
+        
+        print()  # New line after streaming
+        
+        # Guardrails passed - now safe to add to conversation history
+        messages.append({"role": "user", "content": user_input})
+        messages.append({"role": "assistant", "content": response_content})
 
     except GuardrailTripwireTriggered:
+        # Guardrail blocked - user message NOT added to history
         raise
 
 
@@ -37,10 +46,12 @@ async def main():
     # Initialize GuardrailsAsyncOpenAI with the config file
     guardrails_client = GuardrailsAsyncOpenAI(config=Path("guardrails_config.json"))
 
+    messages: list[dict] = []
+
     while True:
         try:
             prompt = input("\nEnter a message: ")
-            await process_input(guardrails_client, prompt)
+            await process_input(guardrails_client, prompt, messages)
         except (EOFError, KeyboardInterrupt):
             break
         except GuardrailTripwireTriggered as exc:

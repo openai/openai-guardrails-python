@@ -54,13 +54,24 @@ PIPELINE_CONFIG = {
 }
 
 
-async def process_input(guardrails_client: GuardrailsAsyncAzureOpenAI, user_input: str) -> None:
-    """Process user input with complete response validation using GuardrailsClient."""
+async def process_input(
+    guardrails_client: GuardrailsAsyncAzureOpenAI,
+    user_input: str,
+    messages: list[dict],
+) -> None:
+    """Process user input with complete response validation using GuardrailsClient.
+
+    Args:
+        guardrails_client: GuardrailsAsyncAzureOpenAI instance.
+        user_input: User's input text.
+        messages: Conversation history (modified in place after guardrails pass).
+    """
     try:
-        # Use GuardrailsClient to handle all guardrail checks and LLM calls
+        # Pass user input inline WITHOUT mutating messages first
+        # Only add to messages AFTER guardrails pass and LLM call succeeds
         response = await guardrails_client.chat.completions.create(
             model=AZURE_DEPLOYMENT,
-            messages=[{"role": "user", "content": user_input}],
+            messages=messages + [{"role": "user", "content": user_input}],
         )
 
         # Extract the response content from the GuardrailsResponse
@@ -69,11 +80,16 @@ async def process_input(guardrails_client: GuardrailsAsyncAzureOpenAI, user_inpu
         # Only show output if all guardrails pass
         print(f"\nAssistant: {response_text}")
 
+        # Guardrails passed - now safe to add to conversation history
+        messages.append({"role": "user", "content": user_input})
+        messages.append({"role": "assistant", "content": response_text})
+
     except GuardrailTripwireTriggered as e:
         # Extract information from the triggered guardrail
         triggered_result = e.guardrail_result
         print("   Input blocked. Please try a different message.")
         print(f"   Full result: {triggered_result}")
+        # Guardrail blocked - user message NOT added to history
         raise
     except BadRequestError as e:
         # Handle Azure's built-in content filter errors
@@ -97,6 +113,8 @@ async def main():
         api_version="2025-01-01-preview",
     )
 
+    messages: list[dict] = []
+
     while True:
         try:
             prompt = input("\nEnter a message: ")
@@ -105,7 +123,7 @@ async def main():
                 print("Goodbye!")
                 break
 
-            await process_input(guardrails_client, prompt)
+            await process_input(guardrails_client, prompt, messages)
         except (EOFError, KeyboardInterrupt):
             break
         except (GuardrailTripwireTriggered, BadRequestError):
