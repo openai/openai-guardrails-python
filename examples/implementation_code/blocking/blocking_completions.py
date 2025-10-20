@@ -11,7 +11,11 @@ from pathlib import Path
 from guardrails import GuardrailsAsyncOpenAI, GuardrailTripwireTriggered
 
 
-async def process_input(guardrails_client: GuardrailsAsyncOpenAI, user_input: str) -> None:
+async def process_input(
+    guardrails_client: GuardrailsAsyncOpenAI,
+    user_input: str,
+    messages: list[dict[str, str]],
+) -> None:
     """Process user input with complete response validation using the new GuardrailsClient."""
     try:
         # Pass user input inline WITHOUT mutating messages first
@@ -37,7 +41,7 @@ async def main():
     # Initialize GuardrailsAsyncOpenAI with the config file
     guardrails_client = GuardrailsAsyncOpenAI(config=Path("guardrails_config.json"))
 
-    messages: list[dict] = []
+    messages: list[dict[str, str]] = []
 
     while True:
         try:

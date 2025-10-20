@@ -34,7 +34,7 @@ async def main():
     # Initialize the guardrails client
     client = GuardrailsAsyncOpenAI(config=pipeline_config)
 
-    messages: list[dict] = []
+    messages: list[dict[str, str]] = []
 
     # Example inputs to test
     test_cases = [
@@ -44,7 +44,7 @@ async def main():
 
     for candidate in test_cases:
         console.print(f"\n[bold cyan]Testing:[/bold cyan] {candidate}\n")
-        
+
         try:
             # Pass user input inline WITHOUT mutating messages first
             response = await client.chat.completions.create(

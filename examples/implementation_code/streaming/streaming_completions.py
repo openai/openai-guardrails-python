@@ -12,7 +12,11 @@ from pathlib import Path
 from guardrails import GuardrailsAsyncOpenAI, GuardrailTripwireTriggered
 
 
-async def process_input(guardrails_client: GuardrailsAsyncOpenAI, user_input: str) -> str:
+async def process_input(
+    guardrails_client: GuardrailsAsyncOpenAI,
+    user_input: str,
+    messages: list[dict[str, str]],
+) -> str:
     """Process user input with streaming output and guardrails using the GuardrailsClient."""
     try:
         # Pass user input inline WITHOUT mutating messages first
@@ -30,9 +34,9 @@ async def process_input(guardrails_client: GuardrailsAsyncOpenAI, user_input: st
                 delta = chunk.llm_response.choices[0].delta.content
                 print(delta, end="", flush=True)
                 response_content += delta
-        
+
         print()  # New line after streaming
-        
+
         # Guardrails passed - now safe to add to conversation history
         messages.append({"role": "user", "content": user_input})
         messages.append({"role": "assistant", "content": response_content})
@@ -46,7 +50,7 @@ async def main():
     # Initialize GuardrailsAsyncOpenAI with the config file
     guardrails_client = GuardrailsAsyncOpenAI(config=Path("guardrails_config.json"))
 
-    messages: list[dict] = []
+    messages: list[dict[str, str]] = []
 
     while True:
         try:

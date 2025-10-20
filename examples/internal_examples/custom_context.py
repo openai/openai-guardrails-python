@@ -47,7 +47,7 @@ async def main() -> None:
     # the default OpenAI for main LLM calls
     client = GuardrailsAsyncOpenAI(config=PIPELINE_CONFIG)
 
-    messages: list[dict] = []
+    messages: list[dict[str, str]] = []
 
     with suppress(KeyboardInterrupt, asyncio.CancelledError):
         while True:
@@ -60,7 +60,7 @@ async def main() -> None:
                 )
                 response_content = response.llm_response.choices[0].message.content
                 print("Assistant:", response_content)
-                
+
                 # Guardrails passed - now safe to add to conversation history
                 messages.append({"role": "user", "content": user_input})
                 messages.append({"role": "assistant", "content": response_content})
