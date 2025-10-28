@@ -3,6 +3,7 @@ results/
 benchmarking/*
 eval_run_*/
 benchmark_*/
+PI_eval/*
 
 # Python cache
 __pycache__/
