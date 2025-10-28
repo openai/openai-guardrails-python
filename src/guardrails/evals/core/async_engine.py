@@ -220,8 +220,9 @@ class AsyncRunEngine(RunEngine):
             Evaluation result for the sample
         """
         try:
-            # Detect if this sample requires conversation history (Prompt Injection Detection or Jailbreak)
-            needs_conversation_history = "Prompt Injection Detection" in sample.expected_triggers or "Jailbreak" in sample.expected_triggers
+            # Detect if this sample requires conversation history
+            conversation_aware_names = {"Prompt Injection Detection", "Jailbreak"}
+            needs_conversation_history = any(name in sample.expected_triggers for name in conversation_aware_names)
 
             if needs_conversation_history:
                 try:
@@ -229,9 +230,7 @@ class AsyncRunEngine(RunEngine):
                     # Handles JSON conversations, plain strings (wraps as user message), etc.
                     conversation_history = _parse_conversation_payload(sample.data)
 
-                    # Use GuardrailsAsyncOpenAI with a minimal config to get proper context
                     # Create a minimal guardrails config for conversation-aware checks
-                    conversation_aware_names = {"Prompt Injection Detection", "Jailbreak"}
                     minimal_config = {
                         "version": 1,
                         "output": {

@@ -336,43 +336,6 @@ def _is_user_message(message: Any) -> bool:
     return isinstance(message, dict) and message.get("role") == "user"
 
 
-def _coerce_content_to_text(content: Any) -> str:
-    """Return normalized text extracted from a message content payload."""
-    if isinstance(content, str):
-        return content
-
-    if isinstance(content, list):
-        parts: list[str] = []
-        for item in content:
-            if isinstance(item, dict):
-                text = item.get("text")
-                if text:
-                    parts.append(text)
-                    continue
-                fallback = item.get("content")
-                if isinstance(fallback, str):
-                    parts.append(fallback)
-            elif isinstance(item, str):
-                parts.append(item)
-            else:
-                parts.append(str(item))
-        return " ".join(filter(None, parts))
-
-    if content is None:
-        return ""
-
-    return str(content)
-
-
-def _extract_user_message_text(message: Any) -> str:
-    """Extract user-authored message text from supported message formats."""
-    if isinstance(message, dict):
-        return _coerce_content_to_text(message.get("content", ""))
-    if hasattr(message, "content"):
-        return _coerce_content_to_text(message.content)
-    return ""
-
-
 def _extract_user_intent_from_messages(messages: list) -> UserIntentDict:
     """Extract user intent with full context from a list of messages.
 
