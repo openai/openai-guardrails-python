@@ -40,11 +40,12 @@ def _normalize_conversation_payload(payload: Any) -> list[Any] | None:
     return None
 
 
-def _parse_conversation_payload(data: str) -> list[Any] | None:
+def _parse_conversation_payload(data: str) -> list[Any]:
     """Attempt to parse sample data into a conversation history list.
-    
+
     If data is JSON, tries to extract conversation from it.
     If data is a plain string, wraps it as a single user message.
+    Always returns a list (never None).
     """
     try:
         payload = json.loads(data)
@@ -220,24 +221,13 @@ class AsyncRunEngine(RunEngine):
         """
         try:
             # Detect if this sample requires conversation history (Prompt Injection Detection or Jailbreak)
-            needs_conversation_history = (
-                "Prompt Injection Detection" in sample.expected_triggers
-                or "Jailbreak" in sample.expected_triggers
-            )
-            
+            needs_conversation_history = "Prompt Injection Detection" in sample.expected_triggers or "Jailbreak" in sample.expected_triggers
+
             if needs_conversation_history:
                 try:
                     # Parse conversation history from sample.data
                     # Handles JSON conversations, plain strings (wraps as user message), etc.
                     conversation_history = _parse_conversation_payload(sample.data)
-                    if not conversation_history:
-                        # Should not happen with updated parser, but be defensive
-                        conversation_history = [{"role": "user", "content": sample.data}]
-                    logger.debug(
-                        "Parsed conversation history for conversation-aware guardrail sample %s: %d items",
-                        sample.id,
-                        len(conversation_history),
-                    )
 
                     # Use GuardrailsAsyncOpenAI with a minimal config to get proper context
                     # Create a minimal guardrails config for conversation-aware checks
@@ -264,11 +254,6 @@ class AsyncRunEngine(RunEngine):
 
                     # Normalize conversation history using the client's normalization
                     normalized_conversation = temp_client._normalize_conversation(conversation_history)
-                    logger.debug(
-                        "Normalized conversation history for sample %s: %d items",
-                        sample.id,
-                        len(normalized_conversation),
-                    )
 
                     # Prompt injection detection uses incremental evaluation (per turn)
                     # Jailbreak uses full conversation evaluation
