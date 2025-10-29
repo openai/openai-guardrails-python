@@ -451,6 +451,34 @@ def _create_agents_guardrails_from_config(
     return guardrail_functions
 
 
+def _resolve_agent_instructions(instructions: str | None, prompt: Any | None) -> str | None:
+    """Derive instructions from explicit input or prompt.
+
+    Args:
+        instructions: Explicit instructions provided by the caller.
+        prompt: Optional prompt object or string supplied to the agent.
+
+    Returns:
+        A string containing the agent instructions when available, otherwise ``None``.
+    """
+
+    if instructions is not None:
+        return instructions
+
+    if prompt is None:
+        return None
+
+    if isinstance(prompt, str):
+        return prompt
+
+    for attr_name in ("instructions", "text", "content"):
+        candidate = getattr(prompt, attr_name, None)
+        if isinstance(candidate, str):
+            return candidate
+
+    return None
+
+
 class GuardrailAgent:
     """Drop-in replacement for Agents SDK Agent with automatic guardrails integration.
 
@@ -492,7 +520,7 @@ class GuardrailAgent:
         cls,
         config: str | Path | dict[str, Any],
         name: str,
-        instructions: str,
+        instructions: str | None = None,
         raise_guardrail_errors: bool = False,
         block_on_tool_violations: bool = False,
         **agent_kwargs: Any,
@@ -511,7 +539,7 @@ class GuardrailAgent:
         Args:
             config: Pipeline configuration (file path, dict, or JSON string)
             name: Agent name
-            instructions: Agent instructions
+            instructions: Agent instructions. When omitted, a ``prompt`` argument must be provided.
             raise_guardrail_errors: If True, raise exceptions when guardrails fail to execute.
                 If False (default), treat guardrail errors as safe and continue execution.
             block_on_tool_violations: If True, tool guardrail violations raise exceptions (halt execution).
@@ -614,5 +642,19 @@ class GuardrailAgent:
                 )
                 _attach_guardrail_to_tools(tools, tool_output_gr, "output")
 
+        prompt_arg: Any | None = agent_kwargs.get("prompt")
+        resolved_instructions = _resolve_agent_instructions(instructions, prompt_arg)
+
+        if resolved_instructions is None and prompt_arg is None:
+            raise ValueError(
+                "GuardrailAgent requires either 'instructions' or 'prompt' to initialize the underlying Agent."
+            )
+
         # Create and return a regular Agent instance with guardrails configured
-        return Agent(name=name, instructions=instructions, input_guardrails=input_guardrails, output_guardrails=output_guardrails, **agent_kwargs)
+        return Agent(
+            name=name,
+            instructions=resolved_instructions,
+            input_guardrails=input_guardrails,
+            output_guardrails=output_guardrails,
+            **agent_kwargs,
+        )

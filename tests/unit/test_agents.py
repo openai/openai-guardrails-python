@@ -6,10 +6,15 @@ import sys
 import types
 from collections.abc import Callable
 from dataclasses import dataclass
+from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
 import pytest
+
+guardrails_pkg = types.ModuleType("guardrails")
+guardrails_pkg.__path__ = [str(Path(__file__).resolve().parents[2] / "src" / "guardrails")]
+sys.modules.setdefault("guardrails", guardrails_pkg)
 
 from guardrails._openai_utils import SAFETY_IDENTIFIER_HEADER, SAFETY_IDENTIFIER_VALUE
 from guardrails.types import GuardrailResult
@@ -94,7 +99,8 @@ class Agent:
     """Trivial Agent stub storing initialization args for assertions."""
 
     name: str
-    instructions: str
+    instructions: str | None = None
+    prompt: Any | None = None
     input_guardrails: list[Callable] | None = None
     output_guardrails: list[Callable] | None = None
     tools: list[Any] | None = None
@@ -597,3 +603,42 @@ def test_guardrail_agent_without_tools(monkeypatch: pytest.MonkeyPatch) -> None:
     agent_instance = agents.GuardrailAgent(config={}, name="NoTools", instructions="None")
 
     assert getattr(agent_instance, "input_guardrails", []) == []  # noqa: S101
+
+
+def test_guardrail_agent_allows_prompt_without_instructions(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Prompt attribute text becomes derived instructions."""
+    pipeline = SimpleNamespace(pre_flight=None, input=None, output=None)
+
+    monkeypatch.setattr(runtime_module, "load_pipeline_bundles", lambda config: pipeline, raising=False)
+    monkeypatch.setattr(runtime_module, "instantiate_guardrails", lambda *args, **kwargs: [], raising=False)
+
+    prompt = SimpleNamespace(text="Serve customers helpfully.")
+
+    agent_instance = agents.GuardrailAgent(config={}, name="PromptOnly", prompt=prompt)
+
+    assert agent_instance.prompt is prompt  # noqa: S101
+    assert agent_instance.instructions == "Serve customers helpfully."  # noqa: S101
+
+
+def test_guardrail_agent_accepts_string_prompt(monkeypatch: pytest.MonkeyPatch) -> None:
+    """String prompts populate missing instructions automatically."""
+    pipeline = SimpleNamespace(pre_flight=None, input=None, output=None)
+
+    monkeypatch.setattr(runtime_module, "load_pipeline_bundles", lambda config: pipeline, raising=False)
+    monkeypatch.setattr(runtime_module, "instantiate_guardrails", lambda *args, **kwargs: [], raising=False)
+
+    agent_instance = agents.GuardrailAgent(config={}, name="PromptStr", prompt="Be concise.")
+
+    assert agent_instance.prompt == "Be concise."  # noqa: S101
+    assert agent_instance.instructions == "Be concise."  # noqa: S101
+
+
+def test_guardrail_agent_requires_instructions_or_prompt(monkeypatch: pytest.MonkeyPatch) -> None:
+    """GuardrailAgent requires instructions or prompt for construction."""
+    pipeline = SimpleNamespace(pre_flight=None, input=None, output=None)
+
+    monkeypatch.setattr(runtime_module, "load_pipeline_bundles", lambda config: pipeline, raising=False)
+    monkeypatch.setattr(runtime_module, "instantiate_guardrails", lambda *args, **kwargs: [], raising=False)
+
+    with pytest.raises(ValueError):
+        agents.GuardrailAgent(config={}, name="Missing")
