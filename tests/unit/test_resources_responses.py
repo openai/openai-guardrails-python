@@ -146,6 +146,7 @@ class _SyncResponsesClient:
             "output": output_results,
         }
 
+
 class _AsyncResponsesClient:
     """Fake asynchronous guardrails client for AsyncResponses tests."""
 

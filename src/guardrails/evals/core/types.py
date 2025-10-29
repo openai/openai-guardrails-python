@@ -81,9 +81,15 @@ class Context:
 
     Attributes:
         guardrail_llm: Asynchronous OpenAI or Azure OpenAI client for LLM-based guardrails.
+        conversation_history: Optional conversation history for conversation-aware guardrails.
     """
 
     guardrail_llm: AsyncOpenAI | AsyncAzureOpenAI  # type: ignore
+    conversation_history: list | None = None
+
+    def get_conversation_history(self) -> list | None:
+        """Get conversation history if available."""
+        return self.conversation_history
 
 
 class DatasetLoader(Protocol):

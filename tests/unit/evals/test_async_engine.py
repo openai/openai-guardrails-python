@@ -111,8 +111,8 @@ def test_parse_conversation_payload_supports_object_with_messages() -> None:
     assert parsed == payload["messages"]  # noqa: S101
 
 
-def test_parse_conversation_payload_returns_none_for_invalid_json() -> None:
-    """Parser should return None when sample data is not valid JSON."""
+def test_parse_conversation_payload_wraps_non_json_as_user_message() -> None:
+    """Parser should wrap non-JSON strings as user messages."""
     parsed = _parse_conversation_payload("not-json")
 
-    assert parsed is None  # noqa: S101
+    assert parsed == [{"role": "user", "content": "not-json"}]  # noqa: S101

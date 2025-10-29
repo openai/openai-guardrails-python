@@ -60,7 +60,13 @@ else:
 logger = logging.getLogger(__name__)
 
 
-__all__ = ["LLMConfig", "LLMOutput", "LLMErrorOutput", "create_llm_check_fn"]
+__all__ = [
+    "LLMConfig",
+    "LLMOutput",
+    "LLMErrorOutput",
+    "create_llm_check_fn",
+    "create_error_result",
+]
 
 
 class LLMConfig(BaseModel):
@@ -113,6 +119,44 @@ class LLMErrorOutput(LLMOutput):
     """
 
     info: dict
+
+
+def create_error_result(
+    guardrail_name: str,
+    analysis: LLMErrorOutput,
+    checked_text: str,
+    additional_info: dict[str, Any] | None = None,
+) -> GuardrailResult:
+    """Create a standardized GuardrailResult from an LLM error output.
+
+    Args:
+        guardrail_name: Name of the guardrail that failed.
+        analysis: The LLM error output.
+        checked_text: The text that was being checked.
+        additional_info: Optional additional fields to include in info dict.
+
+    Returns:
+        GuardrailResult with execution_failed=True.
+    """
+    error_info = getattr(analysis, "info", {})
+    error_message = error_info.get("error_message", "LLM execution failed")
+
+    result_info: dict[str, Any] = {
+        "guardrail_name": guardrail_name,
+        "checked_text": checked_text,
+        "error": error_message,
+        **analysis.model_dump(),
+    }
+
+    if additional_info:
+        result_info.update(additional_info)
+
+    return GuardrailResult(
+        tripwire_triggered=False,
+        execution_failed=True,
+        original_exception=Exception(error_message),
+        info=result_info,
+    )
 
 
 def _build_full_prompt(system_prompt: str) -> str:
@@ -334,20 +378,10 @@ def create_llm_check_fn(
 
         # Check if this is an error result
         if isinstance(analysis, LLMErrorOutput):
-            # Extract error information from the LLMErrorOutput
-            error_info = analysis.info if hasattr(analysis, "info") else {}
-            error_message = error_info.get("error_message", "LLM execution failed")
-
-            return GuardrailResult(
-                tripwire_triggered=False,  # Don't trigger tripwire on execution errors
-                execution_failed=True,
-                original_exception=Exception(error_message),  # Create exception from error message
-                info={
-                    "guardrail_name": name,
-                    "checked_text": data,
-                    "error": error_message,
-                    **analysis.model_dump(),
-                },
+            return create_error_result(
+                guardrail_name=name,
+                analysis=analysis,
+                checked_text=data,
             )
 
         # Compare severity levels

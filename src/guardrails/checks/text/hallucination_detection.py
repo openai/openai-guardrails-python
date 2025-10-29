@@ -52,7 +52,13 @@ from guardrails.registry import default_spec_registry
 from guardrails.spec import GuardrailSpecMetadata
 from guardrails.types import GuardrailLLMContextProto, GuardrailResult
 
-from .llm_base import LLMConfig, LLMOutput, _invoke_openai_callable
+from .llm_base import (
+    LLMConfig,
+    LLMErrorOutput,
+    LLMOutput,
+    _invoke_openai_callable,
+    create_error_result,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -232,39 +238,43 @@ async def hallucination_detection(
         )
 
     except ValueError as e:
-        # Log validation errors but return safe default
+        # Log validation errors and use shared error helper
         logger.warning(f"Validation error in hallucination_detection: {e}")
-        return GuardrailResult(
-            tripwire_triggered=False,
-            info={
-                "guardrail_name": "Hallucination Detection",
-                "flagged": False,
-                "confidence": 0.0,
+        error_output = LLMErrorOutput(
+            flagged=False,
+            confidence=0.0,
+            info={"error_message": f"Validation failed: {str(e)}"},
+        )
+        return create_error_result(
+            guardrail_name="Hallucination Detection",
+            analysis=error_output,
+            checked_text=candidate,
+            additional_info={
+                "threshold": config.confidence_threshold,
                 "reasoning": f"Validation failed: {str(e)}",
                 "hallucination_type": None,
                 "hallucinated_statements": None,
                 "verified_statements": None,
-                "threshold": config.confidence_threshold,
-                "error": str(e),
-                "checked_text": candidate,  # Hallucination Detection doesn't modify text, pass through unchanged
             },
         )
     except Exception as e:
-        # Log unexpected errors and return safe default
+        # Log unexpected errors and use shared error helper
         logger.exception("Unexpected error in hallucination_detection")
-        return GuardrailResult(
-            tripwire_triggered=False,
-            info={
-                "guardrail_name": "Hallucination Detection",
-                "flagged": False,
-                "confidence": 0.0,
+        error_output = LLMErrorOutput(
+            flagged=False,
+            confidence=0.0,
+            info={"error_message": str(e)},
+        )
+        return create_error_result(
+            guardrail_name="Hallucination Detection",
+            analysis=error_output,
+            checked_text=candidate,
+            additional_info={
+                "threshold": config.confidence_threshold,
                 "reasoning": f"Analysis failed: {str(e)}",
                 "hallucination_type": None,
                 "hallucinated_statements": None,
                 "verified_statements": None,
-                "threshold": config.confidence_threshold,
-                "error": str(e),
-                "checked_text": candidate,  # Hallucination Detection doesn't modify text, pass through unchanged
             },
         )
 

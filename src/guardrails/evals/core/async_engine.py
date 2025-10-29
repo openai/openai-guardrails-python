@@ -40,14 +40,23 @@ def _normalize_conversation_payload(payload: Any) -> list[Any] | None:
     return None
 
 
-def _parse_conversation_payload(data: str) -> list[Any] | None:
-    """Attempt to parse sample data into a conversation history list."""
+def _parse_conversation_payload(data: str) -> list[Any]:
+    """Attempt to parse sample data into a conversation history list.
+
+    If data is JSON, tries to extract conversation from it.
+    If data is a plain string, wraps it as a single user message.
+    Always returns a list (never None).
+    """
     try:
         payload = json.loads(data)
+        normalized = _normalize_conversation_payload(payload)
+        if normalized:
+            return normalized
+        # JSON parsed but not a conversation format - treat as user message
+        return [{"role": "user", "content": data}]
     except json.JSONDecodeError:
-        return None
-
-    return _normalize_conversation_payload(payload)
+        # Not JSON - treat as a plain user message
+        return [{"role": "user", "content": data}]
 
 
 def _annotate_prompt_injection_result(result: Any, turn_index: int, message: Any) -> None:
@@ -211,50 +220,58 @@ class AsyncRunEngine(RunEngine):
             Evaluation result for the sample
         """
         try:
-            # Detect if this is a prompt injection detection sample and use GuardrailsAsyncOpenAI
-            if "Prompt Injection Detection" in sample.expected_triggers:
-                try:
-                    # Parse conversation history from sample.data (JSON string)
-                    conversation_history = _parse_conversation_payload(sample.data)
-                    if conversation_history is None:
-                        raise ValueError("Sample data is not a valid conversation payload")
-                    logger.debug(
-                        "Parsed conversation history for prompt injection detection sample %s: %d items",
-                        sample.id,
-                        len(conversation_history),
-                    )
+            # Detect if this sample requires conversation history
+            conversation_aware_names = {"Prompt Injection Detection", "Jailbreak"}
+            needs_conversation_history = any(name in sample.expected_triggers for name in conversation_aware_names)
 
-                    # Use GuardrailsAsyncOpenAI with a minimal config to get proper context
-                    # Create a minimal guardrails config for the prompt injection detection check
+            if needs_conversation_history:
+                try:
+                    # Parse conversation history from sample.data
+                    # Handles JSON conversations, plain strings (wraps as user message), etc.
+                    conversation_history = _parse_conversation_payload(sample.data)
+
+                    # Create a minimal guardrails config for conversation-aware checks
                     minimal_config = {
                         "version": 1,
                         "output": {
-                            "version": 1,
                             "guardrails": [
                                 {
                                     "name": guardrail.definition.name,
                                     "config": (guardrail.config.__dict__ if hasattr(guardrail.config, "__dict__") else guardrail.config),
                                 }
                                 for guardrail in self.guardrails
-                                if guardrail.definition.name == "Prompt Injection Detection"
+                                if guardrail.definition.name in conversation_aware_names
                             ],
                         },
                     }
 
-                    # Create a temporary GuardrailsAsyncOpenAI client to run the prompt injection detection check
+                    # Create a temporary GuardrailsAsyncOpenAI client for conversation-aware guardrails
                     temp_client = GuardrailsAsyncOpenAI(
                         config=minimal_config,
                         api_key=getattr(context.guardrail_llm, "api_key", None) or "fake-key-for-eval",
                     )
 
-                    # Use the client's _run_stage_guardrails method with conversation history
-                    results = await _run_incremental_prompt_injection(
-                        temp_client,
-                        conversation_history,
-                    )
+                    # Normalize conversation history using the client's normalization
+                    normalized_conversation = temp_client._normalize_conversation(conversation_history)
+
+                    # Prompt injection detection uses incremental evaluation (per turn)
+                    # Jailbreak uses full conversation evaluation
+                    if "Prompt Injection Detection" in sample.expected_triggers:
+                        results = await _run_incremental_prompt_injection(
+                            temp_client,
+                            normalized_conversation,
+                        )
+                    else:
+                        # Jailbreak or other conversation-aware guardrails
+                        results = await temp_client._run_stage_guardrails(
+                            stage_name="output",
+                            text="",
+                            conversation_history=normalized_conversation,
+                            suppress_tripwire=True,
+                        )
                 except (json.JSONDecodeError, TypeError, ValueError) as e:
                     logger.error(
-                        "Failed to parse conversation history for prompt injection detection sample %s: %s",
+                        "Failed to parse conversation history for conversation-aware guardrail sample %s: %s",
                         sample.id,
                         e,
                     )
@@ -268,7 +285,7 @@ class AsyncRunEngine(RunEngine):
                     )
                 except Exception as e:
                     logger.error(
-                        "Failed to create prompt injection detection context for sample %s: %s",
+                        "Failed to create conversation context for guardrail sample %s: %s",
                         sample.id,
                         e,
                     )
@@ -281,7 +298,7 @@ class AsyncRunEngine(RunEngine):
                         suppress_tripwire=True,  # Collect all results, don't stop on tripwire
                     )
             else:
-                # Standard non-prompt injection detection sample
+                # Standard sample (no conversation history needed)
                 results = await run_guardrails(
                     ctx=context,
                     data=sample.data,

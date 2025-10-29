@@ -494,8 +494,6 @@ async def run_test_suite(
         pipeline_config = {
             "version": 1,
             "input": {
-                "version": 1,
-                "stage_name": "input",
                 "guardrails": [{"name": test.name, "config": test.config}],
             },
         }
