@@ -16,8 +16,8 @@ guardrails_pkg = types.ModuleType("guardrails")
 guardrails_pkg.__path__ = [str(Path(__file__).resolve().parents[2] / "src" / "guardrails")]
 sys.modules.setdefault("guardrails", guardrails_pkg)
 
-from guardrails._openai_utils import SAFETY_IDENTIFIER_HEADER, SAFETY_IDENTIFIER_VALUE
-from guardrails.types import GuardrailResult
+from guardrails._openai_utils import SAFETY_IDENTIFIER_HEADER, SAFETY_IDENTIFIER_VALUE  # noqa: E402
+from guardrails.types import GuardrailResult  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Stub agents SDK module so guardrails.agents can import required symbols.

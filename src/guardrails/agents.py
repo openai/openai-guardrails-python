@@ -461,7 +461,6 @@ def _resolve_agent_instructions(instructions: str | None, prompt: Any | None) ->
     Returns:
         A string containing the agent instructions when available, otherwise ``None``.
     """
-
     if instructions is not None:
         return instructions
 
