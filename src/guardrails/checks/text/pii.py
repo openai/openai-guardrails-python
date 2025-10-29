@@ -92,6 +92,76 @@ __all__ = ["pii"]
 logger = logging.getLogger(__name__)
 
 
+def _is_valid_date(year: int, month: int, day: int) -> bool:
+    """Validate if year, month, day form a valid date.
+
+    Args:
+        year: Full year (e.g., 1990, 2024)
+        month: Month (1-12)
+        day: Day of month (1-31)
+
+    Returns:
+        bool: True if date is valid, False otherwise.
+    """
+    # Validate month (01-12)
+    if not 1 <= month <= 12:
+        return False
+
+    # Validate day based on month
+    if month in (1, 3, 5, 7, 8, 10, 12):
+        max_day = 31
+    elif month in (4, 6, 9, 11):
+        max_day = 30
+    elif month == 2:
+        # For February, check if it's a leap year
+        is_leap = (year % 4 == 0 and year % 100 != 0) or (year % 400 == 0)
+        max_day = 29 if is_leap else 28
+    else:
+        return False
+
+    # Validate day range
+    return 1 <= day <= max_day
+
+
+def _validate_kr_rrn_date(rrn: str) -> bool:
+    """Validate the date portion (YYMMDD) of Korean RRN.
+
+    The first 6 digits must represent a valid date in YYMMDD format.
+
+    Args:
+        rrn (str): The RRN string (with or without hyphen).
+
+    Returns:
+        bool: True if date is valid, False otherwise.
+    """
+    # Remove hyphen/space
+    digits = rrn.replace("-", "").replace(" ", "")
+    if len(digits) < 6:
+        return False
+
+    try:
+        year = int(digits[0:2])
+        month = int(digits[2:4])
+        day = int(digits[4:6])
+
+        # Determine full year from century (gender digit)
+        if len(digits) >= 7:
+            gender_digit = int(digits[6])
+            # 1,2: 1900s, 3,4: 2000s, 5,6: 1800s, 7,8: 2000s, 9,0: 1800s
+            if gender_digit in (1, 2, 5, 6, 9, 0):
+                full_year = 1900 + year
+            else:
+                full_year = 2000 + year
+        else:
+            # If we can't determine century, assume 2000s for validation
+            full_year = 2000 + year
+
+        # Use helper to validate date
+        return _is_valid_date(full_year, month, day)
+    except (ValueError, IndexError):
+        return False
+
+
 def _validate_kr_rrn_checksum(rrn: str) -> bool:
     """Validate Korean Resident Registration Number checksum.
 
@@ -148,7 +218,7 @@ class KoreanRrnRecognizer(PatternRecognizer):
         )
 
     def analyze(self, text: str, entities: list[str], nlp_artifacts: NlpArtifacts | None = None) -> list[RecognizerResult]:
-        """Analyze text for Korean RRN and validate checksums.
+        """Analyze text for Korean RRN and validate date and checksums.
 
         Args:
             text: Text to analyze.
@@ -160,11 +230,12 @@ class KoreanRrnRecognizer(PatternRecognizer):
         """
         results = super().analyze(text, entities, nlp_artifacts)
 
-        # Filter out results with invalid checksums
+        # Filter out results with invalid date or checksums
         validated_results = []
         for result in results:
             candidate = text[result.start : result.end]
-            if _validate_kr_rrn_checksum(candidate):
+            # Validate both date (YYMMDD) and checksum
+            if _validate_kr_rrn_date(candidate) and _validate_kr_rrn_checksum(candidate):
                 validated_results.append(result)
 
         return validated_results
@@ -173,14 +244,62 @@ class KoreanRrnRecognizer(PatternRecognizer):
 def _create_kr_rrn_recognizer() -> KoreanRrnRecognizer:
     """Create a custom recognizer for Korean Resident Registration Numbers.
 
-    Based on Presidio's KR_RRN recognizer with checksum validation.
+    Based on Presidio's KR_RRN recognizer with date and checksum validation.
     Format: 6 digits (YYMMDD) + hyphen + 7 digits (last digit is checksum)
-    Example: 123456-1234563
+
+    Validation includes:
+    - YYMMDD must be a valid date
+    - Last digit must match the checksum algorithm
+
+    Example: 900101-1234567 (valid date: Jan 1, 1990)
 
     Returns:
-        KoreanRrnRecognizer: Recognizer for Korean RRN with checksum validation.
+        KoreanRrnRecognizer: Recognizer for Korean RRN with date and checksum validation.
     """
     return KoreanRrnRecognizer()
+
+
+def _validate_th_tnin_structure(tnin: str) -> bool:
+    """Validate the structure of Thai National Identification Number.
+
+    The first digit must be a valid category code (0-8) as defined by
+    Thai identification system.
+
+    Reference: https://en.wikipedia.org/wiki/Thai_identity_card
+
+    Categories:
+    - 0: Not found on Thai nationals' cards (other identity documents)
+    - 1: Born after Jan 1, 1984, birth notified within deadline
+    - 2: Born after Jan 1, 1984, birth notified late
+    - 3: Born before Jan 1, 1984, included in house registration
+    - 4: Born before Jan 1, 1984, not in house registration
+    - 5: Missed census or dual nationality cases
+    - 6: Foreign nationals living temporarily/illegal migrants
+    - 7: Children of category 6 born in Thailand
+    - 8: Foreign nationals living permanently or naturalized citizens
+
+    Args:
+        tnin (str): The 13-digit TNIN string.
+
+    Returns:
+        bool: True if structure is valid, False otherwise.
+    """
+    if len(tnin) != 13:
+        return False
+
+    try:
+        # First digit must be a valid category (0-8)
+        category = int(tnin[0])
+        if category not in range(9):  # 0-8 inclusive
+            return False
+
+        # All characters must be digits
+        if not tnin.isdigit():
+            return False
+
+        return True
+    except (ValueError, IndexError):
+        return False
 
 
 def _validate_th_tnin_checksum(tnin: str) -> bool:
@@ -238,7 +357,7 @@ class ThaiTninRecognizer(PatternRecognizer):
         )
 
     def analyze(self, text: str, entities: list[str], nlp_artifacts: NlpArtifacts | None = None) -> list[RecognizerResult]:
-        """Analyze text for Thai TNIN and validate checksums.
+        """Analyze text for Thai TNIN and validate structure and checksums.
 
         Args:
             text: Text to analyze.
@@ -250,11 +369,12 @@ class ThaiTninRecognizer(PatternRecognizer):
         """
         results = super().analyze(text, entities, nlp_artifacts)
 
-        # Filter out results with invalid checksums
+        # Filter out results with invalid structure or checksums
         validated_results = []
         for result in results:
             candidate = text[result.start : result.end]
-            if _validate_th_tnin_checksum(candidate):
+            # Validate both structure (category code) and checksum
+            if _validate_th_tnin_structure(candidate) and _validate_th_tnin_checksum(candidate):
                 validated_results.append(result)
 
         return validated_results
@@ -263,12 +383,17 @@ class ThaiTninRecognizer(PatternRecognizer):
 def _create_th_tnin_recognizer() -> ThaiTninRecognizer:
     """Create a custom recognizer for Thai National Identification Numbers.
 
-    Based on Presidio's TH_TNIN recognizer with checksum validation.
-    Format: 13 digits (last digit is checksum)
-    Example: 1234567890121
+    Based on Presidio's TH_TNIN recognizer with structure and checksum validation.
+    Format: 13 digits (first digit is category 0-8, last digit is checksum)
+
+    Validation includes:
+    - First digit must be valid category code (0-8)
+    - Last digit must match the checksum algorithm
+
+    Example: 1234567890121 (category 1)
 
     Returns:
-        ThaiTninRecognizer: Recognizer for Thai TNIN with checksum validation.
+        ThaiTninRecognizer: Recognizer for Thai TNIN with structure and checksum validation.
     """
     return ThaiTninRecognizer()
 

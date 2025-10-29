@@ -14,10 +14,11 @@ from guardrails.types import GuardrailResult
 
 @pytest.mark.asyncio
 async def test_pii_detects_korean_resident_registration_number() -> None:
-    """Detect Korean Resident Registration Numbers with valid checksum."""
+    """Detect Korean Resident Registration Numbers with valid date and checksum."""
     config = PIIConfig(entities=[PIIEntity.KR_RRN], block=True)
-    # Using valid RRN with correct checksum: 123456-1234563
-    result = await pii(None, "My RRN is 123456-1234563", config)
+    # Using valid RRN: 900101-2345670
+    # Date: 900101 (Jan 1, 1990), Gender: 2, Serial: 34567, Checksum: 0
+    result = await pii(None, "My RRN is 900101-2345670", config)
 
     assert isinstance(result, GuardrailResult)  # noqa: S101
     assert result.tripwire_triggered is True  # noqa: S101
@@ -42,10 +43,10 @@ async def test_pii_detects_thai_national_id() -> None:
 
 @pytest.mark.asyncio
 async def test_pii_masks_korean_rrn_in_non_blocking_mode() -> None:
-    """Korean RRN with valid checksum should be masked when block=False."""
+    """Korean RRN with valid date and checksum should be masked when block=False."""
     config = PIIConfig(entities=[PIIEntity.KR_RRN], block=False)
-    # Using valid RRN with correct checksum: 123456-1234563
-    result = await pii(None, "My RRN is 123456-1234563", config)
+    # Using valid RRN: 900101-2345670
+    result = await pii(None, "My RRN is 900101-2345670", config)
 
     assert result.tripwire_triggered is False  # noqa: S101
     assert result.info["pii_detected"] is True  # noqa: S101
@@ -68,14 +69,14 @@ async def test_pii_masks_thai_tnin_in_non_blocking_mode() -> None:
 
 @pytest.mark.asyncio
 async def test_pii_detects_multiple_entity_types() -> None:
-    """Detect multiple PII entity types with valid checksums."""
+    """Detect multiple PII entity types with valid dates and checksums."""
     config = PIIConfig(
         entities=[PIIEntity.EMAIL_ADDRESS, PIIEntity.KR_RRN, PIIEntity.TH_TNIN],
         block=True,
     )
     result = await pii(
         None,
-        "Contact: user@example.com, Korean RRN: 123456-1234563, Thai ID: 1234567890121",
+        "Contact: user@example.com, Korean RRN: 900101-2345670, Thai ID: 1234567890121",
         config,
     )
 
@@ -88,7 +89,7 @@ async def test_pii_detects_multiple_entity_types() -> None:
     assert "TH_TNIN" in detected  # noqa: S101
     # Verify actual values were captured
     assert detected["EMAIL_ADDRESS"] == ["user@example.com"]  # noqa: S101
-    assert detected["KR_RRN"] == ["123456-1234563"]  # noqa: S101
+    assert detected["KR_RRN"] == ["900101-2345670"]  # noqa: S101
     assert detected["TH_TNIN"] == ["1234567890121"]  # noqa: S101
 
 
@@ -219,8 +220,8 @@ async def test_pii_multiple_occurrences_of_same_entity() -> None:
 async def test_pii_rejects_invalid_korean_rrn_checksum() -> None:
     """Invalid Korean RRN checksum should not be detected."""
     config = PIIConfig(entities=[PIIEntity.KR_RRN], block=True)
-    # Using invalid checksum: 123456-1234567 (should be 123456-1234563)
-    result = await pii(None, "My RRN is 123456-1234567", config)
+    # Using valid date but invalid checksum: 900101-2345679 (should be 900101-2345670)
+    result = await pii(None, "My RRN is 900101-2345679", config)
 
     assert result.tripwire_triggered is False  # noqa: S101
     assert result.info["pii_detected"] is False  # noqa: S101
@@ -237,3 +238,66 @@ async def test_pii_rejects_invalid_thai_tnin_checksum() -> None:
     assert result.tripwire_triggered is False  # noqa: S101
     assert result.info["pii_detected"] is False  # noqa: S101
     assert result.info["detected_entities"] == {}  # noqa: S101
+
+
+@pytest.mark.asyncio
+async def test_pii_rejects_invalid_thai_tnin_category() -> None:
+    """Thai TNIN with invalid category code should not be detected."""
+    config = PIIConfig(entities=[PIIEntity.TH_TNIN], block=True)
+    # Invalid category codes (9 or higher are not valid)
+    test_cases = [
+        "9234567890123",  # Category 9 (invalid)
+        "9999999999999",  # All 9s (invalid category)
+    ]
+
+    for invalid_tnin in test_cases:
+        result = await pii(None, f"Thai ID: {invalid_tnin}", config)
+        assert result.tripwire_triggered is False  # noqa: S101
+        assert result.info["pii_detected"] is False  # noqa: S101
+        assert result.info["detected_entities"] == {}  # noqa: S101
+
+
+@pytest.mark.asyncio
+async def test_pii_rejects_invalid_korean_rrn_date() -> None:
+    """Korean RRN with invalid date should not be detected."""
+    config = PIIConfig(entities=[PIIEntity.KR_RRN], block=True)
+    # Invalid dates: month 13, day 32, Feb 30
+    test_cases = [
+        "991301-1234567",  # Month 13 (invalid)
+        "990132-1234567",  # Day 32 (invalid)
+        "990230-1234567",  # Feb 30 (invalid)
+        "241325-1234567",  # Month 13 + day 25 (invalid month)
+    ]
+
+    for invalid_rrn in test_cases:
+        result = await pii(None, f"Korean RRN: {invalid_rrn}", config)
+        assert result.tripwire_triggered is False  # noqa: S101
+        assert result.info["pii_detected"] is False  # noqa: S101
+        assert result.info["detected_entities"] == {}  # noqa: S101
+
+
+@pytest.mark.asyncio
+async def test_pii_accepts_valid_korean_rrn_dates() -> None:
+    """Korean RRN with valid dates in different formats should be detected."""
+    config = PIIConfig(entities=[PIIEntity.KR_RRN], block=False)
+    # Note: These examples use valid date formats but may not have correct checksums
+    # We're testing specifically that valid dates pass the date validation
+    # For actual detection, both date AND checksum must be valid
+
+    # Use 900101 (Jan 1, 1990) with valid checksum
+    # Calculate: 900101 + gender 1 + serial 23456 + checksum
+    # For simplicity, we'll use our previously validated RRN: 123456-1234563
+    # which has date 12/34/56 - let me calculate a real valid one
+
+    # Valid date: 900101 (Jan 1, 1990 for gender=1)
+    # We need to calculate the correct checksum for this
+    # weights: 2,3,4,5,6,7,8,9,2,3,4,5
+    # 9*2 + 0*3 + 0*4 + 1*5 + 0*6 + 1*7 + 1*8 + 2*9 + 3*2 + 4*3 + 5*4 + 6*5
+    # = 18 + 0 + 0 + 5 + 0 + 7 + 8 + 18 + 6 + 12 + 20 + 30 = 124
+    # checksum = (11 - (124 % 11)) % 10 = (11 - 3) % 10 = 8
+    valid_rrn = "900101-1234568"
+    result = await pii(None, f"RRN: {valid_rrn}", config)
+
+    # Should detect if date is valid
+    assert result.info["pii_detected"] is True  # noqa: S101
+    assert "KR_RRN" in result.info["detected_entities"]  # noqa: S101
