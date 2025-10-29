@@ -82,8 +82,14 @@ async def test_pii_detects_multiple_entity_types() -> None:
     assert result.tripwire_triggered is True  # noqa: S101
     assert result.info["pii_detected"] is True  # noqa: S101
     detected = result.info["detected_entities"]
+    # Verify all three entity types are detected
     assert "EMAIL_ADDRESS" in detected  # noqa: S101
-    assert "KR_RRN" in detected or len(detected) >= 1  # noqa: S101
+    assert "KR_RRN" in detected  # noqa: S101
+    assert "TH_TNIN" in detected  # noqa: S101
+    # Verify actual values were captured
+    assert detected["EMAIL_ADDRESS"] == ["user@example.com"]  # noqa: S101
+    assert detected["KR_RRN"] == ["123456-1234563"]  # noqa: S101
+    assert detected["TH_TNIN"] == ["1234567890121"]  # noqa: S101
 
 
 @pytest.mark.asyncio
@@ -231,4 +237,3 @@ async def test_pii_rejects_invalid_thai_tnin_checksum() -> None:
     assert result.tripwire_triggered is False  # noqa: S101
     assert result.info["pii_detected"] is False  # noqa: S101
     assert result.info["detected_entities"] == {}  # noqa: S101
-

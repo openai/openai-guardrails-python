@@ -80,7 +80,7 @@ from enum import Enum
 from typing import Any, Final
 
 from presidio_analyzer import AnalyzerEngine, Pattern, PatternRecognizer, RecognizerResult
-from presidio_analyzer.nlp_engine import NlpEngineProvider, NlpArtifacts
+from presidio_analyzer.nlp_engine import NlpArtifacts, NlpEngineProvider
 from pydantic import BaseModel, ConfigDict, Field
 
 from guardrails.registry import default_spec_registry
@@ -118,7 +118,7 @@ def _validate_kr_rrn_checksum(rrn: str) -> bool:
         weights = [2, 3, 4, 5, 6, 7, 8, 9, 2, 3, 4, 5]
 
         # Calculate weighted sum
-        total = sum(n * w for n, w in zip(numbers, weights))
+        total = sum(n * w for n, w in zip(numbers, weights, strict=False))
 
         # Calculate expected checksum: (11 - (sum % 11)) % 10
         expected_checksum = (11 - (total % 11)) % 10
@@ -147,9 +147,7 @@ class KoreanRrnRecognizer(PatternRecognizer):
             supported_language="en",
         )
 
-    def analyze(
-        self, text: str, entities: list[str], nlp_artifacts: NlpArtifacts | None = None
-    ) -> list[RecognizerResult]:
+    def analyze(self, text: str, entities: list[str], nlp_artifacts: NlpArtifacts | None = None) -> list[RecognizerResult]:
         """Analyze text for Korean RRN and validate checksums.
 
         Args:
@@ -210,7 +208,7 @@ def _validate_th_tnin_checksum(tnin: str) -> bool:
         weights = [13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2]
 
         # Calculate weighted sum
-        total = sum(n * w for n, w in zip(numbers, weights))
+        total = sum(n * w for n, w in zip(numbers, weights, strict=False))
 
         # Calculate expected checksum: (11 - (sum % 11)) % 10
         expected_checksum = (11 - (total % 11)) % 10
@@ -239,9 +237,7 @@ class ThaiTninRecognizer(PatternRecognizer):
             supported_language="en",
         )
 
-    def analyze(
-        self, text: str, entities: list[str], nlp_artifacts: NlpArtifacts | None = None
-    ) -> list[RecognizerResult]:
+    def analyze(self, text: str, entities: list[str], nlp_artifacts: NlpArtifacts | None = None) -> list[RecognizerResult]:
         """Analyze text for Thai TNIN and validate checksums.
 
         Args:
