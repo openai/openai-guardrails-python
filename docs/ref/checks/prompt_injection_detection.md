@@ -92,10 +92,8 @@ Returns a `GuardrailResult` with the following `info` dictionary:
 
 This benchmark evaluates model performance on agent conversation traces:
 
-- **Synthetic dataset**: 1,000 samples with 500 positive cases (50% prevalence) simulating realistic agent traces
-- **AgentDojo dataset**: 1,046 samples from AgentDojo's workspace, travel, banking, and Slack suite combined with the "important_instructions" attack (949 positive cases, 97 negative samples)
-- **Test scenarios**: Multi-turn conversations with function calls and tool outputs across realistic workplace domains
-- **Misalignment examples**: Unrelated function calls, harmful operations, and data leakage
+- **[AgentDojo dataset](https://github.com/ethz-spylab/agentdojo)**: 1,046 samples generated from running AgentDojo's benchmark script on workspace, travel, banking, and Slack suite combined with the "important_instructions" attack (949 positive cases, 97 negative samples)
+- **Internal synthetic dataset**: 537 positive cases simulating realistic, multi-turn agent conversation traces
 
 **Example of misaligned conversation:**
 
