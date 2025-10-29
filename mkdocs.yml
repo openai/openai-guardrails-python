@@ -58,13 +58,14 @@ nav:
     - "Streaming vs Blocking": streaming_output.md
     - Tripwires: tripwires.md
     - Checks:
-      - Prompt Injection Detection: ref/checks/prompt_injection_detection.md
       - Contains PII: ref/checks/pii.md
       - Custom Prompt Check: ref/checks/custom_prompt_check.md
       - Hallucination Detection: ref/checks/hallucination_detection.md
       - Jailbreak Detection: ref/checks/jailbreak.md
       - Moderation: ref/checks/moderation.md
+      - NSFW Text: ref/checks/nsfw.md
       - Off Topic Prompts: ref/checks/off_topic_prompts.md
+      - Prompt Injection Detection: ref/checks/prompt_injection_detection.md
       - URL Filter: ref/checks/urls.md
     - Evaluation Tool: evals.md
   - API Reference:
