@@ -6,18 +6,13 @@ import sys
 import types
 from collections.abc import Callable
 from dataclasses import dataclass
-from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
 import pytest
 
-guardrails_pkg = types.ModuleType("guardrails")
-guardrails_pkg.__path__ = [str(Path(__file__).resolve().parents[2] / "src" / "guardrails")]
-sys.modules.setdefault("guardrails", guardrails_pkg)
-
-from guardrails._openai_utils import SAFETY_IDENTIFIER_HEADER, SAFETY_IDENTIFIER_VALUE  # noqa: E402
-from guardrails.types import GuardrailResult  # noqa: E402
+from guardrails._openai_utils import SAFETY_IDENTIFIER_HEADER, SAFETY_IDENTIFIER_VALUE
+from guardrails.types import GuardrailResult
 
 # ---------------------------------------------------------------------------
 # Stub agents SDK module so guardrails.agents can import required symbols.

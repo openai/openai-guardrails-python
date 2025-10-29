@@ -12,6 +12,7 @@ import sys
 import types
 from collections.abc import Iterator
 from dataclasses import dataclass
+from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
@@ -53,6 +54,11 @@ class _DummyResponse:
     output_text: str | None = None
     type: str | None = None
     delta: str | None = None
+
+
+_GUARDRAILS_PACKAGE_STUB = types.ModuleType("guardrails")
+_GUARDRAILS_PACKAGE_STUB.__path__ = [str(Path(__file__).resolve().parents[1] / "src" / "guardrails")]
+sys.modules.setdefault("guardrails", _GUARDRAILS_PACKAGE_STUB)
 
 
 _STUB_OPENAI_MODULE = types.ModuleType("openai")
