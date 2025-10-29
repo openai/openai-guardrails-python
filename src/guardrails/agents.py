@@ -644,7 +644,7 @@ class GuardrailAgent:
         prompt_arg: Any | None = agent_kwargs.get("prompt")
         resolved_instructions = _resolve_agent_instructions(instructions, prompt_arg)
 
-        if resolved_instructions is None:
+        if resolved_instructions is None and prompt_arg is None:
             raise ValueError(
                 "GuardrailAgent requires either 'instructions' or 'prompt' to initialize the underlying Agent."
             )
