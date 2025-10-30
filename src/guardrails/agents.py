@@ -492,7 +492,7 @@ class GuardrailAgent:
         cls,
         config: str | Path | dict[str, Any],
         name: str,
-        instructions: str,
+        instructions: str | Callable[[Any, Any], Any] | None = None,
         raise_guardrail_errors: bool = False,
         block_on_tool_violations: bool = False,
         **agent_kwargs: Any,
@@ -511,7 +511,9 @@ class GuardrailAgent:
         Args:
             config: Pipeline configuration (file path, dict, or JSON string)
             name: Agent name
-            instructions: Agent instructions
+            instructions: Agent instructions. Can be a string, a callable that dynamically
+                generates instructions, or None. If a callable, it will receive the context
+                and agent instance and must return a string.
             raise_guardrail_errors: If True, raise exceptions when guardrails fail to execute.
                 If False (default), treat guardrail errors as safe and continue execution.
             block_on_tool_violations: If True, tool guardrail violations raise exceptions (halt execution).
@@ -553,7 +555,11 @@ class GuardrailAgent:
         input_tool, input_agent = _separate_tool_level_from_agent_level(stage_guardrails.get("input", []))
         output_tool, output_agent = _separate_tool_level_from_agent_level(stage_guardrails.get("output", []))
 
-        # Create agent-level INPUT guardrails
+        # Extract any user-provided guardrails from agent_kwargs
+        user_input_guardrails = agent_kwargs.pop("input_guardrails", [])
+        user_output_guardrails = agent_kwargs.pop("output_guardrails", [])
+
+        # Create agent-level INPUT guardrails from config
         input_guardrails = []
 
         # Add agent-level guardrails from pre_flight and input stages
@@ -573,7 +579,10 @@ class GuardrailAgent:
                 )
             )
 
-        # Create agent-level OUTPUT guardrails
+        # Merge with user-provided input guardrails (config ones run first, then user ones)
+        input_guardrails.extend(user_input_guardrails)
+
+        # Create agent-level OUTPUT guardrails from config
         output_guardrails = []
         if output_agent:
             output_guardrails = _create_agents_guardrails_from_config(
@@ -582,6 +591,9 @@ class GuardrailAgent:
                 guardrail_type="output",
                 raise_guardrail_errors=raise_guardrail_errors,
             )
+
+        # Merge with user-provided output guardrails (config ones run first, then user ones)
+        output_guardrails.extend(user_output_guardrails)
 
         # Apply tool-level guardrails
         tools = agent_kwargs.get("tools", [])
