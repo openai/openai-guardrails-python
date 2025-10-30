@@ -126,15 +126,6 @@ def _get_analyzer_engine() -> AnalyzerEngine:
         nlp_engine=nlp_engine,
         supported_languages=["en"],
     )
-
-    logger.debug(
-        "Initialized Presidio analyzer engine with region-specific recognizers",
-        extra={
-            "event": "analyzer_engine_initialized",
-            "supported_languages": ["en"],
-            "added_recognizers": ["KR_RRN"],
-        },
-    )
     return engine
 
 
@@ -288,14 +279,6 @@ def _detect_pii(text: str, config: PIIConfig) -> PiiDetectionResult:
     for res in filtered_results:
         grouped[res.entity_type].append(text[res.start : res.end])
 
-    logger.debug(
-        "PII detection completed",
-        extra={
-            "event": "pii_detection",
-            "entities_found": len(filtered_results),
-            "entity_types": list(grouped.keys()),
-        },
-    )
     return PiiDetectionResult(mapping=dict(grouped), analyzer_results=filtered_results)
 
 
@@ -336,14 +319,6 @@ def _mask_pii(text: str, detection: PiiDetectionResult, config: PIIConfig) -> st
         result = result[:start] + replacement + result[end:]
         offset += len(replacement) - (end - start)
 
-    logger.debug(
-        "PII masking completed",
-        extra={
-            "event": "pii_masking",
-            "entities_masked": len(sorted_results),
-            "entity_types": [res.entity_type for res in sorted_results],
-        },
-    )
     return result
 
 
