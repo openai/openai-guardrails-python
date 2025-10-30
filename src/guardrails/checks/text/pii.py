@@ -79,8 +79,11 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Any, Final
 
-from presidio_analyzer import AnalyzerEngine, RecognizerResult
+from presidio_analyzer import AnalyzerEngine, RecognizerRegistry, RecognizerResult
 from presidio_analyzer.nlp_engine import NlpEngineProvider
+from presidio_analyzer.predefined_recognizers.country_specific.korea.kr_rrn_recognizer import (
+    KrRrnRecognizer,
+)
 from pydantic import BaseModel, ConfigDict, Field
 
 from guardrails.registry import default_spec_registry
@@ -94,24 +97,35 @@ logger = logging.getLogger(__name__)
 
 @functools.lru_cache(maxsize=1)
 def _get_analyzer_engine() -> AnalyzerEngine:
-    """Return a cached, configured Presidio AnalyzerEngine instance.
+    """Return a cached AnalyzerEngine configured with Presidio recognizers.
+
+    The engine loads Presidio's default recognizers for English and explicitly
+    registers the built-in KR_RRN recognizer to make it available alongside
+    other PII detectors within the guardrail.
 
     Returns:
-        AnalyzerEngine: Initialized Presidio analyzer engine.
+        AnalyzerEngine: Analyzer configured with English NLP support and
+        region-specific recognizers backed by Presidio.
     """
-    # Define a smaller NLP configuration
-    sm_nlp_config: Final[dict[str, Any]] = {
+    nlp_config: Final[dict[str, Any]] = {
         "nlp_engine_name": "spacy",
-        "models": [{"lang_code": "en", "model_name": "en_core_web_sm"}],
+        "models": [
+            {"lang_code": "en", "model_name": "en_core_web_sm"},
+        ],
     }
 
-    # Reduce the size of the nlp model loaded by Presidio
-    provider = NlpEngineProvider(nlp_configuration=sm_nlp_config)
-    sm_nlp_engine = provider.create_engine()
+    provider = NlpEngineProvider(nlp_configuration=nlp_config)
+    nlp_engine = provider.create_engine()
 
-    # Analyzer using minimal NLP
-    engine = AnalyzerEngine(nlp_engine=sm_nlp_engine)
-    logger.debug("Initialized Presidio analyzer engine")
+    registry = RecognizerRegistry(supported_languages=["en"])
+    registry.load_predefined_recognizers(languages=["en"], nlp_engine=nlp_engine)
+    registry.add_recognizer(KrRrnRecognizer(supported_language="en"))
+
+    engine = AnalyzerEngine(
+        registry=registry,
+        nlp_engine=nlp_engine,
+        supported_languages=["en"],
+    )
     return engine
 
 
@@ -183,6 +197,9 @@ class PIIEntity(str, Enum):
     # Finland
     FI_PERSONAL_IDENTITY_CODE = "FI_PERSONAL_IDENTITY_CODE"
 
+    # Korea
+    KR_RRN = "KR_RRN"
+
 
 class PIIConfig(BaseModel):
     """Configuration schema for PII detection.
@@ -233,6 +250,9 @@ class PiiDetectionResult:
 def _detect_pii(text: str, config: PIIConfig) -> PiiDetectionResult:
     """Run Presidio analysis and collect findings by entity type.
 
+    Supports detection of Korean (KR_RRN) and other region-specific entities via
+    Presidio recognizers registered with the analyzer engine.
+
     Args:
         text (str): The text to analyze for PII.
         config (PIIConfig): PII detection configuration.
@@ -247,22 +267,18 @@ def _detect_pii(text: str, config: PIIConfig) -> PiiDetectionResult:
         raise ValueError("Text cannot be empty or None")
 
     engine = _get_analyzer_engine()
+
+    # Run analysis for all configured entities
+    # Region-specific recognizers (e.g., KR_RRN) are registered with language="en"
     analyzer_results = engine.analyze(text, entities=[e.value for e in config.entities], language="en")
 
-    # Filter results once and create both mapping and filtered results
-    filtered_results = [res for res in analyzer_results if res.entity_type in config.entities]
+    # Filter results and create mapping
+    entity_values = {e.value for e in config.entities}
+    filtered_results = [res for res in analyzer_results if res.entity_type in entity_values]
     grouped: dict[str, list[str]] = defaultdict(list)
     for res in filtered_results:
         grouped[res.entity_type].append(text[res.start : res.end])
 
-    logger.debug(
-        "PII detection completed",
-        extra={
-            "event": "pii_detection",
-            "entities_found": len(filtered_results),
-            "entity_types": list(grouped.keys()),
-        },
-    )
     return PiiDetectionResult(mapping=dict(grouped), analyzer_results=filtered_results)
 
 
@@ -303,14 +319,6 @@ def _mask_pii(text: str, detection: PiiDetectionResult, config: PIIConfig) -> st
         result = result[:start] + replacement + result[end:]
         offset += len(replacement) - (end - start)
 
-    logger.debug(
-        "PII masking completed",
-        extra={
-            "event": "pii_masking",
-            "entities_masked": len(sorted_results),
-            "entity_types": [res.entity_type for res in sorted_results],
-        },
-    )
     return result
 
 
