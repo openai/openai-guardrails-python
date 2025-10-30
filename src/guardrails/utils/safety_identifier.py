@@ -23,7 +23,7 @@ else:
 __all__ = ["SAFETY_IDENTIFIER", "supports_safety_identifier"]
 
 # OpenAI safety identifier for tracking guardrails library usage
-SAFETY_IDENTIFIER = "oai_guardrails"
+SAFETY_IDENTIFIER = "openai-guardrails-python"
 
 
 def supports_safety_identifier(
