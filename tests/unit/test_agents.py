@@ -597,3 +597,140 @@ def test_guardrail_agent_without_tools(monkeypatch: pytest.MonkeyPatch) -> None:
     agent_instance = agents.GuardrailAgent(config={}, name="NoTools", instructions="None")
 
     assert getattr(agent_instance, "input_guardrails", []) == []  # noqa: S101
+
+
+def test_guardrail_agent_without_instructions(monkeypatch: pytest.MonkeyPatch) -> None:
+    """GuardrailAgent should work without instructions parameter."""
+    pipeline = SimpleNamespace(pre_flight=None, input=None, output=None)
+
+    monkeypatch.setattr(runtime_module, "load_pipeline_bundles", lambda config: pipeline, raising=False)
+    monkeypatch.setattr(runtime_module, "instantiate_guardrails", lambda *args, **kwargs: [], raising=False)
+
+    # Should not raise TypeError about missing instructions
+    agent_instance = agents.GuardrailAgent(config={}, name="NoInstructions")
+
+    assert isinstance(agent_instance, agents_module.Agent)  # noqa: S101
+    assert agent_instance.instructions is None  # noqa: S101
+
+
+def test_guardrail_agent_with_callable_instructions(monkeypatch: pytest.MonkeyPatch) -> None:
+    """GuardrailAgent should accept callable instructions."""
+    pipeline = SimpleNamespace(pre_flight=None, input=None, output=None)
+
+    monkeypatch.setattr(runtime_module, "load_pipeline_bundles", lambda config: pipeline, raising=False)
+    monkeypatch.setattr(runtime_module, "instantiate_guardrails", lambda *args, **kwargs: [], raising=False)
+
+    def dynamic_instructions(ctx: Any, agent: Any) -> str:
+        return f"You are {agent.name}"
+
+    agent_instance = agents.GuardrailAgent(
+        config={},
+        name="DynamicAgent",
+        instructions=dynamic_instructions,
+    )
+
+    assert isinstance(agent_instance, agents_module.Agent)  # noqa: S101
+    assert callable(agent_instance.instructions)  # noqa: S101
+    assert agent_instance.instructions == dynamic_instructions  # noqa: S101
+
+
+def test_guardrail_agent_merges_user_input_guardrails(monkeypatch: pytest.MonkeyPatch) -> None:
+    """User input guardrails should be merged with config guardrails."""
+    agent_guard = _make_guardrail("Config Input Guard")
+
+    class FakePipeline:
+        def __init__(self) -> None:
+            self.pre_flight = None
+            self.input = SimpleNamespace()
+            self.output = None
+
+    pipeline = FakePipeline()
+
+    def fake_load_pipeline_bundles(config: Any) -> FakePipeline:
+        return pipeline
+
+    def fake_instantiate_guardrails(stage: Any, registry: Any | None = None) -> list[Any]:
+        if stage is pipeline.input:
+            return [agent_guard]
+        return []
+
+    from guardrails import runtime as runtime_module
+
+    monkeypatch.setattr(runtime_module, "load_pipeline_bundles", fake_load_pipeline_bundles)
+    monkeypatch.setattr(runtime_module, "instantiate_guardrails", fake_instantiate_guardrails)
+
+    # Create a custom user guardrail
+    custom_guardrail = lambda ctx, agent, input: None  # noqa: E731
+
+    agent_instance = agents.GuardrailAgent(
+        config={},
+        name="MergedAgent",
+        instructions="Test",
+        input_guardrails=[custom_guardrail],
+    )
+
+    # Should have both config and user guardrails merged
+    assert isinstance(agent_instance, agents_module.Agent)  # noqa: S101
+    assert len(agent_instance.input_guardrails) == 2  # noqa: S101
+    # Config guardrail from _create_agents_guardrails_from_config, then user guardrail
+
+
+def test_guardrail_agent_merges_user_output_guardrails(monkeypatch: pytest.MonkeyPatch) -> None:
+    """User output guardrails should be merged with config guardrails."""
+    agent_guard = _make_guardrail("Config Output Guard")
+
+    class FakePipeline:
+        def __init__(self) -> None:
+            self.pre_flight = None
+            self.input = None
+            self.output = SimpleNamespace()
+
+    pipeline = FakePipeline()
+
+    def fake_load_pipeline_bundles(config: Any) -> FakePipeline:
+        return pipeline
+
+    def fake_instantiate_guardrails(stage: Any, registry: Any | None = None) -> list[Any]:
+        if stage is pipeline.output:
+            return [agent_guard]
+        return []
+
+    from guardrails import runtime as runtime_module
+
+    monkeypatch.setattr(runtime_module, "load_pipeline_bundles", fake_load_pipeline_bundles)
+    monkeypatch.setattr(runtime_module, "instantiate_guardrails", fake_instantiate_guardrails)
+
+    # Create a custom user guardrail
+    custom_guardrail = lambda ctx, agent, output: None  # noqa: E731
+
+    agent_instance = agents.GuardrailAgent(
+        config={},
+        name="MergedAgent",
+        instructions="Test",
+        output_guardrails=[custom_guardrail],
+    )
+
+    # Should have both config and user guardrails merged
+    assert isinstance(agent_instance, agents_module.Agent)  # noqa: S101
+    assert len(agent_instance.output_guardrails) == 2  # noqa: S101
+    # Config guardrail from _create_agents_guardrails_from_config, then user guardrail
+
+
+def test_guardrail_agent_with_empty_user_guardrails(monkeypatch: pytest.MonkeyPatch) -> None:
+    """GuardrailAgent should handle empty user guardrail lists gracefully."""
+    pipeline = SimpleNamespace(pre_flight=None, input=None, output=None)
+
+    monkeypatch.setattr(runtime_module, "load_pipeline_bundles", lambda config: pipeline, raising=False)
+    monkeypatch.setattr(runtime_module, "instantiate_guardrails", lambda *args, **kwargs: [], raising=False)
+
+    agent_instance = agents.GuardrailAgent(
+        config={},
+        name="EmptyListAgent",
+        instructions="Test",
+        input_guardrails=[],
+        output_guardrails=[],
+    )
+
+    assert isinstance(agent_instance, agents_module.Agent)  # noqa: S101
+    assert agent_instance.input_guardrails == []  # noqa: S101
+    assert agent_instance.output_guardrails == []  # noqa: S101
