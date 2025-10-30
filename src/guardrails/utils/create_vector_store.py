@@ -15,8 +15,6 @@ from pathlib import Path
 
 from openai import AsyncOpenAI
 
-from .._openai_utils import prepare_openai_kwargs
-
 # Configure logging
 # logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
 logger = logging.getLogger(__name__)
@@ -136,7 +134,7 @@ async def main():
     path = sys.argv[1]
 
     try:
-        client = AsyncOpenAI(**prepare_openai_kwargs({}))
+        client = AsyncOpenAI()
         vector_store_id = await create_vector_store_from_path(path, client)
 
         print("\n✅ Vector store created successfully!")

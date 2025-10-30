@@ -11,7 +11,6 @@ from typing import Any
 
 import pytest
 
-from guardrails._openai_utils import SAFETY_IDENTIFIER_HEADER, SAFETY_IDENTIFIER_VALUE
 from guardrails.types import GuardrailResult
 
 # ---------------------------------------------------------------------------
@@ -231,14 +230,12 @@ def test_create_conversation_context_exposes_history() -> None:
 
 
 def test_create_default_tool_context_provides_async_client(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Default tool context should return AsyncOpenAI with safety identifier header."""
-    captured_kwargs: dict[str, Any] = {}
-
+    """Default tool context should return AsyncOpenAI client."""
     openai_mod = types.ModuleType("openai")
 
     class StubAsyncOpenAI:
         def __init__(self, **kwargs: Any) -> None:
-            captured_kwargs.update(kwargs)
+            pass
 
     openai_mod.AsyncOpenAI = StubAsyncOpenAI
     monkeypatch.setitem(sys.modules, "openai", openai_mod)
@@ -246,8 +243,6 @@ def test_create_default_tool_context_provides_async_client(monkeypatch: pytest.M
     context = agents._create_default_tool_context()
 
     assert isinstance(context.guardrail_llm, StubAsyncOpenAI)  # noqa: S101
-    headers = captured_kwargs.get("default_headers", {})
-    assert headers.get(SAFETY_IDENTIFIER_HEADER) == SAFETY_IDENTIFIER_VALUE  # noqa: S101
 
 
 def test_attach_guardrail_to_tools_initializes_lists() -> None:

@@ -26,7 +26,6 @@ from ._base_client import (
     GuardrailsResponse,
     OpenAIResponseType,
 )
-from ._openai_utils import prepare_openai_kwargs
 from ._streaming import StreamingMixin
 from .exceptions import GuardrailTripwireTriggered
 from .runtime import run_guardrails
@@ -167,7 +166,6 @@ class GuardrailsAsyncOpenAI(AsyncOpenAI, GuardrailsBaseClient, StreamingMixin):
                 by this parameter.
             **openai_kwargs: Additional arguments passed to AsyncOpenAI constructor.
         """
-        openai_kwargs = prepare_openai_kwargs(openai_kwargs)
         # Initialize OpenAI client first
         super().__init__(**openai_kwargs)
 
@@ -205,7 +203,7 @@ class GuardrailsAsyncOpenAI(AsyncOpenAI, GuardrailsBaseClient, StreamingMixin):
         default_headers = getattr(self, "default_headers", None)
         if default_headers is not None:
             guardrail_kwargs["default_headers"] = default_headers
-        guardrail_client = AsyncOpenAI(**prepare_openai_kwargs(guardrail_kwargs))
+        guardrail_client = AsyncOpenAI(**guardrail_kwargs)
 
         return DefaultContext(guardrail_llm=guardrail_client)
 
@@ -335,7 +333,6 @@ class GuardrailsOpenAI(OpenAI, GuardrailsBaseClient, StreamingMixin):
                 by this parameter.
             **openai_kwargs: Additional arguments passed to OpenAI constructor.
         """
-        openai_kwargs = prepare_openai_kwargs(openai_kwargs)
         # Initialize OpenAI client first
         super().__init__(**openai_kwargs)
 
@@ -373,7 +370,7 @@ class GuardrailsOpenAI(OpenAI, GuardrailsBaseClient, StreamingMixin):
         default_headers = getattr(self, "default_headers", None)
         if default_headers is not None:
             guardrail_kwargs["default_headers"] = default_headers
-        guardrail_client = OpenAI(**prepare_openai_kwargs(guardrail_kwargs))
+        guardrail_client = OpenAI(**guardrail_kwargs)
 
         return DefaultContext(guardrail_llm=guardrail_client)
 
@@ -516,7 +513,6 @@ if AsyncAzureOpenAI is not None:
                 by this parameter.
                 **azure_kwargs: Additional arguments passed to AsyncAzureOpenAI constructor.
             """
-            azure_kwargs = prepare_openai_kwargs(azure_kwargs)
             # Initialize Azure client first
             super().__init__(**azure_kwargs)
 
@@ -671,7 +667,6 @@ if AzureOpenAI is not None:
                     by this parameter.
                 **azure_kwargs: Additional arguments passed to AzureOpenAI constructor.
             """
-            azure_kwargs = prepare_openai_kwargs(azure_kwargs)
             super().__init__(**azure_kwargs)
 
             # Store the error handling preference

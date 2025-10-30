@@ -23,7 +23,6 @@ except ImportError:
 
 
 from guardrails import instantiate_guardrails, load_pipeline_bundles
-from guardrails._openai_utils import prepare_openai_kwargs
 from guardrails.evals.core import (
     AsyncRunEngine,
     BenchmarkMetricsCalculator,
@@ -281,7 +280,7 @@ class GuardrailEval:
             if self.api_key:
                 azure_kwargs["api_key"] = self.api_key
 
-            guardrail_llm = AsyncAzureOpenAI(**prepare_openai_kwargs(azure_kwargs))
+            guardrail_llm = AsyncAzureOpenAI(**azure_kwargs)
             logger.info("Created Azure OpenAI client for endpoint: %s", self.azure_endpoint)
         # OpenAI or OpenAI-compatible API
         else:
@@ -292,7 +291,7 @@ class GuardrailEval:
                 openai_kwargs["base_url"] = self.base_url
                 logger.info("Created OpenAI-compatible client for base_url: %s", self.base_url)
 
-            guardrail_llm = AsyncOpenAI(**prepare_openai_kwargs(openai_kwargs))
+            guardrail_llm = AsyncOpenAI(**openai_kwargs)
 
         return Context(guardrail_llm=guardrail_llm)
 

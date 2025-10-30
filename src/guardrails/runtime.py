@@ -21,7 +21,6 @@ from typing import Any, Final, Generic, ParamSpec, TypeAlias, TypeVar, cast
 from openai import AsyncOpenAI
 from pydantic import BaseModel, ConfigDict
 
-from ._openai_utils import prepare_openai_kwargs
 from .exceptions import ConfigError, GuardrailTripwireTriggered
 from .registry import GuardrailRegistry, default_spec_registry
 from .spec import GuardrailSpec
@@ -495,7 +494,7 @@ def _get_default_ctx():
     class DefaultCtx:
         guardrail_llm: AsyncOpenAI
 
-    return DefaultCtx(guardrail_llm=AsyncOpenAI(**prepare_openai_kwargs({})))
+    return DefaultCtx(guardrail_llm=AsyncOpenAI())
 
 
 async def check_plain_text(

@@ -9,6 +9,38 @@ from pydantic import BaseModel
 
 from ..._base_client import GuardrailsBaseClient
 
+# OpenAI safety identifier for tracking guardrails library usage
+# Only supported by official OpenAI API (not Azure or local/alternative providers)
+_SAFETY_IDENTIFIER = "oai_guardrails"
+
+
+def _supports_safety_identifier(client: Any) -> bool:
+    """Check if the client supports the safety_identifier parameter.
+
+    Only the official OpenAI API supports this parameter.
+    Azure OpenAI and local/alternative providers do not.
+
+    Args:
+        client: The OpenAI client instance.
+
+    Returns:
+        True if safety_identifier should be included, False otherwise.
+    """
+    # Azure clients don't support it
+    client_type = type(client).__name__
+    if "Azure" in client_type:
+        return False
+
+    # Check if using a custom base_url (local or alternative provider)
+    base_url = getattr(client, "base_url", None)
+    if base_url is not None:
+        base_url_str = str(base_url)
+        # Only official OpenAI API endpoints support safety_identifier
+        return "api.openai.com" in base_url_str
+
+    # Default OpenAI client (no custom base_url) supports it
+    return True
+
 
 class Responses:
     """Responses API with guardrails (sync)."""
@@ -63,13 +95,20 @@ class Responses:
 
         # Input guardrails and LLM call concurrently
         with ThreadPoolExecutor(max_workers=1) as executor:
+            # Only include safety_identifier for OpenAI clients (not Azure or local models)
+            llm_kwargs = {
+                "input": modified_input,
+                "model": model,
+                "stream": stream,
+                "tools": tools,
+                **kwargs,
+            }
+            if _supports_safety_identifier(self._client._resource_client):
+                llm_kwargs["safety_identifier"] = _SAFETY_IDENTIFIER
+
             llm_future = executor.submit(
                 self._client._resource_client.responses.create,
-                input=modified_input,  # Use preflight-modified input
-                model=model,
-                stream=stream,
-                tools=tools,
-                **kwargs,
+                **llm_kwargs,
             )
             input_results = self._client._run_stage_guardrails(
                 "input",
@@ -123,12 +162,19 @@ class Responses:
 
         # Input guardrails and LLM call concurrently
         with ThreadPoolExecutor(max_workers=1) as executor:
+            # Only include safety_identifier for OpenAI clients (not Azure or local models)
+            llm_kwargs = {
+                "input": modified_input,
+                "model": model,
+                "text_format": text_format,
+                **kwargs,
+            }
+            if _supports_safety_identifier(self._client._resource_client):
+                llm_kwargs["safety_identifier"] = _SAFETY_IDENTIFIER
+
             llm_future = executor.submit(
                 self._client._resource_client.responses.parse,
-                input=modified_input,  # Use modified input with preflight changes
-                model=model,
-                text_format=text_format,
-                **kwargs,
+                **llm_kwargs,
             )
             input_results = self._client._run_stage_guardrails(
                 "input",
@@ -218,13 +264,19 @@ class AsyncResponses:
             conversation_history=normalized_conversation,
             suppress_tripwire=suppress_tripwire,
         )
-        llm_call = self._client._resource_client.responses.create(
-            input=modified_input,  # Use preflight-modified input
-            model=model,
-            stream=stream,
-            tools=tools,
+
+        # Only include safety_identifier for OpenAI clients (not Azure or local models)
+        llm_kwargs = {
+            "input": modified_input,
+            "model": model,
+            "stream": stream,
+            "tools": tools,
             **kwargs,
-        )
+        }
+        if _supports_safety_identifier(self._client._resource_client):
+            llm_kwargs["safety_identifier"] = _SAFETY_IDENTIFIER
+
+        llm_call = self._client._resource_client.responses.create(**llm_kwargs)
 
         input_results, llm_response = await asyncio.gather(input_check, llm_call)
 
@@ -278,13 +330,19 @@ class AsyncResponses:
             conversation_history=normalized_conversation,
             suppress_tripwire=suppress_tripwire,
         )
-        llm_call = self._client._resource_client.responses.parse(
-            input=modified_input,  # Use modified input with preflight changes
-            model=model,
-            text_format=text_format,
-            stream=stream,
+
+        # Only include safety_identifier for OpenAI clients (not Azure or local models)
+        llm_kwargs = {
+            "input": modified_input,
+            "model": model,
+            "text_format": text_format,
+            "stream": stream,
             **kwargs,
-        )
+        }
+        if _supports_safety_identifier(self._client._resource_client):
+            llm_kwargs["safety_identifier"] = _SAFETY_IDENTIFIER
+
+        llm_call = self._client._resource_client.responses.parse(**llm_kwargs)
 
         input_results, llm_response = await asyncio.gather(input_check, llm_call)
 

@@ -18,7 +18,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from ._openai_utils import prepare_openai_kwargs
 from .utils.conversation import merge_conversation_with_items, normalize_conversation
 
 logger = logging.getLogger(__name__)
@@ -167,7 +166,7 @@ def _create_default_tool_context() -> Any:
     class DefaultContext:
         guardrail_llm: AsyncOpenAI
 
-    return DefaultContext(guardrail_llm=AsyncOpenAI(**prepare_openai_kwargs({})))
+    return DefaultContext(guardrail_llm=AsyncOpenAI())
 
 
 def _create_conversation_context(
@@ -393,7 +392,7 @@ def _create_agents_guardrails_from_config(
         class DefaultContext:
             guardrail_llm: AsyncOpenAI
 
-        context = DefaultContext(guardrail_llm=AsyncOpenAI(**prepare_openai_kwargs({})))
+        context = DefaultContext(guardrail_llm=AsyncOpenAI())
 
     def _create_stage_guardrail(stage_name: str):
         async def stage_guardrail(ctx: RunContextWrapper[None], agent: Agent, input_data: str) -> GuardrailFunctionOutput:

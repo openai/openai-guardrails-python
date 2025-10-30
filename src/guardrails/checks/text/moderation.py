@@ -39,8 +39,6 @@ from guardrails.registry import default_spec_registry
 from guardrails.spec import GuardrailSpecMetadata
 from guardrails.types import GuardrailResult
 
-from ..._openai_utils import prepare_openai_kwargs
-
 logger = logging.getLogger(__name__)
 
 __all__ = ["moderation", "Category", "ModerationCfg"]
@@ -129,7 +127,7 @@ def _get_moderation_client() -> AsyncOpenAI:
     Returns:
         AsyncOpenAI: Cached OpenAI API client for moderation checks.
     """
-    return AsyncOpenAI(**prepare_openai_kwargs({}))
+    return AsyncOpenAI()
 
 
 async def moderation(
