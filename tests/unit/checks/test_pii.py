@@ -28,20 +28,6 @@ async def test_pii_detects_korean_resident_registration_number() -> None:
 
 
 @pytest.mark.asyncio
-async def test_pii_detects_thai_national_id() -> None:
-    """Detect Thai National Identification Numbers with valid checksum."""
-    config = PIIConfig(entities=[PIIEntity.TH_TNIN], block=True)
-    # Using valid TNIN with correct checksum: 1234567890121
-    result = await pii(None, "Thai ID: 1234567890121", config)
-
-    assert isinstance(result, GuardrailResult)  # noqa: S101
-    assert result.tripwire_triggered is True  # noqa: S101
-    assert result.info["guardrail_name"] == "Contains PII"  # noqa: S101
-    assert result.info["pii_detected"] is True  # noqa: S101
-    assert "TH_TNIN" in result.info["detected_entities"]  # noqa: S101
-
-
-@pytest.mark.asyncio
 async def test_pii_masks_korean_rrn_in_non_blocking_mode() -> None:
     """Korean RRN with valid date and checksum should be masked when block=False."""
     config = PIIConfig(entities=[PIIEntity.KR_RRN], block=False)
@@ -55,54 +41,39 @@ async def test_pii_masks_korean_rrn_in_non_blocking_mode() -> None:
 
 
 @pytest.mark.asyncio
-async def test_pii_masks_thai_tnin_in_non_blocking_mode() -> None:
-    """Thai TNIN with valid checksum should be masked when block=False."""
-    config = PIIConfig(entities=[PIIEntity.TH_TNIN], block=False)
-    # Using valid TNIN with correct checksum: 1234567890121
-    result = await pii(None, "Thai ID: 1234567890121", config)
-
-    assert result.tripwire_triggered is False  # noqa: S101
-    assert result.info["pii_detected"] is True  # noqa: S101
-    assert result.info["block_mode"] is False  # noqa: S101
-    assert "<TH_TNIN>" in result.info["checked_text"]  # noqa: S101
-
-
-@pytest.mark.asyncio
 async def test_pii_detects_multiple_entity_types() -> None:
     """Detect multiple PII entity types with valid dates and checksums."""
     config = PIIConfig(
-        entities=[PIIEntity.EMAIL_ADDRESS, PIIEntity.KR_RRN, PIIEntity.TH_TNIN],
+        entities=[PIIEntity.EMAIL_ADDRESS, PIIEntity.KR_RRN],
         block=True,
     )
     result = await pii(
         None,
-        "Contact: user@example.com, Korean RRN: 900101-2345670, Thai ID: 1234567890121",
+        "Contact: user@example.com, Korean RRN: 900101-2345670",
         config,
     )
 
     assert result.tripwire_triggered is True  # noqa: S101
     assert result.info["pii_detected"] is True  # noqa: S101
     detected = result.info["detected_entities"]
-    # Verify all three entity types are detected
+    # Verify both entity types are detected
     assert "EMAIL_ADDRESS" in detected  # noqa: S101
     assert "KR_RRN" in detected  # noqa: S101
-    assert "TH_TNIN" in detected  # noqa: S101
     # Verify actual values were captured
     assert detected["EMAIL_ADDRESS"] == ["user@example.com"]  # noqa: S101
     assert detected["KR_RRN"] == ["900101-2345670"]  # noqa: S101
-    assert detected["TH_TNIN"] == ["1234567890121"]  # noqa: S101
 
 
 @pytest.mark.asyncio
 async def test_pii_masks_multiple_entity_types() -> None:
     """Mask multiple PII entity types with valid checksums."""
     config = PIIConfig(
-        entities=[PIIEntity.EMAIL_ADDRESS, PIIEntity.KR_RRN, PIIEntity.TH_TNIN],
+        entities=[PIIEntity.EMAIL_ADDRESS, PIIEntity.KR_RRN],
         block=False,
     )
     result = await pii(
         None,
-        "Contact: user@example.com, Korean RRN: 123456-1234563, Thai ID: 1234567890121",
+        "Contact: user@example.com, Korean RRN: 123456-1234563",
         config,
     )
 
@@ -115,7 +86,7 @@ async def test_pii_masks_multiple_entity_types() -> None:
 @pytest.mark.asyncio
 async def test_pii_does_not_trigger_on_clean_text() -> None:
     """Guardrail should not trigger when no PII is present."""
-    config = PIIConfig(entities=[PIIEntity.KR_RRN, PIIEntity.TH_TNIN], block=True)
+    config = PIIConfig(entities=[PIIEntity.KR_RRN, PIIEntity.EMAIL_ADDRESS], block=True)
     result = await pii(None, "This is clean text with no PII", config)
 
     assert result.tripwire_triggered is False  # noqa: S101
@@ -160,13 +131,13 @@ async def test_pii_checked_text_unchanged_when_no_pii() -> None:
 @pytest.mark.asyncio
 async def test_pii_entity_types_checked_in_result() -> None:
     """Result should include list of entity types that were checked."""
-    config = PIIConfig(entities=[PIIEntity.KR_RRN, PIIEntity.TH_TNIN, PIIEntity.EMAIL_ADDRESS])
+    config = PIIConfig(entities=[PIIEntity.KR_RRN, PIIEntity.EMAIL_ADDRESS, PIIEntity.US_SSN])
     result = await pii(None, "Clean text", config)
 
     entity_types = result.info["entity_types_checked"]
     assert PIIEntity.KR_RRN in entity_types  # noqa: S101
-    assert PIIEntity.TH_TNIN in entity_types  # noqa: S101
     assert PIIEntity.EMAIL_ADDRESS in entity_types  # noqa: S101
+    assert PIIEntity.US_SSN in entity_types  # noqa: S101
 
 
 @pytest.mark.asyncio
@@ -226,35 +197,6 @@ async def test_pii_rejects_invalid_korean_rrn_checksum() -> None:
     assert result.tripwire_triggered is False  # noqa: S101
     assert result.info["pii_detected"] is False  # noqa: S101
     assert result.info["detected_entities"] == {}  # noqa: S101
-
-
-@pytest.mark.asyncio
-async def test_pii_rejects_invalid_thai_tnin_checksum() -> None:
-    """Invalid Thai TNIN checksum should not be detected."""
-    config = PIIConfig(entities=[PIIEntity.TH_TNIN], block=True)
-    # Using invalid checksum: 1234567890123 (should be 1234567890121)
-    result = await pii(None, "Thai ID: 1234567890123", config)
-
-    assert result.tripwire_triggered is False  # noqa: S101
-    assert result.info["pii_detected"] is False  # noqa: S101
-    assert result.info["detected_entities"] == {}  # noqa: S101
-
-
-@pytest.mark.asyncio
-async def test_pii_rejects_invalid_thai_tnin_category() -> None:
-    """Thai TNIN with invalid category code should not be detected."""
-    config = PIIConfig(entities=[PIIEntity.TH_TNIN], block=True)
-    # Invalid category codes (9 or higher are not valid)
-    test_cases = [
-        "9234567890123",  # Category 9 (invalid)
-        "9999999999999",  # All 9s (invalid category)
-    ]
-
-    for invalid_tnin in test_cases:
-        result = await pii(None, f"Thai ID: {invalid_tnin}", config)
-        assert result.tripwire_triggered is False  # noqa: S101
-        assert result.info["pii_detected"] is False  # noqa: S101
-        assert result.info["detected_entities"] == {}  # noqa: S101
 
 
 @pytest.mark.asyncio

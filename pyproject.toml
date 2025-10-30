@@ -11,7 +11,7 @@ dependencies = [
     "pydantic>=2.11.3",
     "openai-agents>=0.3.3",
     "pip>=25.0.1",
-    "presidio-analyzer>=2.2.358",
+    "presidio-analyzer>=2.2.360",
 ]
 classifiers = [
   "Typing :: Typed",

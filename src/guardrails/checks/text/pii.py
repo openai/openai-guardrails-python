@@ -79,8 +79,11 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Any, Final
 
-from presidio_analyzer import AnalyzerEngine, Pattern, PatternRecognizer, RecognizerResult
-from presidio_analyzer.nlp_engine import NlpArtifacts, NlpEngineProvider
+from presidio_analyzer import AnalyzerEngine, RecognizerRegistry, RecognizerResult
+from presidio_analyzer.nlp_engine import NlpEngineProvider
+from presidio_analyzer.predefined_recognizers.country_specific.korea.kr_rrn_recognizer import (
+    KrRrnRecognizer,
+)
 from pydantic import BaseModel, ConfigDict, Field
 
 from guardrails.registry import default_spec_registry
@@ -92,356 +95,44 @@ __all__ = ["pii"]
 logger = logging.getLogger(__name__)
 
 
-def _is_valid_date(year: int, month: int, day: int) -> bool:
-    """Validate if year, month, day form a valid date.
-
-    Args:
-        year: Full year (e.g., 1990, 2024)
-        month: Month (1-12)
-        day: Day of month (1-31)
-
-    Returns:
-        bool: True if date is valid, False otherwise.
-    """
-    # Validate month (01-12)
-    if not 1 <= month <= 12:
-        return False
-
-    # Validate day based on month
-    if month in (1, 3, 5, 7, 8, 10, 12):
-        max_day = 31
-    elif month in (4, 6, 9, 11):
-        max_day = 30
-    elif month == 2:
-        # For February, check if it's a leap year
-        is_leap = (year % 4 == 0 and year % 100 != 0) or (year % 400 == 0)
-        max_day = 29 if is_leap else 28
-    else:
-        return False
-
-    # Validate day range
-    return 1 <= day <= max_day
-
-
-def _validate_kr_rrn_date(rrn: str) -> bool:
-    """Validate the date portion (YYMMDD) of Korean RRN.
-
-    The first 6 digits must represent a valid date in YYMMDD format.
-
-    Args:
-        rrn (str): The RRN string (with or without hyphen).
-
-    Returns:
-        bool: True if date is valid, False otherwise.
-    """
-    # Remove hyphen/space
-    digits = rrn.replace("-", "").replace(" ", "")
-    if len(digits) < 6:
-        return False
-
-    try:
-        year = int(digits[0:2])
-        month = int(digits[2:4])
-        day = int(digits[4:6])
-
-        # Determine full year from century (gender digit)
-        if len(digits) >= 7:
-            gender_digit = int(digits[6])
-            # 1,2: 1900s, 3,4: 2000s, 5,6: 1800s, 7,8: 2000s, 9,0: 1800s
-            if gender_digit in (1, 2, 5, 6, 9, 0):
-                full_year = 1900 + year
-            else:
-                full_year = 2000 + year
-        else:
-            # If we can't determine century, assume 2000s for validation
-            full_year = 2000 + year
-
-        # Use helper to validate date
-        return _is_valid_date(full_year, month, day)
-    except (ValueError, IndexError):
-        return False
-
-
-def _validate_kr_rrn_checksum(rrn: str) -> bool:
-    """Validate Korean Resident Registration Number checksum.
-
-    The last digit of the RRN is a checksum calculated using a weighted sum
-    of the first 12 digits. Based on official Korean RRN validation algorithm.
-
-    Args:
-        rrn (str): The RRN string (with or without hyphen).
-
-    Returns:
-        bool: True if checksum is valid, False otherwise.
-    """
-    # Remove hyphen/space and validate length
-    digits = rrn.replace("-", "").replace(" ", "")
-    if len(digits) != 13:
-        return False
-
-    try:
-        # Extract first 12 digits and checksum
-        numbers = [int(d) for d in digits[:12]]
-        checksum = int(digits[12])
-
-        # Weight pattern: 2,3,4,5,6,7,8,9,2,3,4,5
-        weights = [2, 3, 4, 5, 6, 7, 8, 9, 2, 3, 4, 5]
-
-        # Calculate weighted sum
-        total = sum(n * w for n, w in zip(numbers, weights, strict=False))
-
-        # Calculate expected checksum: (11 - (sum % 11)) % 10
-        expected_checksum = (11 - (total % 11)) % 10
-
-        return checksum == expected_checksum
-    except (ValueError, IndexError):
-        return False
-
-
-class KoreanRrnRecognizer(PatternRecognizer):
-    """Custom recognizer for Korean Resident Registration Numbers with checksum validation."""
-
-    def __init__(self) -> None:
-        """Initialize the Korean RRN recognizer."""
-        patterns = [
-            Pattern(
-                name="kr_rrn_pattern",
-                regex=r"\b\d{6}[- ]?\d{7}\b",
-                score=0.85,
-            ),
-        ]
-        super().__init__(
-            supported_entity="KR_RRN",
-            patterns=patterns,
-            context=["rrn", "resident", "registration", "korean", "korea", "주민등록번호"],
-            supported_language="en",
-        )
-
-    def analyze(self, text: str, entities: list[str], nlp_artifacts: NlpArtifacts | None = None) -> list[RecognizerResult]:
-        """Analyze text for Korean RRN and validate date and checksums.
-
-        Args:
-            text: Text to analyze.
-            entities: List of entity types to detect.
-            nlp_artifacts: NLP artifacts (unused for pattern-based recognition).
-
-        Returns:
-            List of validated RecognizerResult objects.
-        """
-        results = super().analyze(text, entities, nlp_artifacts)
-
-        # Filter out results with invalid date or checksums
-        validated_results = []
-        for result in results:
-            candidate = text[result.start : result.end]
-            # Validate both date (YYMMDD) and checksum
-            if _validate_kr_rrn_date(candidate) and _validate_kr_rrn_checksum(candidate):
-                validated_results.append(result)
-
-        return validated_results
-
-
-def _create_kr_rrn_recognizer() -> KoreanRrnRecognizer:
-    """Create a custom recognizer for Korean Resident Registration Numbers.
-
-    Based on Presidio's KR_RRN recognizer with date and checksum validation.
-    Format: 6 digits (YYMMDD) + hyphen + 7 digits (last digit is checksum)
-
-    Validation includes:
-    - YYMMDD must be a valid date
-    - Last digit must match the checksum algorithm
-
-    Example: 900101-1234567 (valid date: Jan 1, 1990)
-
-    Returns:
-        KoreanRrnRecognizer: Recognizer for Korean RRN with date and checksum validation.
-    """
-    return KoreanRrnRecognizer()
-
-
-def _validate_th_tnin_structure(tnin: str) -> bool:
-    """Validate the structure of Thai National Identification Number.
-
-    The first digit must be a valid category code (0-8) as defined by
-    Thai identification system.
-
-    Reference: https://en.wikipedia.org/wiki/Thai_identity_card
-
-    Categories:
-    - 0: Not found on Thai nationals' cards (other identity documents)
-    - 1: Born after Jan 1, 1984, birth notified within deadline
-    - 2: Born after Jan 1, 1984, birth notified late
-    - 3: Born before Jan 1, 1984, included in house registration
-    - 4: Born before Jan 1, 1984, not in house registration
-    - 5: Missed census or dual nationality cases
-    - 6: Foreign nationals living temporarily/illegal migrants
-    - 7: Children of category 6 born in Thailand
-    - 8: Foreign nationals living permanently or naturalized citizens
-
-    Args:
-        tnin (str): The 13-digit TNIN string.
-
-    Returns:
-        bool: True if structure is valid, False otherwise.
-    """
-    if len(tnin) != 13:
-        return False
-
-    try:
-        # First digit must be a valid category (0-8)
-        category = int(tnin[0])
-        if category not in range(9):  # 0-8 inclusive
-            return False
-
-        # All characters must be digits
-        if not tnin.isdigit():
-            return False
-
-        return True
-    except (ValueError, IndexError):
-        return False
-
-
-def _validate_th_tnin_checksum(tnin: str) -> bool:
-    """Validate Thai National Identification Number checksum.
-
-    The 13th digit is a checksum calculated using modulo-11 algorithm
-    on the first 12 digits. Based on official Thai TNIN validation.
-
-    Args:
-        tnin (str): The 13-digit TNIN string.
-
-    Returns:
-        bool: True if checksum is valid, False otherwise.
-    """
-    # Validate length
-    if len(tnin) != 13:
-        return False
-
-    try:
-        # Extract first 12 digits and checksum
-        numbers = [int(d) for d in tnin[:12]]
-        checksum = int(tnin[12])
-
-        # Weight pattern: 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2
-        weights = [13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2]
-
-        # Calculate weighted sum
-        total = sum(n * w for n, w in zip(numbers, weights, strict=False))
-
-        # Calculate expected checksum: (11 - (sum % 11)) % 10
-        expected_checksum = (11 - (total % 11)) % 10
-
-        return checksum == expected_checksum
-    except (ValueError, IndexError):
-        return False
-
-
-class ThaiTninRecognizer(PatternRecognizer):
-    """Custom recognizer for Thai National Identification Numbers with checksum validation."""
-
-    def __init__(self) -> None:
-        """Initialize the Thai TNIN recognizer."""
-        patterns = [
-            Pattern(
-                name="th_tnin_pattern",
-                regex=r"\b\d{13}\b",
-                score=0.85,
-            ),
-        ]
-        super().__init__(
-            supported_entity="TH_TNIN",
-            patterns=patterns,
-            context=["tnin", "thai", "thailand", "national", "id", "identification", "เลขประจำตัวประชาชน"],
-            supported_language="en",
-        )
-
-    def analyze(self, text: str, entities: list[str], nlp_artifacts: NlpArtifacts | None = None) -> list[RecognizerResult]:
-        """Analyze text for Thai TNIN and validate structure and checksums.
-
-        Args:
-            text: Text to analyze.
-            entities: List of entity types to detect.
-            nlp_artifacts: NLP artifacts (unused for pattern-based recognition).
-
-        Returns:
-            List of validated RecognizerResult objects.
-        """
-        results = super().analyze(text, entities, nlp_artifacts)
-
-        # Filter out results with invalid structure or checksums
-        validated_results = []
-        for result in results:
-            candidate = text[result.start : result.end]
-            # Validate both structure (category code) and checksum
-            if _validate_th_tnin_structure(candidate) and _validate_th_tnin_checksum(candidate):
-                validated_results.append(result)
-
-        return validated_results
-
-
-def _create_th_tnin_recognizer() -> ThaiTninRecognizer:
-    """Create a custom recognizer for Thai National Identification Numbers.
-
-    Based on Presidio's TH_TNIN recognizer with structure and checksum validation.
-    Format: 13 digits (first digit is category 0-8, last digit is checksum)
-
-    Validation includes:
-    - First digit must be valid category code (0-8)
-    - Last digit must match the checksum algorithm
-
-    Example: 1234567890121 (category 1)
-
-    Returns:
-        ThaiTninRecognizer: Recognizer for Thai TNIN with structure and checksum validation.
-    """
-    return ThaiTninRecognizer()
-
-
 @functools.lru_cache(maxsize=1)
 def _get_analyzer_engine() -> AnalyzerEngine:
-    """Return a cached, configured Presidio AnalyzerEngine instance.
+    """Return a cached AnalyzerEngine configured with Presidio recognizers.
 
-    Supports multiple languages including English, Korean, and Thai for
-    comprehensive PII detection across regions. Custom recognizers are
-    registered for KR_RRN and TH_TNIN as they are not included in the
-    released Presidio version.
+    The engine loads Presidio's default recognizers for English and explicitly
+    registers the built-in KR_RRN recognizer to make it available alongside
+    other PII detectors within the guardrail.
 
     Returns:
-        AnalyzerEngine: Initialized Presidio analyzer engine with multi-language support.
+        AnalyzerEngine: Analyzer configured with English NLP support and
+        region-specific recognizers backed by Presidio.
     """
-    # Define multi-language NLP configuration
-    # Korean (ko) and Thai (th) recognizers use pattern matching and don't require NLP models,
-    # but we still need English for entity recognition that depends on NLP
-    sm_nlp_config: Final[dict[str, Any]] = {
+    nlp_config: Final[dict[str, Any]] = {
         "nlp_engine_name": "spacy",
         "models": [
             {"lang_code": "en", "model_name": "en_core_web_sm"},
-            # Korean and Thai recognizers are pattern-based and don't require spacy models
         ],
     }
 
-    # Reduce the size of the nlp model loaded by Presidio
-    provider = NlpEngineProvider(nlp_configuration=sm_nlp_config)
-    sm_nlp_engine = provider.create_engine()
+    provider = NlpEngineProvider(nlp_configuration=nlp_config)
+    nlp_engine = provider.create_engine()
 
-    # Create custom recognizers for Korean and Thai entities
-    kr_rrn_recognizer = _create_kr_rrn_recognizer()
-    th_tnin_recognizer = _create_th_tnin_recognizer()
+    registry = RecognizerRegistry(supported_languages=["en"])
+    registry.load_predefined_recognizers(languages=["en"], nlp_engine=nlp_engine)
+    registry.add_recognizer(KrRrnRecognizer(supported_language="en"))
 
-    # Analyzer using minimal NLP with support for all loaded recognizers
-    engine = AnalyzerEngine(nlp_engine=sm_nlp_engine)
-
-    # Register custom recognizers
-    engine.registry.add_recognizer(kr_rrn_recognizer)
-    engine.registry.add_recognizer(th_tnin_recognizer)
+    engine = AnalyzerEngine(
+        registry=registry,
+        nlp_engine=nlp_engine,
+        supported_languages=["en"],
+    )
 
     logger.debug(
-        "Initialized Presidio analyzer engine with custom recognizers",
+        "Initialized Presidio analyzer engine with region-specific recognizers",
         extra={
             "event": "analyzer_engine_initialized",
             "supported_languages": ["en"],
-            "custom_recognizers": ["KR_RRN", "TH_TNIN"],
+            "added_recognizers": ["KR_RRN"],
         },
     )
     return engine
@@ -518,9 +209,6 @@ class PIIEntity(str, Enum):
     # Korea
     KR_RRN = "KR_RRN"
 
-    # Thailand
-    TH_TNIN = "TH_TNIN"
-
 
 class PIIConfig(BaseModel):
     """Configuration schema for PII detection.
@@ -571,8 +259,8 @@ class PiiDetectionResult:
 def _detect_pii(text: str, config: PIIConfig) -> PiiDetectionResult:
     """Run Presidio analysis and collect findings by entity type.
 
-    Supports detection of Korean (KR_RRN) and Thai (TH_TNIN) entities via
-    custom recognizers registered with the analyzer engine.
+    Supports detection of Korean (KR_RRN) and other region-specific entities via
+    Presidio recognizers registered with the analyzer engine.
 
     Args:
         text (str): The text to analyze for PII.
@@ -590,7 +278,7 @@ def _detect_pii(text: str, config: PIIConfig) -> PiiDetectionResult:
     engine = _get_analyzer_engine()
 
     # Run analysis for all configured entities
-    # Custom recognizers (KR_RRN, TH_TNIN) are registered with language="en"
+    # Region-specific recognizers (e.g., KR_RRN) are registered with language="en"
     analyzer_results = engine.analyze(text, entities=[e.value for e in config.entities], language="en")
 
     # Filter results and create mapping
