@@ -6,38 +6,7 @@ from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 from ..._base_client import GuardrailsBaseClient
-
-# OpenAI safety identifier for tracking guardrails library usage
-# Only supported by official OpenAI API (not Azure or local/alternative providers)
-_SAFETY_IDENTIFIER = "oai_guardrails"
-
-
-def _supports_safety_identifier(client: Any) -> bool:
-    """Check if the client supports the safety_identifier parameter.
-
-    Only the official OpenAI API supports this parameter.
-    Azure OpenAI and local/alternative providers do not.
-
-    Args:
-        client: The OpenAI client instance.
-
-    Returns:
-        True if safety_identifier should be included, False otherwise.
-    """
-    # Azure clients don't support it
-    client_type = type(client).__name__
-    if "Azure" in client_type:
-        return False
-
-    # Check if using a custom base_url (local or alternative provider)
-    base_url = getattr(client, "base_url", None)
-    if base_url is not None:
-        base_url_str = str(base_url)
-        # Only official OpenAI API endpoints support safety_identifier
-        return "api.openai.com" in base_url_str
-
-    # Default OpenAI client (no custom base_url) supports it
-    return True
+from ...utils.safety_identifier import SAFETY_IDENTIFIER, supports_safety_identifier
 
 
 class Chat:
@@ -121,8 +90,8 @@ class ChatCompletions:
                 "stream": stream,
                 **kwargs,
             }
-            if _supports_safety_identifier(self._client._resource_client):
-                llm_kwargs["safety_identifier"] = _SAFETY_IDENTIFIER
+            if supports_safety_identifier(self._client._resource_client):
+                llm_kwargs["safety_identifier"] = SAFETY_IDENTIFIER
 
             llm_future = executor.submit(
                 self._client._resource_client.chat.completions.create,
@@ -198,8 +167,8 @@ class AsyncChatCompletions:
             "stream": stream,
             **kwargs,
         }
-        if _supports_safety_identifier(self._client._resource_client):
-            llm_kwargs["safety_identifier"] = _SAFETY_IDENTIFIER
+        if supports_safety_identifier(self._client._resource_client):
+            llm_kwargs["safety_identifier"] = SAFETY_IDENTIFIER
 
         llm_call = self._client._resource_client.chat.completions.create(**llm_kwargs)
 

@@ -48,36 +48,7 @@ from guardrails.spec import GuardrailSpecMetadata
 from guardrails.types import CheckFn, GuardrailLLMContextProto, GuardrailResult
 from guardrails.utils.output import OutputSchema
 
-# OpenAI safety identifier for tracking guardrails library usage
-# Only supported by official OpenAI API (not Azure or local/alternative providers)
-_SAFETY_IDENTIFIER = "oai_guardrails"
-
-
-def _supports_safety_identifier(client: AsyncOpenAI | OpenAI | AsyncAzureOpenAI | AzureOpenAI) -> bool:
-    """Check if the client supports the safety_identifier parameter.
-
-    Only the official OpenAI API supports this parameter.
-    Azure OpenAI and local/alternative providers do not.
-
-    Args:
-        client: The OpenAI client instance.
-
-    Returns:
-        True if safety_identifier should be included, False otherwise.
-    """
-    # Azure clients don't support it
-    if isinstance(client, AsyncAzureOpenAI | AzureOpenAI):
-        return False
-
-    # Check if using a custom base_url (local or alternative provider)
-    base_url = getattr(client, "base_url", None)
-    if base_url is not None:
-        base_url_str = str(base_url)
-        # Only official OpenAI API endpoints support safety_identifier
-        return "api.openai.com" in base_url_str
-
-    # Default OpenAI client (no custom base_url) supports it
-    return True
+from ...utils.safety_identifier import SAFETY_IDENTIFIER, supports_safety_identifier
 
 if TYPE_CHECKING:
     from openai import AsyncAzureOpenAI, AzureOpenAI  # type: ignore[unused-import]
@@ -93,10 +64,10 @@ logger = logging.getLogger(__name__)
 
 __all__ = [
     "LLMConfig",
-    "LLMOutput",
     "LLMErrorOutput",
-    "create_llm_check_fn",
+    "LLMOutput",
     "create_error_result",
+    "create_llm_check_fn",
 ]
 
 
@@ -286,8 +257,8 @@ async def _request_chat_completion(
     }
 
     # Only official OpenAI API supports safety_identifier (not Azure or local models)
-    if _supports_safety_identifier(client):
-        kwargs["safety_identifier"] = _SAFETY_IDENTIFIER
+    if supports_safety_identifier(client):
+        kwargs["safety_identifier"] = SAFETY_IDENTIFIER
 
     return await _invoke_openai_callable(client.chat.completions.create, **kwargs)
 
