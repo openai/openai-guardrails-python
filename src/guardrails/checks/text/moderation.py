@@ -132,6 +132,22 @@ def _get_moderation_client() -> AsyncOpenAI:
     return AsyncOpenAI(**prepare_openai_kwargs({}))
 
 
+async def _call_moderation_api(client: AsyncOpenAI, data: str) -> Any:
+    """Call the OpenAI moderation API.
+
+    Args:
+        client: The OpenAI client to use.
+        data: The text to analyze.
+
+    Returns:
+        The moderation API response.
+    """
+    return await client.moderations.create(
+        model="omni-moderation-latest",
+        input=data,
+    )
+
+
 async def moderation(
     ctx: Any,
     data: str,
@@ -151,7 +167,6 @@ async def moderation(
     Returns:
         GuardrailResult: Indicates if tripwire was triggered, and details of flagged categories.
     """
-
     client = None
     if ctx is not None:
         candidate = getattr(ctx, "guardrail_llm", None)
@@ -161,10 +176,7 @@ async def moderation(
     # Try the context client first, fall back if moderation endpoint doesn't exist
     if client is not None:
         try:
-            resp = await client.moderations.create(
-                model="omni-moderation-latest",
-                input=data,
-            )
+            resp = await _call_moderation_api(client, data)
         except NotFoundError as e:
             # Moderation endpoint doesn't exist on this provider (e.g., third-party)
             # Fall back to the OpenAI client
@@ -173,17 +185,11 @@ async def moderation(
                 e,
             )
             client = _get_moderation_client()
-            resp = await client.moderations.create(
-                model="omni-moderation-latest",
-                input=data,
-            )
+            resp = await _call_moderation_api(client, data)
     else:
         # No context client, use fallback
         client = _get_moderation_client()
-        resp = await client.moderations.create(
-            model="omni-moderation-latest",
-            input=data,
-        )
+        resp = await _call_moderation_api(client, data)
     results = resp.results or []
     if not results:
         return GuardrailResult(

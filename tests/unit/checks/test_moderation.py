@@ -78,7 +78,7 @@ async def test_moderation_uses_context_client() -> None:
 
     # Create a context with a guardrail_llm client
     context_client = AsyncOpenAI(api_key="test-context-key", base_url="https://api.openai.com/v1")
-    context_client.moderations = SimpleNamespace(create=track_create)
+    context_client.moderations = SimpleNamespace(create=track_create)  # type: ignore[assignment]
 
     ctx = SimpleNamespace(guardrail_llm=context_client)
 
@@ -111,13 +111,21 @@ async def test_moderation_falls_back_for_third_party_provider(monkeypatch: pytes
     fallback_client = SimpleNamespace(moderations=SimpleNamespace(create=track_fallback_create))
     monkeypatch.setattr("guardrails.checks.text.moderation._get_moderation_client", lambda: fallback_client)
 
+    # Create a mock httpx.Response for NotFoundError
+    mock_response = SimpleNamespace(
+        status_code=404,
+        headers={},
+        text="404 page not found",
+        json=lambda: {"error": {"message": "Not found", "type": "invalid_request_error"}},
+    )
+
     # Create a context client that simulates a third-party provider
     # When moderation is called, it should raise NotFoundError
     async def raise_not_found(**_: Any) -> Any:
-        raise NotFoundError("404 page not found")
+        raise NotFoundError("404 page not found", response=mock_response, body=None)  # type: ignore[arg-type]
 
     third_party_client = AsyncOpenAI(api_key="third-party-key", base_url="https://localhost:8080/v1")
-    third_party_client.moderations = SimpleNamespace(create=raise_not_found)
+    third_party_client.moderations = SimpleNamespace(create=raise_not_found)  # type: ignore[assignment]
     ctx = SimpleNamespace(guardrail_llm=third_party_client)
 
     cfg = ModerationCfg(categories=[Category.HATE])

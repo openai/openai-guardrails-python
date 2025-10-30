@@ -70,6 +70,12 @@ class APITimeoutError(Exception):
 class NotFoundError(Exception):
     """Stub 404 not found error."""
 
+    def __init__(self, message: str, *, response: Any = None, body: Any = None) -> None:
+        """Initialize NotFoundError with OpenAI-compatible signature."""
+        super().__init__(message)
+        self.response = response
+        self.body = body
+
 
 _STUB_OPENAI_MODULE.APITimeoutError = APITimeoutError
 _STUB_OPENAI_MODULE.NotFoundError = NotFoundError
