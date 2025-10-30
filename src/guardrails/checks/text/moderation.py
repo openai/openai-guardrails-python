@@ -32,7 +32,7 @@ from enum import Enum
 from functools import cache
 from typing import Any
 
-from openai import AsyncOpenAI
+from openai import AsyncOpenAI, NotFoundError
 from pydantic import BaseModel, ConfigDict, Field
 
 from guardrails.registry import default_spec_registry
@@ -152,35 +152,38 @@ async def moderation(
         GuardrailResult: Indicates if tripwire was triggered, and details of flagged categories.
     """
 
-    # Prefer reusing an existing OpenAI client from context ONLY if it targets the
-    # official OpenAI API. If it's any other provider (e.g., Ollama via base_url),
-    # fall back to the default OpenAI moderation client.
-    def _maybe_reuse_openai_client_from_ctx(context: Any) -> AsyncOpenAI | None:
+    client = None
+    if ctx is not None:
+        candidate = getattr(ctx, "guardrail_llm", None)
+        if isinstance(candidate, AsyncOpenAI):
+            client = candidate
+
+    # Try the context client first, fall back if moderation endpoint doesn't exist
+    if client is not None:
         try:
-            candidate = getattr(context, "guardrail_llm", None)
-            if not isinstance(candidate, AsyncOpenAI):
-                return None
-
-            # Attempt to discover the effective base URL in a best-effort way
-            base_url = getattr(candidate, "base_url", None)
-            if base_url is None:
-                inner = getattr(candidate, "_client", None)
-                base_url = getattr(inner, "base_url", None) or getattr(inner, "_base_url", None)
-
-            # Reuse only when clearly the official OpenAI endpoint
-            if base_url is None:
-                return candidate
-            if isinstance(base_url, str) and "api.openai.com" in base_url:
-                return candidate
-            return None
-        except Exception:
-            return None
-
-    client = _maybe_reuse_openai_client_from_ctx(ctx) or _get_moderation_client()
-    resp = await client.moderations.create(
-        model="omni-moderation-latest",
-        input=data,
-    )
+            resp = await client.moderations.create(
+                model="omni-moderation-latest",
+                input=data,
+            )
+        except NotFoundError as e:
+            # Moderation endpoint doesn't exist on this provider (e.g., third-party)
+            # Fall back to the OpenAI client
+            logger.debug(
+                "Moderation endpoint not available on context client, falling back to OpenAI: %s",
+                e,
+            )
+            client = _get_moderation_client()
+            resp = await client.moderations.create(
+                model="omni-moderation-latest",
+                input=data,
+            )
+    else:
+        # No context client, use fallback
+        client = _get_moderation_client()
+        resp = await client.moderations.create(
+            model="omni-moderation-latest",
+            input=data,
+        )
     results = resp.results or []
     if not results:
         return GuardrailResult(

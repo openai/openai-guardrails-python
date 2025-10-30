@@ -67,7 +67,12 @@ class APITimeoutError(Exception):
     """Stub API timeout error."""
 
 
+class NotFoundError(Exception):
+    """Stub 404 not found error."""
+
+
 _STUB_OPENAI_MODULE.APITimeoutError = APITimeoutError
+_STUB_OPENAI_MODULE.NotFoundError = NotFoundError
 
 _OPENAI_TYPES_MODULE = types.ModuleType("openai.types")
 _OPENAI_TYPES_MODULE.Completion = _DummyResponse
