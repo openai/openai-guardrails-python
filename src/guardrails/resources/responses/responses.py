@@ -8,6 +8,7 @@ from typing import Any
 from pydantic import BaseModel
 
 from ..._base_client import GuardrailsBaseClient
+from ...utils.safety_identifier import SAFETY_IDENTIFIER, supports_safety_identifier
 
 
 class Responses:
@@ -63,13 +64,20 @@ class Responses:
 
         # Input guardrails and LLM call concurrently
         with ThreadPoolExecutor(max_workers=1) as executor:
+            # Only include safety_identifier for OpenAI clients (not Azure or local models)
+            llm_kwargs = {
+                "input": modified_input,
+                "model": model,
+                "stream": stream,
+                "tools": tools,
+                **kwargs,
+            }
+            if supports_safety_identifier(self._client._resource_client):
+                llm_kwargs["safety_identifier"] = SAFETY_IDENTIFIER
+
             llm_future = executor.submit(
                 self._client._resource_client.responses.create,
-                input=modified_input,  # Use preflight-modified input
-                model=model,
-                stream=stream,
-                tools=tools,
-                **kwargs,
+                **llm_kwargs,
             )
             input_results = self._client._run_stage_guardrails(
                 "input",
@@ -123,12 +131,19 @@ class Responses:
 
         # Input guardrails and LLM call concurrently
         with ThreadPoolExecutor(max_workers=1) as executor:
+            # Only include safety_identifier for OpenAI clients (not Azure or local models)
+            llm_kwargs = {
+                "input": modified_input,
+                "model": model,
+                "text_format": text_format,
+                **kwargs,
+            }
+            if supports_safety_identifier(self._client._resource_client):
+                llm_kwargs["safety_identifier"] = SAFETY_IDENTIFIER
+
             llm_future = executor.submit(
                 self._client._resource_client.responses.parse,
-                input=modified_input,  # Use modified input with preflight changes
-                model=model,
-                text_format=text_format,
-                **kwargs,
+                **llm_kwargs,
             )
             input_results = self._client._run_stage_guardrails(
                 "input",
@@ -218,13 +233,19 @@ class AsyncResponses:
             conversation_history=normalized_conversation,
             suppress_tripwire=suppress_tripwire,
         )
-        llm_call = self._client._resource_client.responses.create(
-            input=modified_input,  # Use preflight-modified input
-            model=model,
-            stream=stream,
-            tools=tools,
+
+        # Only include safety_identifier for OpenAI clients (not Azure or local models)
+        llm_kwargs = {
+            "input": modified_input,
+            "model": model,
+            "stream": stream,
+            "tools": tools,
             **kwargs,
-        )
+        }
+        if supports_safety_identifier(self._client._resource_client):
+            llm_kwargs["safety_identifier"] = SAFETY_IDENTIFIER
+
+        llm_call = self._client._resource_client.responses.create(**llm_kwargs)
 
         input_results, llm_response = await asyncio.gather(input_check, llm_call)
 
@@ -278,13 +299,19 @@ class AsyncResponses:
             conversation_history=normalized_conversation,
             suppress_tripwire=suppress_tripwire,
         )
-        llm_call = self._client._resource_client.responses.parse(
-            input=modified_input,  # Use modified input with preflight changes
-            model=model,
-            text_format=text_format,
-            stream=stream,
+
+        # Only include safety_identifier for OpenAI clients (not Azure or local models)
+        llm_kwargs = {
+            "input": modified_input,
+            "model": model,
+            "text_format": text_format,
+            "stream": stream,
             **kwargs,
-        )
+        }
+        if supports_safety_identifier(self._client._resource_client):
+            llm_kwargs["safety_identifier"] = SAFETY_IDENTIFIER
+
+        llm_call = self._client._resource_client.responses.parse(**llm_kwargs)
 
         input_results, llm_response = await asyncio.gather(input_check, llm_call)
 

@@ -48,6 +48,8 @@ from guardrails.spec import GuardrailSpecMetadata
 from guardrails.types import CheckFn, GuardrailLLMContextProto, GuardrailResult
 from guardrails.utils.output import OutputSchema
 
+from ...utils.safety_identifier import SAFETY_IDENTIFIER, supports_safety_identifier
+
 if TYPE_CHECKING:
     from openai import AsyncAzureOpenAI, AzureOpenAI  # type: ignore[unused-import]
 else:
@@ -62,10 +64,10 @@ logger = logging.getLogger(__name__)
 
 __all__ = [
     "LLMConfig",
-    "LLMOutput",
     "LLMErrorOutput",
-    "create_llm_check_fn",
+    "LLMOutput",
     "create_error_result",
+    "create_llm_check_fn",
 ]
 
 
@@ -247,12 +249,18 @@ async def _request_chat_completion(
     response_format: dict[str, Any],
 ) -> Any:
     """Invoke chat.completions.create on sync or async OpenAI clients."""
-    return await _invoke_openai_callable(
-        client.chat.completions.create,
-        messages=messages,
-        model=model,
-        response_format=response_format,
-    )
+    # Only include safety_identifier for official OpenAI API
+    kwargs: dict[str, Any] = {
+        "messages": messages,
+        "model": model,
+        "response_format": response_format,
+    }
+
+    # Only official OpenAI API supports safety_identifier (not Azure or local models)
+    if supports_safety_identifier(client):
+        kwargs["safety_identifier"] = SAFETY_IDENTIFIER
+
+    return await _invoke_openai_callable(client.chat.completions.create, **kwargs)
 
 
 async def run_llm(

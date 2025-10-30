@@ -6,6 +6,7 @@ from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 from ..._base_client import GuardrailsBaseClient
+from ...utils.safety_identifier import SAFETY_IDENTIFIER, supports_safety_identifier
 
 
 class Chat:
@@ -82,12 +83,19 @@ class ChatCompletions:
 
         # Run input guardrails and LLM call concurrently using a thread for the LLM
         with ThreadPoolExecutor(max_workers=1) as executor:
+            # Only include safety_identifier for OpenAI clients (not Azure)
+            llm_kwargs = {
+                "messages": modified_messages,
+                "model": model,
+                "stream": stream,
+                **kwargs,
+            }
+            if supports_safety_identifier(self._client._resource_client):
+                llm_kwargs["safety_identifier"] = SAFETY_IDENTIFIER
+
             llm_future = executor.submit(
                 self._client._resource_client.chat.completions.create,
-                messages=modified_messages,  # Use messages with any preflight modifications
-                model=model,
-                stream=stream,
-                **kwargs,
+                **llm_kwargs,
             )
             input_results = self._client._run_stage_guardrails(
                 "input",
@@ -152,12 +160,17 @@ class AsyncChatCompletions:
             conversation_history=normalized_conversation,
             suppress_tripwire=suppress_tripwire,
         )
-        llm_call = self._client._resource_client.chat.completions.create(
-            messages=modified_messages,  # Use messages with any preflight modifications
-            model=model,
-            stream=stream,
+        # Only include safety_identifier for OpenAI clients (not Azure)
+        llm_kwargs = {
+            "messages": modified_messages,
+            "model": model,
+            "stream": stream,
             **kwargs,
-        )
+        }
+        if supports_safety_identifier(self._client._resource_client):
+            llm_kwargs["safety_identifier"] = SAFETY_IDENTIFIER
+
+        llm_call = self._client._resource_client.chat.completions.create(**llm_kwargs)
 
         input_results, llm_response = await asyncio.gather(input_check, llm_call)
 
