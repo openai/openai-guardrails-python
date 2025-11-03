@@ -293,7 +293,6 @@ async def urls(ctx: Any, data: str, config: URLConfig) -> GuardrailResult:
             "allowed": allowed,
             "blocked": blocked,
             "blocked_reasons": blocked_reasons,
-            "checked_text": data,
         },
     )
 

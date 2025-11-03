@@ -56,15 +56,13 @@ Returns a `GuardrailResult` with the following `info` dictionary:
     "guardrail_name": "Jailbreak",
     "flagged": true,
     "confidence": 0.85,
-    "threshold": 0.7,
-    "checked_text": "Original input text"
+    "threshold": 0.7
 }
 ```
 
 - **`flagged`**: Whether a jailbreak attempt was detected
 - **`confidence`**: Confidence score (0.0 to 1.0) for the detection
 - **`threshold`**: The confidence threshold that was configured
-- **`checked_text`**: Original input text
 
 ## Related checks
 

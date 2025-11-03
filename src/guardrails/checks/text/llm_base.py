@@ -126,7 +126,6 @@ class LLMErrorOutput(LLMOutput):
 def create_error_result(
     guardrail_name: str,
     analysis: LLMErrorOutput,
-    checked_text: str,
     additional_info: dict[str, Any] | None = None,
 ) -> GuardrailResult:
     """Create a standardized GuardrailResult from an LLM error output.
@@ -134,7 +133,6 @@ def create_error_result(
     Args:
         guardrail_name: Name of the guardrail that failed.
         analysis: The LLM error output.
-        checked_text: The text that was being checked.
         additional_info: Optional additional fields to include in info dict.
 
     Returns:
@@ -145,7 +143,6 @@ def create_error_result(
 
     result_info: dict[str, Any] = {
         "guardrail_name": guardrail_name,
-        "checked_text": checked_text,
         "error": error_message,
         **analysis.model_dump(),
     }
@@ -389,7 +386,6 @@ def create_llm_check_fn(
             return create_error_result(
                 guardrail_name=name,
                 analysis=analysis,
-                checked_text=data,
             )
 
         # Compare severity levels
@@ -400,7 +396,6 @@ def create_llm_check_fn(
                 "guardrail_name": name,
                 **analysis.model_dump(),
                 "threshold": config.confidence_threshold,
-                "checked_text": data,  # LLM-based guardrails don't modify text, pass through unchanged
             },
         )
 

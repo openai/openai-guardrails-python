@@ -338,7 +338,6 @@ def _detect_secret_keys(text: str, cfg: SecretCfg, custom_regex: list[str] | Non
         info={
             "guardrail_name": "Secret Keys",
             "detected_secrets": secrets,
-            "checked_text": text,  # Secret key detection doesn't modify text, pass through unchanged
         },
     )
 

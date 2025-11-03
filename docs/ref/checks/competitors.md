@@ -30,11 +30,9 @@ Returns a `GuardrailResult` with the following `info` dictionary:
 {
     "guardrail_name": "Competitor Detection",
     "competitors_found": ["competitor1"],
-    "checked_competitors": ["competitor1", "rival-company.com"],
-    "checked_text": "Original input text"
+    "checked_competitors": ["competitor1", "rival-company.com"]
 }
 ```
 
 - **`competitors_found`**: List of competitors detected in the text
 - **`checked_competitors`**: List of competitors that were configured for detection
-- **`checked_text`**: Original input text

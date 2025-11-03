@@ -84,6 +84,8 @@ from presidio_analyzer.nlp_engine import NlpEngineProvider
 from presidio_analyzer.predefined_recognizers.country_specific.korea.kr_rrn_recognizer import (
     KrRrnRecognizer,
 )
+from presidio_anonymizer import AnonymizerEngine
+from presidio_anonymizer.entities import OperatorConfig
 from pydantic import BaseModel, ConfigDict, Field
 
 from guardrails.registry import default_spec_registry
@@ -127,6 +129,19 @@ def _get_analyzer_engine() -> AnalyzerEngine:
         supported_languages=["en"],
     )
     return engine
+
+
+@functools.lru_cache(maxsize=1)
+def _get_anonymizer_engine() -> AnonymizerEngine:
+    """Return a cached AnonymizerEngine for PII masking.
+
+    Uses Presidio's built-in anonymization for optimal performance and
+    correct handling of overlapping entities, Unicode, and special characters.
+
+    Returns:
+        AnonymizerEngine: Configured anonymizer for replacing PII entities.
+    """
+    return AnonymizerEngine()
 
 
 class PIIEntity(str, Enum):
@@ -283,13 +298,10 @@ def _detect_pii(text: str, config: PIIConfig) -> PiiDetectionResult:
 
 
 def _mask_pii(text: str, detection: PiiDetectionResult, config: PIIConfig) -> str:
-    """Mask detected PII from text by replacing with entity type markers.
+    """Mask detected PII using Presidio's AnonymizerEngine.
 
-    Handles overlapping entities using these rules:
-    1. Full overlap: Use entity with higher score
-    2. One contained in another: Use larger text span
-    3. Partial intersection: Replace each individually
-    4. No overlap: Replace normally
+    Uses Presidio's built-in anonymization for optimal performance and
+    correct handling of overlapping entities, Unicode, and special characters.
 
     Args:
         text (str): The text to mask.
@@ -305,21 +317,25 @@ def _mask_pii(text: str, detection: PiiDetectionResult, config: PIIConfig) -> st
     if not text:
         raise ValueError("Text cannot be empty or None")
 
-    # Sort by start position and score for consistent handling
-    sorted_results = sorted(detection.analyzer_results, key=lambda x: (x.start, -x.score, -x.end))
+    if not detection.analyzer_results:
+        return text
 
-    # Process results in order, tracking text offsets
-    result = text
-    offset = 0
+    # Use Presidio's optimized anonymizer with replace operator
+    anonymizer = _get_anonymizer_engine()
 
-    for res in sorted_results:
-        start = res.start + offset
-        end = res.end + offset
-        replacement = f"<{res.entity_type}>"
-        result = result[:start] + replacement + result[end:]
-        offset += len(replacement) - (end - start)
+    # Create operators mapping each entity type to a replace operator
+    operators = {
+        entity_type: OperatorConfig("replace", {"new_value": f"<{entity_type}>"})
+        for entity_type in detection.mapping.keys()
+    }
 
-    return result
+    result = anonymizer.anonymize(
+        text=text,
+        analyzer_results=detection.analyzer_results,
+        operators=operators,
+    )
+
+    return result.text
 
 
 def _as_result(detection: PiiDetectionResult, config: PIIConfig, name: str, text: str) -> GuardrailResult:
@@ -335,11 +351,11 @@ def _as_result(detection: PiiDetectionResult, config: PIIConfig, name: str, text
         GuardrailResult: Always includes checked_text. Triggers tripwire only if
         PII found AND block=True.
     """
-    # Mask the text if PII is found
-    checked_text = _mask_pii(text, detection, config) if detection.mapping else text
-
     # Only trigger tripwire if PII is found AND block=True
     tripwire_triggered = bool(detection.mapping) and config.block
+    
+    # Mask the text if PII is found
+    checked_text = _mask_pii(text, detection, config) if detection.mapping else text
 
     return GuardrailResult(
         tripwire_triggered=tripwire_triggered,

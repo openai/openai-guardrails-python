@@ -35,12 +35,10 @@ Returns a `GuardrailResult` with the following `info` dictionary:
     "guardrail_name": "Off Topic Prompts",
     "flagged": false,
     "confidence": 0.85,
-    "threshold": 0.7,
-    "checked_text": "Original input text"
+    "threshold": 0.7
 }
 ```
 
 - **`flagged`**: Whether the content aligns with your business scope
 - **`confidence`**: Confidence score (0.0 to 1.0) for the prompt injection detection assessment
 - **`threshold`**: The confidence threshold that was configured
-- **`checked_text`**: Original input text

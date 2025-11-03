@@ -64,8 +64,7 @@ Returns a `GuardrailResult` with the following `info` dictionary:
     "detected": ["https://example.com", "https://user:pass@malicious.com"],
     "allowed": ["https://example.com"],
     "blocked": ["https://user:pass@malicious.com"],
-    "blocked_reasons": ["https://user:pass@malicious.com: Contains userinfo (potential credential injection)"],
-    "checked_text": "Visit https://example.com or login at https://user:pass@malicious.com"
+    "blocked_reasons": ["https://user:pass@malicious.com: Contains userinfo (potential credential injection)"]
 }
 ```
 
@@ -77,4 +76,3 @@ Returns a `GuardrailResult` with the following `info` dictionary:
 - **`allowed`**: URLs that passed all security checks and allow list validation
 - **`blocked`**: URLs that were blocked due to security policies or allow list restrictions
 - **`blocked_reasons`**: Detailed explanations for why each URL was blocked
-- **`checked_text`**: Original input text that was scanned

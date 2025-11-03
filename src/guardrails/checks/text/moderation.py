@@ -218,7 +218,6 @@ async def moderation(
             "flagged_categories": flagged_categories,
             "categories_checked": config.categories,
             "category_details": category_details,
-            "checked_text": data,  # Moderation doesn't modify text, pass through unchanged
         },
     )
 

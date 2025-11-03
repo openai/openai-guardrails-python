@@ -34,10 +34,8 @@ Returns a `GuardrailResult` with the following `info` dictionary:
 ```json
 {
     "guardrail_name": "Secret Keys",
-    "detected_secrets": ["sk-abc123...", "Bearer xyz789..."],
-    "checked_text": "Original input text"
+    "detected_secrets": ["sk-abc123...", "Bearer xyz789..."]
 }
 ```
 
 - **`detected_secrets`**: List of potential secrets detected in the text
-- **`checked_text`**: Original input text (unchanged)

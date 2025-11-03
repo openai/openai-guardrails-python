@@ -116,7 +116,6 @@ def match_keywords(
             "matched": unique,
             "checked": config.keywords,
             "sanitized_keywords": sanitized_keywords,
-            "checked_text": data,  # Keyword filtering doesn't modify text, pass through unchanged
         },
     )
 

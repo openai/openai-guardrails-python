@@ -35,12 +35,10 @@ Returns a `GuardrailResult` with the following `info` dictionary:
     "guardrail_name": "Custom Prompt Check",
     "flagged": true,
     "confidence": 0.85,
-    "threshold": 0.7,
-    "checked_text": "Original input text"
+    "threshold": 0.7
 }
 ```
 
 - **`flagged`**: Whether the custom validation criteria were met
 - **`confidence`**: Confidence score (0.0 to 1.0) for the validation
 - **`threshold`**: The confidence threshold that was configured
-- **`checked_text`**: Original input text

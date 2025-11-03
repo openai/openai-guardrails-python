@@ -296,7 +296,6 @@ Previous context:
                 "evidence": analysis.evidence,
                 "user_goal": user_goal_text,
                 "action": recent_messages,
-                "checked_text": str(conversation_history),
             },
         )
         return result
@@ -377,7 +376,6 @@ def _create_skip_result(
             "evidence": None,
             "user_goal": user_goal,
             "action": action or [],
-            "checked_text": data,
         },
     )
 
