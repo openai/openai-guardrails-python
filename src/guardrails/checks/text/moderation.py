@@ -36,12 +36,6 @@ from typing import Any
 from openai import AsyncOpenAI, NotFoundError
 from pydantic import BaseModel, ConfigDict, Field
 
-try:
-    from openai import AsyncAzureOpenAI, AzureOpenAI  # type: ignore
-except Exception:  # pragma: no cover - optional dependency
-    AsyncAzureOpenAI = object  # type: ignore
-    AzureOpenAI = object  # type: ignore
-
 from guardrails.registry import default_spec_registry
 from guardrails.spec import GuardrailSpecMetadata
 from guardrails.types import GuardrailResult
