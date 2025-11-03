@@ -165,13 +165,9 @@ async def moderation(
     Returns:
         GuardrailResult: Indicates if tripwire was triggered, and details of flagged categories.
     """
-    client = None
-    if ctx is not None:
-        candidate = getattr(ctx, "guardrail_llm", None)
-        if isinstance(candidate, AsyncOpenAI):
-            client = candidate
-
     # Try the context client first, fall back if moderation endpoint doesn't exist
+    client = getattr(ctx, "guardrail_llm", None) if ctx is not None else None
+
     if client is not None:
         try:
             resp = await _call_moderation_api(client, data)
