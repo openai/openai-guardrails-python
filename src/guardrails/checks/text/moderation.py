@@ -33,7 +33,7 @@ from enum import Enum
 from functools import cache
 from typing import Any
 
-from openai import AsyncOpenAI, NotFoundError, OpenAI
+from openai import AsyncOpenAI, NotFoundError
 from pydantic import BaseModel, ConfigDict, Field
 
 try:
