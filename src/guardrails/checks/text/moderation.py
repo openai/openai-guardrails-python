@@ -27,13 +27,20 @@ Example:
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from enum import Enum
 from functools import cache
 from typing import Any
 
-from openai import AsyncOpenAI, NotFoundError
+from openai import AsyncOpenAI, NotFoundError, OpenAI
 from pydantic import BaseModel, ConfigDict, Field
+
+try:
+    from openai import AsyncAzureOpenAI, AzureOpenAI  # type: ignore
+except Exception:  # pragma: no cover - optional dependency
+    AsyncAzureOpenAI = object  # type: ignore
+    AzureOpenAI = object  # type: ignore
 
 from guardrails.registry import default_spec_registry
 from guardrails.spec import GuardrailSpecMetadata
@@ -130,17 +137,36 @@ def _get_moderation_client() -> AsyncOpenAI:
     return AsyncOpenAI()
 
 
-async def _call_moderation_api(client: AsyncOpenAI, data: str) -> Any:
-    """Call the OpenAI moderation API.
+async def _call_moderation_api_async(
+    client: AsyncOpenAI | AsyncAzureOpenAI,
+    data: str,  # type: ignore
+) -> Any:
+    """Call the OpenAI moderation API asynchronously.
 
     Args:
-        client: The OpenAI client to use.
+        client: The async OpenAI or Azure OpenAI client to use.
         data: The text to analyze.
 
     Returns:
         The moderation API response.
     """
     return await client.moderations.create(
+        model="omni-moderation-latest",
+        input=data,
+    )
+
+
+def _call_moderation_api_sync(client: OpenAI | AzureOpenAI, data: str) -> Any:  # type: ignore
+    """Call the OpenAI moderation API synchronously.
+
+    Args:
+        client: The sync OpenAI or Azure OpenAI client to use.
+        data: The text to analyze.
+
+    Returns:
+        The moderation API response.
+    """
+    return client.moderations.create(
         model="omni-moderation-latest",
         input=data,
     )
@@ -169,8 +195,15 @@ async def moderation(
     client = getattr(ctx, "guardrail_llm", None) if ctx is not None else None
 
     if client is not None:
+        # Determine if client is async or sync and call appropriately
+        is_async_client = isinstance(client, AsyncOpenAI | AsyncAzureOpenAI)
+
         try:
-            resp = await _call_moderation_api(client, data)
+            if is_async_client:
+                resp = await _call_moderation_api_async(client, data)
+            else:
+                # Sync client - run in thread pool to avoid blocking event loop
+                resp = await asyncio.to_thread(_call_moderation_api_sync, client, data)
         except NotFoundError as e:
             # Moderation endpoint doesn't exist on this provider (e.g., third-party)
             # Fall back to the OpenAI client
@@ -179,11 +212,11 @@ async def moderation(
                 e,
             )
             client = _get_moderation_client()
-            resp = await _call_moderation_api(client, data)
+            resp = await _call_moderation_api_async(client, data)
     else:
         # No context client, use fallback
         client = _get_moderation_client()
-        resp = await _call_moderation_api(client, data)
+        resp = await _call_moderation_api_async(client, data)
     results = resp.results or []
     if not results:
         return GuardrailResult(

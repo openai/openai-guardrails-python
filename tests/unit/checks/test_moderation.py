@@ -134,3 +134,35 @@ async def test_moderation_falls_back_for_third_party_provider(monkeypatch: pytes
     # Verify the fallback client was used (not the third-party one)
     assert fallback_used is True  # noqa: S101
     assert result.tripwire_triggered is False  # noqa: S101
+
+
+@pytest.mark.asyncio
+async def test_moderation_uses_sync_context_client() -> None:
+    """Moderation should support synchronous OpenAI clients from context."""
+    from openai import OpenAI
+
+    # Track whether sync context client was used
+    sync_client_used = False
+
+    def track_sync_create(**_: Any) -> Any:
+        nonlocal sync_client_used
+        sync_client_used = True
+
+        class _Result:
+            def model_dump(self) -> dict[str, Any]:
+                return {"categories": {"hate": False, "violence": False}}
+
+        return SimpleNamespace(results=[_Result()])
+
+    # Create a sync context client
+    sync_client = OpenAI(api_key="test-sync-key", base_url="https://api.openai.com/v1")
+    sync_client.moderations = SimpleNamespace(create=track_sync_create)  # type: ignore[assignment]
+
+    ctx = SimpleNamespace(guardrail_llm=sync_client)
+
+    cfg = ModerationCfg(categories=[Category.HATE, Category.VIOLENCE])
+    result = await moderation(ctx, "test text", cfg)
+
+    # Verify the sync context client was used (via asyncio.to_thread)
+    assert sync_client_used is True  # noqa: S101
+    assert result.tripwire_triggered is False  # noqa: S101
