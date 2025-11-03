@@ -166,3 +166,57 @@ async def test_moderation_uses_sync_context_client() -> None:
     # Verify the sync context client was used (via asyncio.to_thread)
     assert sync_client_used is True  # noqa: S101
     assert result.tripwire_triggered is False  # noqa: S101
+
+
+@pytest.mark.asyncio
+async def test_moderation_falls_back_for_azure_clients(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Moderation should fall back to OpenAI client for Azure clients (no moderation endpoint)."""
+    try:
+        from openai import AsyncAzureOpenAI, NotFoundError
+    except ImportError:
+        pytest.skip("Azure OpenAI not available")
+
+    # Track whether fallback was used
+    fallback_used = False
+
+    async def track_fallback_create(**_: Any) -> Any:
+        nonlocal fallback_used
+        fallback_used = True
+
+        class _Result:
+            def model_dump(self) -> dict[str, Any]:
+                return {"categories": {"hate": False, "violence": False}}
+
+        return SimpleNamespace(results=[_Result()])
+
+    # Mock the fallback client
+    fallback_client = SimpleNamespace(moderations=SimpleNamespace(create=track_fallback_create))
+    monkeypatch.setattr("guardrails.checks.text.moderation._get_moderation_client", lambda: fallback_client)
+
+    # Create a mock httpx.Response for NotFoundError
+    mock_response = SimpleNamespace(
+        status_code=404,
+        headers={},
+        text="404 page not found",
+        json=lambda: {"error": {"message": "Not found", "type": "invalid_request_error"}},
+    )
+
+    # Create an Azure context client that raises NotFoundError for moderation
+    async def raise_not_found(**_: Any) -> Any:
+        raise NotFoundError("404 page not found", response=mock_response, body=None)  # type: ignore[arg-type]
+
+    azure_client = AsyncAzureOpenAI(
+        api_key="test-azure-key",
+        api_version="2024-02-01",
+        azure_endpoint="https://test.openai.azure.com",
+    )
+    azure_client.moderations = SimpleNamespace(create=raise_not_found)  # type: ignore[assignment]
+
+    ctx = SimpleNamespace(guardrail_llm=azure_client)
+
+    cfg = ModerationCfg(categories=[Category.HATE, Category.VIOLENCE])
+    result = await moderation(ctx, "test text", cfg)
+
+    # Verify the fallback client was used (not the Azure one)
+    assert fallback_used is True  # noqa: S101
+    assert result.tripwire_triggered is False  # noqa: S101

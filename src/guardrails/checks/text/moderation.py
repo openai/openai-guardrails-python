@@ -137,10 +137,7 @@ def _get_moderation_client() -> AsyncOpenAI:
     return AsyncOpenAI()
 
 
-async def _call_moderation_api_async(
-    client: AsyncOpenAI | AsyncAzureOpenAI,
-    data: str,  # type: ignore
-) -> Any:
+async def _call_moderation_api_async(client: Any, data: str) -> Any:
     """Call the OpenAI moderation API asynchronously.
 
     Args:
@@ -156,7 +153,7 @@ async def _call_moderation_api_async(
     )
 
 
-def _call_moderation_api_sync(client: OpenAI | AzureOpenAI, data: str) -> Any:  # type: ignore
+def _call_moderation_api_sync(client: Any, data: str) -> Any:
     """Call the OpenAI moderation API synchronously.
 
     Args:
@@ -191,22 +188,22 @@ async def moderation(
     Returns:
         GuardrailResult: Indicates if tripwire was triggered, and details of flagged categories.
     """
-    # Try the context client first, fall back if moderation endpoint doesn't exist
+    # Try context client first (if provided), fall back on 404
     client = getattr(ctx, "guardrail_llm", None) if ctx is not None else None
 
     if client is not None:
-        # Determine if client is async or sync and call appropriately
-        is_async_client = isinstance(client, AsyncOpenAI | AsyncAzureOpenAI)
+        # Determine if client is async or sync
+        is_async = isinstance(client, AsyncOpenAI)
 
         try:
-            if is_async_client:
+            if is_async:
                 resp = await _call_moderation_api_async(client, data)
             else:
                 # Sync client - run in thread pool to avoid blocking event loop
                 resp = await asyncio.to_thread(_call_moderation_api_sync, client, data)
         except NotFoundError as e:
-            # Moderation endpoint doesn't exist on this provider (e.g., third-party)
-            # Fall back to the OpenAI client
+            # Moderation endpoint doesn't exist (e.g., Azure, third-party)
+            # Fall back to OpenAI client with OPENAI_API_KEY env var
             logger.debug(
                 "Moderation endpoint not available on context client, falling back to OpenAI: %s",
                 e,
@@ -214,7 +211,7 @@ async def moderation(
             client = _get_moderation_client()
             resp = await _call_moderation_api_async(client, data)
     else:
-        # No context client, use fallback
+        # No context client - use fallback OpenAI client
         client = _get_moderation_client()
         resp = await _call_moderation_api_async(client, data)
     results = resp.results or []
