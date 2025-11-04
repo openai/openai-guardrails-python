@@ -27,7 +27,7 @@ guardrails-evals \
   --config-path guardrails_config.json \
   --dataset-path data.jsonl \
   --mode benchmark \
-  --models gpt-5 gpt-5-mini gpt-5-nano
+  --models gpt-5 gpt-5-mini
 ```
 
 Test with included demo files in our [github repository](https://github.com/openai/openai-guardrails-python/tree/main/src/guardrails/evals/eval_demo)

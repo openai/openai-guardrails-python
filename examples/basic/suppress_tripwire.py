@@ -25,7 +25,7 @@ PIPELINE_CONFIG: dict[str, Any] = {
             {
                 "name": "Custom Prompt Check",
                 "config": {
-                    "model": "gpt-4.1-nano-2025-04-14",
+                    "model": "gpt-4.1-mini-2025-04-14",
                     "confidence_threshold": 0.7,
                     "system_prompt_details": "Check if the text contains any math problems.",
                 },
@@ -45,7 +45,7 @@ async def process_input(
         # Use GuardrailsClient with suppress_tripwire=True
         response = await guardrails_client.responses.create(
             input=user_input,
-            model="gpt-4.1-nano-2025-04-14",
+            model="gpt-4.1-mini-2025-04-14",
             previous_response_id=response_id,
             suppress_tripwire=True,
         )

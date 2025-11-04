@@ -230,7 +230,7 @@ async def main(malicious: bool = False) -> None:
             # Only add to messages AFTER guardrails pass and LLM call succeeds
             try:
                 resp = await client.chat.completions.create(
-                    model="gpt-4.1-nano",
+                    model="gpt-4.1-mini",
                     messages=messages + [{"role": "user", "content": user_input}],
                     tools=tools,
                 )
@@ -321,7 +321,7 @@ async def main(malicious: bool = False) -> None:
                 # Final call with tool results (pass inline without mutating messages)
                 try:
                     resp = await client.chat.completions.create(
-                        model="gpt-4.1-nano",
+                        model="gpt-4.1-mini",
                         messages=messages + [assistant_message] + tool_messages,
                         tools=tools,
                     )

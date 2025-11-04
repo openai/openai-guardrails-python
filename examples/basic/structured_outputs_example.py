@@ -26,7 +26,7 @@ PIPELINE_CONFIG = {
             {
                 "name": "Custom Prompt Check",
                 "config": {
-                    "model": "gpt-4.1-nano",
+                    "model": "gpt-4.1-mini",
                     "confidence_threshold": 0.7,
                     "system_prompt_details": "Check if the text contains any math problems.",
                 },
@@ -50,7 +50,7 @@ async def extract_user_info(
                 {"role": "system", "content": "Extract user information from the provided text."},
                 {"role": "user", "content": text},
             ],
-            model="gpt-4.1-nano",
+            model="gpt-4.1-mini",
             text_format=UserInfo,
             previous_response_id=previous_response_id,
         )

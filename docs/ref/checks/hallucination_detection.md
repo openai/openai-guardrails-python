@@ -175,10 +175,8 @@ The statements cover various types of factual claims including:
 |--------------|---------|-------------|-------------|-------------|
 | gpt-5         | 0.854   | 0.732       | 0.686       | 0.670       |
 | gpt-5-mini    | 0.934   | 0.813       | 0.813       | 0.770       |
-| gpt-5-nano    | 0.566   | 0.540       | 0.540       | 0.533       |
 | gpt-4.1       | 0.870   | 0.785       | 0.785       | 0.785       |
 | gpt-4.1-mini (default) | 0.876   | 0.806       | 0.789       | 0.789       |
-| gpt-4.1-nano  | 0.537   | 0.526       | 0.526       | 0.526       |
 
 **Notes:**
 - ROC AUC: Area under the ROC curve (higher is better)
@@ -192,10 +190,8 @@ The following table shows latency measurements for each model using the hallucin
 |--------------|--------------|--------------|
 | gpt-5         | 34,135       | 525,854      |
 | gpt-5-mini    | 23,013       | 59,316       |
-| gpt-5-nano    | 17,079       | 26,317       |
 | gpt-4.1       | 7,126        | 33,464       |
 | gpt-4.1-mini (default) | 7,069        | 43,174       |
-| gpt-4.1-nano  | 4,809        | 6,869        |
 
 - **TTC P50**: Median time to completion (50% of requests complete within this time)
 - **TTC P95**: 95th percentile time to completion (95% of requests complete within this time)
@@ -217,10 +213,8 @@ In addition to the above evaluations which use a 3 MB sized vector store, the ha
 |--------------|---------------------|----------------------|---------------------|---------------------------|
 | gpt-5         | 28,762 / 396,472    | 34,135 / 525,854     | 37,104 / 75,684     | 40,909 / 645,025          |
 | gpt-5-mini    | 19,240 / 39,526     | 23,013 / 59,316      | 24,217 / 65,904     | 37,314 / 118,564          |
-| gpt-5-nano    | 13,436 / 22,032     | 17,079 / 26,317      | 17,843 / 35,639     | 21,724 / 37,062           |
 | gpt-4.1       | 7,437 / 15,721      | 7,126 / 33,464       | 6,993 / 30,315      | 6,688 / 127,481           |
 | gpt-4.1-mini (default) | 6,661 / 14,827      | 7,069 / 43,174       | 7,032 / 46,354      | 7,374 / 37,769            |
-| gpt-4.1-nano  | 4,296 / 6,378       | 4,809 / 6,869        | 4,171 / 6,609       | 4,650 / 6,201             |
 
 - **Vector store size impact varies by model**: GPT-4.1 series shows minimal latency impact across vector store sizes, while GPT-5 series shows significant increases.
 
@@ -240,10 +234,6 @@ In addition to the above evaluations which use a 3 MB sized vector store, the ha
 | | Medium (3 MB) | 0.934 | 0.813 | 0.813 | 0.770 |
 | | Large (11 MB) | 0.919 | 0.817 | 0.817 | 0.817 |
 | | Extra Large (105 MB) | 0.909 | 0.793 | 0.793 | 0.711 |
-| **gpt-5-nano** | Small (1 MB) | 0.590 | 0.547 | 0.545 | 0.536 |
-| | Medium (3 MB) | 0.566 | 0.540 | 0.540 | 0.533 |
-| | Large (11 MB) | 0.564 | 0.534 | 0.532 | 0.507 |
-| | Extra Large (105 MB) | 0.603 | 0.570 | 0.558 | 0.550 |
 | **gpt-4.1** | Small (1 MB) | 0.907 | 0.839 | 0.839 | 0.839 |
 | | Medium (3 MB) | 0.870 | 0.785 | 0.785 | 0.785 |
 | | Large (11 MB) | 0.846 | 0.753 | 0.753 | 0.753 |
@@ -252,15 +242,11 @@ In addition to the above evaluations which use a 3 MB sized vector store, the ha
 | | Medium (3 MB) | 0.876 | 0.806 | 0.789 | 0.789 |
 | | Large (11 MB) | 0.862 | 0.791 | 0.757 | 0.757 |
 | | Extra Large (105 MB) | 0.802 | 0.722 | 0.722 | 0.722 |
-| **gpt-4.1-nano** | Small (1 MB) | 0.605 | 0.528 | 0.528 | 0.528 |
-| | Medium (3 MB) | 0.537 | 0.526 | 0.526 | 0.526 |
-| | Large (11 MB) | 0.618 | 0.531 | 0.531 | 0.531 |
-| | Extra Large (105 MB) | 0.636 | 0.528 | 0.528 | 0.528 |
 
 **Key Insights:**
 
 - **Best Performance**: gpt-5-mini consistently achieves the highest ROC AUC scores across all vector store sizes (0.909-0.939)
-- **Best Latency**: gpt-4.1-nano shows the most consistent and lowest latency across all scales (4,171-4,809ms P50) but shows poor performance
+- **Best Latency**: gpt-4.1-mini (default) provides the lowest median latencies while maintaining strong accuracy
 - **Most Stable**: gpt-4.1-mini (default) maintains relatively stable performance across vector store sizes with good accuracy-latency balance
 - **Scale Sensitivity**: gpt-5 shows the most variability in performance across vector store sizes, with performance dropping significantly at larger scales
 - **Performance vs Scale**: Most models show decreasing performance as vector store size increases, with gpt-5-mini being the most resilient

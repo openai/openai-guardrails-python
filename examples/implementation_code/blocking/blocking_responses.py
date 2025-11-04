@@ -16,7 +16,7 @@ async def process_input(guardrails_client: GuardrailsAsyncOpenAI, user_input: st
     try:
         # Use the GuardrailsClient - it handles all guardrail validation automatically
         # including pre-flight, input, and output stages, plus the LLM call
-        response = await guardrails_client.responses.create(input=user_input, model="gpt-4.1-nano", previous_response_id=response_id)
+        response = await guardrails_client.responses.create(input=user_input, model="gpt-4.1-mini", previous_response_id=response_id)
 
         print(f"\nAssistant: {response.llm_response.output_text}")
 

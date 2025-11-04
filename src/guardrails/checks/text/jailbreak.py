@@ -18,7 +18,7 @@ Attributes:
 Configuration Parameters:
     This guardrail uses the base LLM configuration (see LLMConfig) with these parameters:
 
-    - `model` (str): The name of the LLM model to use (e.g., "gpt-4.1-nano", "gpt-4o")
+    - `model` (str): The name of the LLM model to use (e.g., "gpt-4.1-mini", "gpt-5")
     - `confidence_threshold` (float): Minimum confidence score (0.0 to 1.0) required to
         trigger the guardrail. Defaults to 0.7.
 
