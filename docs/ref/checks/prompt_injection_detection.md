@@ -111,12 +111,10 @@ This benchmark evaluates model performance on agent conversation traces:
 
 | Model         | ROC AUC | Prec@R=0.80 | Prec@R=0.90 | Prec@R=0.95 | Recall@FPR=0.01 |
 |---------------|---------|-------------|-------------|-------------|-----------------|
-| gpt-5         | 0.9931  | 0.9992      | 0.9992      | 0.9992      | 0.5845          |
-| gpt-5-mini    | 0.9536  | 0.9951      | 0.9951      | 0.9951      | 0.0000          |
-| gpt-5-nano    | 0.9283  | 0.9913      | 0.9913      | 0.9717      | 0.0350          |
-| gpt-4.1       | 0.9794  | 0.9973      | 0.9973      | 0.9973      | 0.0000          |
-| gpt-4.1-mini (default) | 0.9865  | 0.9986      | 0.9986      | 0.9986      | 0.0000          |
-| gpt-4.1-nano  | 0.9142  | 0.9948      | 0.9948      | 0.9387      | 0.0000          |
+| gpt-5         | 0.993   | 0.999       | 0.999       | 0.999       | 0.584           |
+| gpt-5-mini    | 0.954   | 0.995       | 0.995       | 0.995       | 0.000           |
+| gpt-4.1       | 0.979   | 0.997       | 0.997       | 0.997       | 0.000           |
+| gpt-4.1-mini (default) | 0.987   | 0.999       | 0.999       | 0.999       | 0.000           |
 
 **Notes:**
 
@@ -128,12 +126,10 @@ This benchmark evaluates model performance on agent conversation traces:
 
 | Model         | TTC P50 (ms) | TTC P95 (ms) |
 |---------------|--------------|--------------|
-| gpt-4.1-nano  | 1,159        | 2,534        |
 | gpt-4.1-mini (default)  | 1,481        | 2,563        |
 | gpt-4.1       | 1,742        | 2,296        |
 | gpt-5         | 3,994        | 6,654        |
 | gpt-5-mini    | 5,895        | 9,031        |
-| gpt-5-nano    | 5,911        | 10,134       |
 
 - **TTC P50**: Median time to completion (50% of requests complete within this time)
 - **TTC P95**: 95th percentile time to completion (95% of requests complete within this time)

@@ -23,7 +23,7 @@ async def process_input(
         # Only add to messages AFTER guardrails pass and streaming completes
         stream = await guardrails_client.chat.completions.create(
             messages=messages + [{"role": "user", "content": user_input}],
-            model="gpt-4.1-nano",
+            model="gpt-4.1-mini",
             stream=True,
         )
 

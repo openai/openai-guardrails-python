@@ -41,10 +41,8 @@ logger = logging.getLogger(__name__)
 DEFAULT_BENCHMARK_MODELS = [
     "gpt-5",
     "gpt-5-mini",
-    "gpt-5-nano",
     "gpt-4.1",
     "gpt-4.1-mini",
-    "gpt-4.1-nano",
 ]
 DEFAULT_BATCH_SIZE = 32
 DEFAULT_LATENCY_ITERATIONS = 50
@@ -616,7 +614,7 @@ Examples:
     parser.add_argument(
         "--models",
         nargs="+",
-        help="Models to test in benchmark mode (default: gpt-5, gpt-5-mini, gpt-5-nano, gpt-4.1, gpt-4.1-mini, gpt-4.1-nano)",
+        help="Models to test in benchmark mode (default: gpt-5, gpt-5-mini, gpt-4.1, gpt-4.1-mini)",
     )
     parser.add_argument(
         "--latency-iterations",

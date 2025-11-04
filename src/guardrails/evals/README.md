@@ -27,7 +27,7 @@ guardrails-evals \
   --config-path eval_demo/demo_config.json \
   --dataset-path eval_demo/demo_data.jsonl \
   --mode benchmark \
-  --models gpt-5 gpt-5-mini gpt-5-nano
+  --models gpt-5 gpt-5-mini
 ```
 
 ### Basic Evaluation
@@ -43,7 +43,7 @@ guardrails-evals \
   --config-path guardrails_config.json \
   --dataset-path data.jsonl \
   --mode benchmark \
-  --models gpt-5 gpt-5-mini gpt-5-nano
+  --models gpt-5 gpt-5-mini
 ```
 
 ## Core Components

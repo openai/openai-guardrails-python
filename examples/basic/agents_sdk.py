@@ -33,7 +33,7 @@ PIPELINE_CONFIG = {
             {
                 "name": "Custom Prompt Check",
                 "config": {
-                    "model": "gpt-4.1-nano-2025-04-14",
+                    "model": "gpt-4.1-mini-2025-04-14",
                     "confidence_threshold": 0.7,
                     "system_prompt_details": "Check if the text contains any math problems.",
                 },
