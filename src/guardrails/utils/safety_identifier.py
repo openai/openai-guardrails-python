@@ -65,4 +65,3 @@ def supports_safety_identifier(
 
     # Default OpenAI client (no custom base_url) supports it
     return True
-

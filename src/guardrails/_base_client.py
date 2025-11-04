@@ -183,9 +183,7 @@ class GuardrailsBaseClient:
 
         # Get current content
         current_content = (
-            data[latest_user_idx]["content"]
-            if isinstance(data[latest_user_idx], dict)
-            else getattr(data[latest_user_idx], "content", None)
+            data[latest_user_idx]["content"] if isinstance(data[latest_user_idx], dict) else getattr(data[latest_user_idx], "content", None)
         )
 
         # Apply PII-masked text based on content type
@@ -195,17 +193,15 @@ class GuardrailsBaseClient:
             if checked_text is None:
                 return data
             return self._update_message_content(data, latest_user_idx, checked_text)
-        
+
         if isinstance(current_content, list):
             # Structured content - mask each text part individually using Presidio
             return self._apply_pii_masking_to_structured_content(data, pii_result, latest_user_idx, current_content)
-        
+
         # Unknown content type, return unchanged
         return data
 
-    def _update_message_content(
-        self, data: list[dict[str, str]], user_idx: int, new_content: Any
-    ) -> list[dict[str, str]]:
+    def _update_message_content(self, data: list[dict[str, str]], user_idx: int, new_content: Any) -> list[dict[str, str]]:
         """Update message content at the specified index.
 
         Args:
@@ -263,31 +259,30 @@ class GuardrailsBaseClient:
         entity_types = list(detected.keys())
 
         # Create operators for each entity type
-        operators = {
-            entity_type: OperatorConfig("replace", {"new_value": f"<{entity_type}>"})
-            for entity_type in entity_types
-        }
+        operators = {entity_type: OperatorConfig("replace", {"new_value": f"<{entity_type}>"}) for entity_type in entity_types}
 
         def _mask_text(text: str) -> str:
-            """Mask using Presidio's analyzer and anonymizer."""
+            """Mask using Presidio's analyzer and anonymizer with Unicode normalization."""
             if not text:
                 return text
 
-            analyzer_results = analyzer.analyze(text, entities=entity_types, language="en")
+            # Import normalization function from pii module
+            from .checks.text.pii import _normalize_unicode
+
+            # Normalize to prevent bypasses
+            normalized = _normalize_unicode(text)
+
+            analyzer_results = analyzer.analyze(normalized, entities=entity_types, language="en")
             if analyzer_results:
-                return anonymizer.anonymize(text=text, analyzer_results=analyzer_results, operators=operators).text
-            return text
+                return anonymizer.anonymize(text=normalized, analyzer_results=analyzer_results, operators=operators).text
+            return normalized
 
         # Mask each text part
         modified_content = []
         for part in current_content:
             if isinstance(part, dict):
                 part_text = part.get("text")
-                if (
-                    part.get("type") in {"text", "input_text", "output_text"}
-                    and isinstance(part_text, str)
-                    and part_text
-                ):
+                if part.get("type") in {"text", "input_text", "output_text"} and isinstance(part_text, str) and part_text:
                     modified_content.append({**part, "text": _mask_text(part_text)})
                 else:
                     modified_content.append(part)

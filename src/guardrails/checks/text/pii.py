@@ -71,15 +71,20 @@ Usage Guidelines:
 
 from __future__ import annotations
 
+import base64
+import binascii
 import functools
 import logging
+import re
+import unicodedata
+import urllib.parse
 from collections import defaultdict
 from collections.abc import Sequence
 from dataclasses import dataclass
 from enum import Enum
 from typing import Any, Final
 
-from presidio_analyzer import AnalyzerEngine, RecognizerRegistry, RecognizerResult
+from presidio_analyzer import AnalyzerEngine, Pattern, PatternRecognizer, RecognizerRegistry, RecognizerResult
 from presidio_analyzer.nlp_engine import NlpEngineProvider
 from presidio_analyzer.predefined_recognizers.country_specific.korea.kr_rrn_recognizer import (
     KrRrnRecognizer,
@@ -96,14 +101,24 @@ __all__ = ["pii"]
 
 logger = logging.getLogger(__name__)
 
+# Zero-width and invisible Unicode characters that can be used to bypass detection
+_ZERO_WIDTH_CHARS = re.compile(
+    r"[\u200b\u200c\u200d\u2060\ufeff]"  # Zero-width space, ZWNJ, ZWJ, word joiner, BOM
+)
+
+# Patterns for detecting encoded content
+# Note: Hex must be checked BEFORE Base64 since hex strings can match Base64 pattern
+_HEX_PATTERN = re.compile(r"\b[0-9a-fA-F]{24,}\b")  # Reduced from 32 to 24 (12 bytes min)
+_BASE64_PATTERN = re.compile(r"(?:data:|base64,)?([A-Za-z0-9+/]{16,}={0,2})")  # Handle data: URI, min 16 chars
+_URL_ENCODED_PATTERN = re.compile(r"(?:%[0-9A-Fa-f]{2})+")  # Match all consecutive sequences
+
 
 @functools.lru_cache(maxsize=1)
 def _get_analyzer_engine() -> AnalyzerEngine:
     """Return a cached AnalyzerEngine configured with Presidio recognizers.
 
     The engine loads Presidio's default recognizers for English and explicitly
-    registers the built-in KR_RRN recognizer to make it available alongside
-    other PII detectors within the guardrail.
+    registers custom recognizers for KR_RRN, CVV/CVC codes, and BIC/SWIFT codes.
 
     Returns:
         AnalyzerEngine: Analyzer configured with English NLP support and
@@ -121,7 +136,53 @@ def _get_analyzer_engine() -> AnalyzerEngine:
 
     registry = RecognizerRegistry(supported_languages=["en"])
     registry.load_predefined_recognizers(languages=["en"], nlp_engine=nlp_engine)
+
+    # Add custom recognizers
     registry.add_recognizer(KrRrnRecognizer(supported_language="en"))
+
+    # CVV/CVC recognizer (3-4 digits, often near credit card context)
+    cvv_pattern = Pattern(
+        name="cvv_pattern",
+        regex=r"\b(?:cvv|cvc|security\s*code|card\s*code)[:\s=]*(\d{3,4})\b",
+        score=0.85,
+    )
+    registry.add_recognizer(
+        PatternRecognizer(
+            supported_entity="CVV",
+            patterns=[cvv_pattern],
+            supported_language="en",
+        )
+    )
+
+    # BIC/SWIFT code recognizer (8 or 11 characters: 4 bank + 2 country + 2 location + 3 branch)
+    bic_pattern = Pattern(
+        name="bic_swift_pattern",
+        regex=r"\b[A-Z]{4}[A-Z]{2}[A-Z0-9]{2}([A-Z0-9]{3})?\b",
+        score=0.75,
+    )
+    registry.add_recognizer(
+        PatternRecognizer(
+            supported_entity="BIC_SWIFT",
+            patterns=[bic_pattern],
+            supported_language="en",
+        )
+    )
+
+    # Email in URL/query parameter context (Presidio's default fails in these contexts)
+    # Matches: user=john@example.com, email=test@domain.org, etc.
+    # Uses lookbehind to avoid capturing delimiters
+    email_in_url_pattern = Pattern(
+        name="email_in_url_pattern",
+        regex=r"(?<=[\?&=\/])[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}",
+        score=0.9,
+    )
+    registry.add_recognizer(
+        PatternRecognizer(
+            supported_entity="EMAIL_ADDRESS",
+            patterns=[email_in_url_pattern],
+            supported_language="en",
+        )
+    )
 
     engine = AnalyzerEngine(
         registry=registry,
@@ -148,7 +209,7 @@ class PIIEntity(str, Enum):
     """Supported PII entity types for detection.
 
     Includes global and region-specific types (US, UK, Spain, Italy, etc.).
-    These map to Presidio's supported entity labels.
+    These map to Presidio's supported entity labels, plus custom recognizers.
 
     Example values: "US_SSN", "EMAIL_ADDRESS", "IP_ADDRESS", "IN_PAN", etc.
     """
@@ -166,6 +227,10 @@ class PIIEntity(str, Enum):
     PHONE_NUMBER = "PHONE_NUMBER"
     MEDICAL_LICENSE = "MEDICAL_LICENSE"
     URL = "URL"
+
+    # Custom recognizers
+    CVV = "CVV"
+    BIC_SWIFT = "BIC_SWIFT"
 
     # USA
     US_BANK_NUMBER = "US_BANK_NUMBER"
@@ -227,6 +292,9 @@ class PIIConfig(BaseModel):
         block (bool): If True, triggers tripwire when PII is detected (blocking behavior).
                      If False, only masks PII without blocking.
                      Defaults to False.
+        detect_encoded_pii (bool): If True, detects PII in Base64/URL-encoded/hex strings.
+                                  Adds ~30-40ms latency but catches obfuscated PII.
+                                  Defaults to False.
     """
 
     entities: list[PIIEntity] = Field(
@@ -236,6 +304,10 @@ class PIIConfig(BaseModel):
     block: bool = Field(
         default=False,
         description="If True, triggers tripwire when PII is detected (blocking mode). If False, masks PII without blocking (masking mode, only works in pre-flight stage).",  # noqa: E501
+    )
+    detect_encoded_pii: bool = Field(
+        default=False,
+        description="If True, detects PII in encoded content (Base64, URL-encoded, hex). Adds latency but improves security.",  # noqa: E501
     )
 
     model_config = ConfigDict(extra="forbid")
@@ -248,10 +320,12 @@ class PiiDetectionResult:
     Attributes:
         mapping (dict[str, list[str]]): Mapping from entity type to list of detected strings.
         analyzer_results (Sequence[RecognizerResult]): Raw analyzer results for position information.
+        encoded_detections (dict[str, list[str]] | None): Optional mapping of encoded PII detections.
     """
 
     mapping: dict[str, list[str]]
     analyzer_results: Sequence[RecognizerResult]
+    encoded_detections: dict[str, list[str]] | None = None
 
     def to_dict(self) -> dict[str, list[str]]:
         """Convert the result to a dictionary.
@@ -261,9 +335,21 @@ class PiiDetectionResult:
         """
         return {k: v.copy() for k, v in self.mapping.items()}
 
+    def has_pii(self) -> bool:
+        """Check if any PII was detected (plain or encoded).
+
+        Returns:
+            bool: True if PII was detected.
+        """
+        return bool(self.mapping) or bool(self.encoded_detections)
+
 
 def _detect_pii(text: str, config: PIIConfig) -> PiiDetectionResult:
     """Run Presidio analysis and collect findings by entity type.
+
+    Applies Unicode normalization before analysis to prevent bypasses using
+    fullwidth characters or zero-width spaces. This ensures that obfuscation
+    techniques cannot evade PII detection.
 
     Supports detection of Korean (KR_RRN) and other region-specific entities via
     Presidio recognizers registered with the analyzer engine.
@@ -281,27 +367,209 @@ def _detect_pii(text: str, config: PIIConfig) -> PiiDetectionResult:
     if not text:
         raise ValueError("Text cannot be empty or None")
 
+    # Normalize Unicode to prevent detection bypasses
+    normalized_text = _normalize_unicode(text)
+
     engine = _get_analyzer_engine()
 
     # Run analysis for all configured entities
     # Region-specific recognizers (e.g., KR_RRN) are registered with language="en"
-    analyzer_results = engine.analyze(text, entities=[e.value for e in config.entities], language="en")
+    entity_values = [e.value for e in config.entities]
+    analyzer_results = engine.analyze(normalized_text, entities=entity_values, language="en")
 
-    # Filter results and create mapping
-    entity_values = {e.value for e in config.entities}
-    filtered_results = [res for res in analyzer_results if res.entity_type in entity_values]
+    # Group results by entity type
+    # Note: No filtering needed as engine.analyze already returns only requested entities
     grouped: dict[str, list[str]] = defaultdict(list)
-    for res in filtered_results:
-        grouped[res.entity_type].append(text[res.start : res.end])
+    for res in analyzer_results:
+        grouped[res.entity_type].append(normalized_text[res.start : res.end])
 
-    return PiiDetectionResult(mapping=dict(grouped), analyzer_results=filtered_results)
+    return PiiDetectionResult(mapping=dict(grouped), analyzer_results=analyzer_results)
 
 
-def _mask_pii(text: str, detection: PiiDetectionResult, config: PIIConfig) -> str:
+def _normalize_unicode(text: str) -> str:
+    """Normalize Unicode text to prevent detection bypasses.
+
+    Applies NFKC normalization to convert fullwidth and other variant characters
+    to their canonical forms, then strips zero-width characters that could be
+    used to corrupt detection spans.
+
+    Security rationale:
+    - Fullwidth characters (e.g., ＠ → @, ０ → 0) bypass regex patterns
+    - Zero-width spaces (\u200b) corrupt entity spans and cause leaks
+    - NFKC normalization handles ligatures, superscripts, circled chars, etc.
+
+    Args:
+        text (str): The text to normalize.
+
+    Returns:
+        str: Normalized text safe for PII detection.
+
+    Examples:
+        >>> _normalize_unicode("test＠example．com")  # Fullwidth @ and .
+        'test@example.com'
+        >>> _normalize_unicode("192\u200b.168.1.1")  # Zero-width space in IP
+        '192.168.1.1'
+    """
+    if not text:
+        return text
+
+    # Step 1: NFKC normalization converts fullwidth → ASCII and decomposes ligatures
+    normalized = unicodedata.normalize("NFKC", text)
+
+    # Step 2: Strip zero-width and invisible characters
+    cleaned = _ZERO_WIDTH_CHARS.sub("", normalized)
+
+    return cleaned
+
+
+@dataclass(frozen=True, slots=True)
+class EncodedCandidate:
+    """Represents a potentially encoded string found in text.
+
+    Attributes:
+        encoded_text: The encoded string as it appears in original text.
+        decoded_text: The decoded version (may be None if decoding failed).
+        encoding_type: Type of encoding (base64, url, hex).
+        start: Start position in original text.
+        end: End position in original text.
+    """
+
+    encoded_text: str
+    decoded_text: str | None
+    encoding_type: str
+    start: int
+    end: int
+
+
+def _try_decode_base64(text: str) -> str | None:
+    """Attempt to decode Base64 string.
+
+    Args:
+        text: String that looks like Base64.
+
+    Returns:
+        Decoded string if valid, None otherwise.
+    """
+    try:
+        decoded_bytes = base64.b64decode(text, validate=True)
+        # Check if result is valid UTF-8
+        return decoded_bytes.decode("utf-8", errors="strict")
+    except (binascii.Error, UnicodeDecodeError, ValueError):
+        return None
+
+
+def _try_decode_hex(text: str) -> str | None:
+    """Attempt to decode hex string.
+
+    Args:
+        text: String that looks like hex.
+
+    Returns:
+        Decoded string if valid, None otherwise.
+    """
+    try:
+        decoded_bytes = bytes.fromhex(text)
+        return decoded_bytes.decode("utf-8", errors="strict")
+    except (ValueError, UnicodeDecodeError):
+        return None
+
+
+def _build_decoded_text(text: str) -> tuple[str, list[EncodedCandidate]]:
+    """Build a fully decoded version of text by decoding all encoded chunks.
+
+    Strategy:
+    1. Find all encoded chunks (Hex, Base64, URL)
+    2. Decode each chunk in place to build a fully decoded sentence
+    3. Track mappings from decoded positions → original encoded spans
+
+    This handles partial encodings like %6a%61%6e%65%40securemail.net → jane@securemail.net
+
+    Args:
+        text: Text that may contain encoded chunks.
+
+    Returns:
+        Tuple of (decoded_text, candidates_with_positions)
+    """
+    candidates = []
+    used_spans = set()
+
+    # Find hex candidates FIRST (most specific pattern)
+    for match in _HEX_PATTERN.finditer(text):
+        decoded = _try_decode_hex(match.group())
+        if decoded and len(decoded) > 3:
+            candidates.append(
+                EncodedCandidate(
+                    encoded_text=match.group(),
+                    decoded_text=decoded,
+                    encoding_type="hex",
+                    start=match.start(),
+                    end=match.end(),
+                )
+            )
+            used_spans.add((match.start(), match.end()))
+
+    # Find Base64 candidates
+    for match in _BASE64_PATTERN.finditer(text):
+        if (match.start(), match.end()) in used_spans:
+            continue
+
+        b64_string = match.group(1) if match.lastindex else match.group()
+        decoded = _try_decode_base64(b64_string)
+        if decoded and len(decoded) > 3:
+            candidates.append(
+                EncodedCandidate(
+                    encoded_text=match.group(),
+                    decoded_text=decoded,
+                    encoding_type="base64",
+                    start=match.start(),
+                    end=match.end(),
+                )
+            )
+            used_spans.add((match.start(), match.end()))
+
+    # Build fully decoded text by replacing Hex and Base64 chunks first
+    candidates.sort(key=lambda c: c.start, reverse=True)
+    decoded_text = text
+    for candidate in candidates:
+        if candidate.decoded_text:
+            decoded_text = decoded_text[: candidate.start] + candidate.decoded_text + decoded_text[candidate.end :]
+
+    # URL decode the ENTIRE text (handles partial encodings like %6a%61%6e%65%40securemail.net)
+    # This must happen AFTER Base64/Hex replacement to handle mixed encodings correctly
+    url_decoded = urllib.parse.unquote(decoded_text)
+
+    # If URL decoding changed the text, track encoded spans for masking
+    if url_decoded != decoded_text:
+        # Find URL-encoded spans in the ORIGINAL text for masking purposes
+        for match in _URL_ENCODED_PATTERN.finditer(text):
+            if any(start <= match.start() < end or start < match.end() <= end for start, end in used_spans):
+                continue
+
+            decoded_chunk = urllib.parse.unquote(match.group())
+            if decoded_chunk != match.group():
+                candidates.append(
+                    EncodedCandidate(
+                        encoded_text=match.group(),
+                        decoded_text=decoded_chunk,
+                        encoding_type="url",
+                        start=match.start(),
+                        end=match.end(),
+                    )
+                )
+        decoded_text = url_decoded
+
+    return decoded_text, candidates
+
+
+def _mask_pii(text: str, detection: PiiDetectionResult, config: PIIConfig) -> tuple[str, dict[str, list[str]]]:
     """Mask detected PII using Presidio's AnonymizerEngine.
 
+    Normalizes Unicode before masking to ensure consistency with detection.
     Uses Presidio's built-in anonymization for optimal performance and
     correct handling of overlapping entities, Unicode, and special characters.
+
+    If detect_encoded_pii is enabled, also detects and masks PII in
+    Base64/URL-encoded/hex strings using a hybrid approach.
 
     Args:
         text (str): The text to mask.
@@ -309,7 +577,7 @@ def _mask_pii(text: str, detection: PiiDetectionResult, config: PIIConfig) -> st
         config (PIIConfig): PII detection configuration.
 
     Returns:
-        str: Text with PII replaced by entity type markers.
+        Tuple of (masked_text, encoded_detections_mapping).
 
     Raises:
         ValueError: If text is empty or None.
@@ -317,25 +585,107 @@ def _mask_pii(text: str, detection: PiiDetectionResult, config: PIIConfig) -> st
     if not text:
         raise ValueError("Text cannot be empty or None")
 
+    # Normalize Unicode to match detection normalization
+    normalized_text = _normalize_unicode(text)
+
     if not detection.analyzer_results:
-        return text
+        # Check encoded content even if no direct PII found
+        if config.detect_encoded_pii:
+            return _mask_encoded_pii(normalized_text, config)
+        return normalized_text, {}
 
     # Use Presidio's optimized anonymizer with replace operator
     anonymizer = _get_anonymizer_engine()
 
     # Create operators mapping each entity type to a replace operator
-    operators = {
-        entity_type: OperatorConfig("replace", {"new_value": f"<{entity_type}>"})
-        for entity_type in detection.mapping.keys()
-    }
+    operators = {entity_type: OperatorConfig("replace", {"new_value": f"<{entity_type}>"}) for entity_type in detection.mapping.keys()}
 
     result = anonymizer.anonymize(
-        text=text,
+        text=normalized_text,
         analyzer_results=detection.analyzer_results,
         operators=operators,
     )
 
-    return result.text
+    masked_text = result.text
+    encoded_detections = {}
+
+    # If enabled, also check for encoded PII
+    if config.detect_encoded_pii:
+        masked_text, encoded_detections = _mask_encoded_pii(masked_text, config)
+
+    return masked_text, encoded_detections
+
+
+def _mask_encoded_pii(text: str, config: PIIConfig) -> tuple[str, dict[str, list[str]]]:
+    """Detect and mask PII in encoded content (Base64, URL-encoded, hex).
+
+    Strategy:
+    1. Build fully decoded text by decoding all encoded chunks in place
+    2. Pass the entire decoded text to Presidio once
+    3. Map detections back to mask the encoded versions in original text
+
+    Args:
+        text: Text potentially containing encoded PII.
+        config: PII configuration specifying which entities to detect.
+
+    Returns:
+        Tuple of (masked_text, encoded_detections_mapping).
+    """
+    # Build fully decoded text and get candidate mappings
+    decoded_text, candidates = _build_decoded_text(text)
+
+    if not candidates:
+        return text, {}
+
+    # Pass fully decoded text to Presidio ONCE
+    engine = _get_analyzer_engine()
+    analyzer_results = engine.analyze(decoded_text, entities=[e.value for e in config.entities], language="en")
+
+    if not analyzer_results:
+        return text, {}
+
+    # Map detections back to encoded chunks in original text
+    # Strategy: Check if the decoded chunk contributed to any PII detection
+    masked_text = text
+    encoded_detections: dict[str, list[str]] = defaultdict(list)
+
+    # For each candidate, check if any PII was detected that includes its decoded content
+    # Sort candidates by start position (reverse) to mask from end to start
+    for candidate in sorted(candidates, key=lambda c: c.start, reverse=True):
+        if not candidate.decoded_text:
+            continue
+
+        found_entities = set()
+        for res in analyzer_results:
+            detected_value = decoded_text[res.start : res.end]
+            candidate_lower = candidate.decoded_text.lower()
+            detected_lower = detected_value.lower()
+
+            # Check if candidate's decoded text overlaps with the detection
+            # Handle partial encodings where encoded span may include extra characters
+            # e.g., %3A%6a%6f%65%40 → ":joe@" but only "joe@" is in email "joe@domain.com"
+            has_overlap = (
+                candidate_lower in detected_lower  # Candidate is substring of detection
+                or detected_lower in candidate_lower  # Detection is substring of candidate
+                or (
+                    len(candidate_lower) >= 3
+                    and any(  # Any 3-char chunk overlaps
+                        candidate_lower[i : i + 3] in detected_lower
+                        for i in range(0, len(candidate_lower) - 2, 2)  # Step by 2 for efficiency
+                    )
+                )
+            )
+
+            if has_overlap:
+                found_entities.add(res.entity_type)
+                encoded_detections[res.entity_type].append(candidate.encoded_text)
+
+        if found_entities:
+            # Mask the encoded version in original text
+            entity_marker = f"<{next(iter(found_entities))}_ENCODED>"
+            masked_text = masked_text[: candidate.start] + entity_marker + masked_text[candidate.end :]
+
+    return masked_text, dict(encoded_detections)
 
 
 def _as_result(detection: PiiDetectionResult, config: PIIConfig, name: str, text: str) -> GuardrailResult:
@@ -351,21 +701,30 @@ def _as_result(detection: PiiDetectionResult, config: PIIConfig, name: str, text
         GuardrailResult: Always includes checked_text. Triggers tripwire only if
         PII found AND block=True.
     """
+    # Mask the text (returns masked text and any encoded detections)
+    checked_text, encoded_detections = _mask_pii(text, detection, config) if detection.mapping or config.detect_encoded_pii else (text, {})
+
+    # Merge plain and encoded detections
+    all_detections = dict(detection.mapping)
+    for entity_type, values in encoded_detections.items():
+        if entity_type in all_detections:
+            all_detections[entity_type].extend(values)
+        else:
+            all_detections[entity_type] = values
+
     # Only trigger tripwire if PII is found AND block=True
-    tripwire_triggered = bool(detection.mapping) and config.block
-    
-    # Mask the text if PII is found
-    checked_text = _mask_pii(text, detection, config) if detection.mapping else text
+    has_pii = bool(all_detections)
+    tripwire_triggered = has_pii and config.block
 
     return GuardrailResult(
         tripwire_triggered=tripwire_triggered,
         info={
             "guardrail_name": name,
-            "detected_entities": detection.mapping,
+            "detected_entities": all_detections,
             "entity_types_checked": config.entities,
             "checked_text": checked_text,
             "block_mode": config.block,
-            "pii_detected": bool(detection.mapping),
+            "pii_detected": has_pii,
         },
     )
 
