@@ -9,7 +9,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Union
+from typing import Any, Final, Union
 
 from openai.types import Completion
 from openai.types.chat import ChatCompletion, ChatCompletionChunk
@@ -25,6 +25,9 @@ logger = logging.getLogger(__name__)
 
 # Type alias for OpenAI response types
 OpenAIResponseType = Union[Completion, ChatCompletion, ChatCompletionChunk, Response]  # noqa: UP007
+
+# Text content types recognized in message content parts
+_TEXT_CONTENT_TYPES: Final[set[str]] = {"text", "input_text", "output_text"}
 
 
 @dataclass(frozen=True, slots=True)
@@ -97,13 +100,13 @@ class GuardrailsBaseClient:
                     if isinstance(part, dict):
                         part_type = part.get("type")
                         text_val = part.get("text", "")
-                        if part_type in {"text", "input_text", "output_text"} and isinstance(text_val, str):
+                        if part_type in _TEXT_CONTENT_TYPES and isinstance(text_val, str):
                             parts.append(text_val)
                     else:
                         # Object-like content part
                         ptype = getattr(part, "type", None)
                         ptext = getattr(part, "text", "")
-                        if ptype in {"text", "input_text", "output_text"} and isinstance(ptext, str):
+                        if ptype in _TEXT_CONTENT_TYPES and isinstance(ptext, str):
                             parts.append(ptext)
                 return " ".join(parts).strip()
             return ""
@@ -282,7 +285,7 @@ class GuardrailsBaseClient:
         for part in current_content:
             if isinstance(part, dict):
                 part_text = part.get("text")
-                if part.get("type") in {"text", "input_text", "output_text"} and isinstance(part_text, str) and part_text:
+                if part.get("type") in _TEXT_CONTENT_TYPES and isinstance(part_text, str) and part_text:
                     modified_content.append({**part, "text": _mask_text(part_text)})
                 else:
                     modified_content.append(part)
@@ -291,7 +294,7 @@ class GuardrailsBaseClient:
                 if (
                     hasattr(part, "type")
                     and hasattr(part, "text")
-                    and part.type in {"text", "input_text", "output_text"}
+                    and part.type in _TEXT_CONTENT_TYPES
                     and isinstance(part.text, str)
                     and part.text
                 ):
@@ -299,7 +302,10 @@ class GuardrailsBaseClient:
                         part.text = _mask_text(part.text)
                     except Exception:
                         pass
-                modified_content.append(part)
+                    modified_content.append(part)
+                else:
+                    # Preserve non-dict, non-object parts (e.g., raw strings)
+                    modified_content.append(part)
 
         return self._update_message_content(data, user_idx, modified_content)
 

@@ -444,33 +444,57 @@ class EncodedCandidate:
 def _try_decode_base64(text: str) -> str | None:
     """Attempt to decode Base64 string.
 
+    Limits decoded output to 10KB to prevent DoS attacks via memory exhaustion.
+    Fails closed: raises error if decoded content exceeds limit to prevent PII leaks.
+
     Args:
         text: String that looks like Base64.
 
     Returns:
-        Decoded string if valid, None otherwise.
+        Decoded string if valid and under size limit, None if invalid encoding.
+
+    Raises:
+        ValueError: If decoded content exceeds 10KB (security limit).
     """
     try:
         decoded_bytes = base64.b64decode(text, validate=True)
+        # Security: Fail closed - reject content > 10KB to prevent memory DoS and PII bypass
+        if len(decoded_bytes) > 10_000:
+            msg = (
+                f"Base64 decoded content too large ({len(decoded_bytes):,} bytes). "
+            )
+            raise ValueError(msg)
         # Check if result is valid UTF-8
         return decoded_bytes.decode("utf-8", errors="strict")
-    except (binascii.Error, UnicodeDecodeError, ValueError):
+    except (binascii.Error, UnicodeDecodeError):
         return None
 
 
 def _try_decode_hex(text: str) -> str | None:
     """Attempt to decode hex string.
 
+    Limits decoded output to 10KB to prevent DoS attacks via memory exhaustion.
+    Fails closed: raises error if decoded content exceeds limit to prevent PII leaks.
+
     Args:
         text: String that looks like hex.
 
     Returns:
-        Decoded string if valid, None otherwise.
+        Decoded string if valid and under size limit, None if invalid encoding.
+
+    Raises:
+        ValueError: If decoded content exceeds 10KB (security limit).
     """
     try:
         decoded_bytes = bytes.fromhex(text)
+        # Security: Fail closed - reject content > 10KB to prevent memory DoS and PII bypass
+        if len(decoded_bytes) > 10_000:
+            msg = (
+                f"Hex decoded content too large ({len(decoded_bytes):,} bytes). "
+            )
+            raise ValueError(msg)
         return decoded_bytes.decode("utf-8", errors="strict")
-    except (ValueError, UnicodeDecodeError):
+    except UnicodeDecodeError:
         return None
 
 
@@ -591,8 +615,13 @@ def _mask_pii(text: str, detection: PiiDetectionResult, config: PIIConfig) -> tu
     if not detection.analyzer_results:
         # Check encoded content even if no direct PII found
         if config.detect_encoded_pii:
-            return _mask_encoded_pii(normalized_text, config)
-        return normalized_text, {}
+            masked_text, encoded_detections = _mask_encoded_pii(normalized_text, config, original_text=text)
+            # If no encoded PII found, return original text to preserve special characters
+            if not encoded_detections:
+                return text, {}
+            return masked_text, encoded_detections
+        # No PII detected - return original text to preserve special characters
+        return text, {}
 
     # Use Presidio's optimized anonymizer with replace operator
     anonymizer = _get_anonymizer_engine()
@@ -616,7 +645,7 @@ def _mask_pii(text: str, detection: PiiDetectionResult, config: PIIConfig) -> tu
     return masked_text, encoded_detections
 
 
-def _mask_encoded_pii(text: str, config: PIIConfig) -> tuple[str, dict[str, list[str]]]:
+def _mask_encoded_pii(text: str, config: PIIConfig, original_text: str | None = None) -> tuple[str, dict[str, list[str]]]:
     """Detect and mask PII in encoded content (Base64, URL-encoded, hex).
 
     Strategy:
@@ -625,24 +654,26 @@ def _mask_encoded_pii(text: str, config: PIIConfig) -> tuple[str, dict[str, list
     3. Map detections back to mask the encoded versions in original text
 
     Args:
-        text: Text potentially containing encoded PII.
+        text: Normalized text potentially containing encoded PII.
         config: PII configuration specifying which entities to detect.
+        original_text: Original (non-normalized) text to return if no PII found.
 
     Returns:
         Tuple of (masked_text, encoded_detections_mapping).
+        Returns original_text if provided and no PII found, otherwise text.
     """
     # Build fully decoded text and get candidate mappings
     decoded_text, candidates = _build_decoded_text(text)
 
     if not candidates:
-        return text, {}
+        return original_text or text, {}
 
     # Pass fully decoded text to Presidio ONCE
     engine = _get_analyzer_engine()
     analyzer_results = engine.analyze(decoded_text, entities=[e.value for e in config.entities], language="en")
 
     if not analyzer_results:
-        return text, {}
+        return original_text or text, {}
 
     # Map detections back to encoded chunks in original text
     # Strategy: Check if the decoded chunk contributed to any PII detection
