@@ -294,7 +294,7 @@ class PIIConfig(BaseModel):
                      Defaults to False.
         detect_encoded_pii (bool): If True, detects PII in Base64/URL-encoded/hex strings.
                                   Adds ~30-40ms latency but catches obfuscated PII.
-                                  Defaults to False.
+                     Defaults to False.
     """
 
     entities: list[PIIEntity] = Field(
@@ -760,6 +760,7 @@ def _as_result(detection: PiiDetectionResult, config: PIIConfig, name: str, text
             "checked_text": checked_text,
             "block_mode": config.block,
             "pii_detected": has_pii,
+            "detect_encoded_pii": config.detect_encoded_pii,
         },
     )
 

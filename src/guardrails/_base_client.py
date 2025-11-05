@@ -249,10 +249,12 @@ class GuardrailsBaseClient:
         from presidio_anonymizer import AnonymizerEngine
         from presidio_anonymizer.entities import OperatorConfig
 
-        # Extract detected entity types
+        # Extract detected entity types and config
         detected = pii_result.info.get("detected_entities", {})
         if not detected:
             return data
+
+        detect_encoded_pii = pii_result.info.get("detect_encoded_pii", False)
 
         # Get Presidio engines - entity types are guaranteed valid from detection
         from .checks.text.pii import _get_analyzer_engine
@@ -265,20 +267,65 @@ class GuardrailsBaseClient:
         operators = {entity_type: OperatorConfig("replace", {"new_value": f"<{entity_type}>"}) for entity_type in entity_types}
 
         def _mask_text(text: str) -> str:
-            """Mask using Presidio's analyzer and anonymizer with Unicode normalization."""
+            """Mask using Presidio's analyzer and anonymizer with Unicode normalization.
+
+            Handles both plain and encoded PII consistently with main detection path.
+            """
             if not text:
                 return text
 
-            # Import normalization function from pii module
-            from .checks.text.pii import _normalize_unicode
+            # Import functions from pii module
+            from .checks.text.pii import _build_decoded_text, _normalize_unicode
 
             # Normalize to prevent bypasses
             normalized = _normalize_unicode(text)
 
+            # Check for plain PII
             analyzer_results = analyzer.analyze(normalized, entities=entity_types, language="en")
-            if analyzer_results:
-                return anonymizer.anonymize(text=normalized, analyzer_results=analyzer_results, operators=operators).text
-            return normalized
+            has_plain_pii = bool(analyzer_results)
+
+            # Check for encoded PII if enabled
+            has_encoded_pii = False
+            encoded_candidates = []
+            decoded_text = normalized
+
+            if detect_encoded_pii:
+                decoded_text, encoded_candidates = _build_decoded_text(normalized)
+                if encoded_candidates:
+                    # Analyze decoded text
+                    decoded_results = analyzer.analyze(decoded_text, entities=entity_types, language="en")
+                    has_encoded_pii = bool(decoded_results)
+
+            # If no PII found at all, return original text
+            if not has_plain_pii and not has_encoded_pii:
+                return text
+
+            # Mask plain PII
+            masked = normalized
+            if has_plain_pii:
+                masked = anonymizer.anonymize(text=masked, analyzer_results=analyzer_results, operators=operators).text
+
+            # Mask encoded PII if found
+            if has_encoded_pii:
+                # Re-analyze to get positions in the (potentially) masked text
+                decoded_text_for_masking, candidates_for_masking = _build_decoded_text(masked)
+                decoded_results = analyzer.analyze(decoded_text_for_masking, entities=entity_types, language="en")
+
+                if decoded_results:
+                    # Map detections back to mask encoded chunks
+                    for result in decoded_results:
+                        detected_value = decoded_text_for_masking[result.start : result.end]
+                        entity_type = result.entity_type
+
+                        # Find candidate that contains this PII
+                        for candidate in candidates_for_masking:
+                            if detected_value in candidate.decoded_text:
+                                # Mask the encoded version
+                                entity_marker = f"<{entity_type}_ENCODED>"
+                                masked = masked[: candidate.start] + entity_marker + masked[candidate.end :]
+                                break
+
+            return masked
 
         # Mask each text part
         modified_content = []

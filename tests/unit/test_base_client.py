@@ -68,6 +68,7 @@ def test_apply_preflight_modifications_masks_user_message() -> None:
                 "pii_detected": True,
                 "detected_entities": {"PERSON": ["Alice Smith"]},
                 "checked_text": "My name is <PERSON>.",
+                "detect_encoded_pii": False,
             },
         )
     ]
@@ -93,6 +94,7 @@ def test_apply_preflight_modifications_handles_strings() -> None:
                 "pii_detected": True,
                 "detected_entities": {"PHONE": ["+1-555-0100"]},
                 "checked_text": "<PHONE>",
+                "detect_encoded_pii": False,
             },
         )
     ]
@@ -124,6 +126,7 @@ def test_apply_preflight_modifications_structured_content() -> None:
                 "pii_detected": True,
                 "detected_entities": {"PHONE_NUMBER": ["123-456-7890"]},
                 "checked_text": "Call <PHONE_NUMBER>",
+                "detect_encoded_pii": False,
             },
         )
     ]
@@ -154,6 +157,7 @@ def test_apply_preflight_modifications_object_message_handles_failure() -> None:
                 "pii_detected": True,
                 "detected_entities": {"NAME": ["Alice"]},
                 "checked_text": "<NAME>",
+                "detect_encoded_pii": False,
             },
         )
     ]
@@ -187,6 +191,7 @@ def test_apply_preflight_modifications_no_user_message() -> None:
                 "pii_detected": True,
                 "detected_entities": {"NAME": ["Alice"]},
                 "checked_text": "<NAME>",
+                "detect_encoded_pii": False,
             },
         )
     ]
@@ -195,6 +200,133 @@ def test_apply_preflight_modifications_no_user_message() -> None:
     modified = client._apply_preflight_modifications(messages, guardrail_results)
 
     assert modified is messages  # noqa: S101
+
+
+def test_apply_preflight_modifications_structured_content_with_encoded_pii() -> None:
+    """Structured content should detect Base64 encoded PII when flag enabled."""
+    client = GuardrailsBaseClient()
+    guardrail_results = [
+        GuardrailResult(
+            tripwire_triggered=False,
+            info={
+                "guardrail_name": "Contains PII",
+                "pii_detected": True,
+                "detected_entities": {"EMAIL_ADDRESS": []},  # Will be detected from encoded
+                "checked_text": "Email: <EMAIL_ADDRESS>",
+                "detect_encoded_pii": True,
+            },
+        )
+    ]
+    messages = [
+        {
+            "role": "user",
+            "content": [
+                {"type": "text", "text": "Email: am9obkBleGFtcGxlLmNvbQ=="},  # john@example.com
+                {"type": "json", "value": {"raw": "no change"}},
+            ],
+        }
+    ]
+
+    modified = client._apply_preflight_modifications(messages, guardrail_results)
+
+    # Should mask the encoded email with _ENCODED suffix
+    assert "<EMAIL_ADDRESS_ENCODED>" in modified[0]["content"][0]["text"]  # noqa: S101
+    assert "am9obkBleGFtcGxlLmNvbQ==" not in modified[0]["content"][0]["text"]  # noqa: S101
+    assert modified[0]["content"][1]["value"] == {"raw": "no change"}  # noqa: S101
+
+
+def test_apply_preflight_modifications_structured_content_ignores_encoded_when_disabled() -> None:
+    """Structured content should ignore encoded PII when flag disabled."""
+    client = GuardrailsBaseClient()
+    guardrail_results = [
+        GuardrailResult(
+            tripwire_triggered=False,
+            info={
+                "guardrail_name": "Contains PII",
+                "pii_detected": True,
+                "detected_entities": {"PHONE_NUMBER": ["212-555-1234"]},
+                "checked_text": "Call <PHONE_NUMBER>",
+                "detect_encoded_pii": False,  # Disabled
+            },
+        )
+    ]
+    messages = [
+        {
+            "role": "user",
+            "content": [
+                # Contains both plain and encoded email - should only mask plain phone
+                {"type": "text", "text": "Call 212-555-1234 or email am9obkBleGFtcGxlLmNvbQ=="},
+            ],
+        }
+    ]
+
+    modified = client._apply_preflight_modifications(messages, guardrail_results)
+
+    # Should mask phone but NOT encoded email (since detect_encoded_pii=False)
+    assert "<PHONE_NUMBER>" in modified[0]["content"][0]["text"]  # noqa: S101
+    assert "am9obkBleGFtcGxlLmNvbQ==" in modified[0]["content"][0]["text"]  # noqa: S101
+
+
+def test_apply_preflight_modifications_structured_content_with_unicode_obfuscation() -> None:
+    """Structured content should detect Unicode-obfuscated PII after normalization."""
+    client = GuardrailsBaseClient()
+    guardrail_results = [
+        GuardrailResult(
+            tripwire_triggered=False,
+            info={
+                "guardrail_name": "Contains PII",
+                "pii_detected": True,
+                "detected_entities": {"EMAIL_ADDRESS": []},
+                "checked_text": "Contact: <EMAIL_ADDRESS>",
+                "detect_encoded_pii": False,
+            },
+        )
+    ]
+    messages = [
+        {
+            "role": "user",
+            "content": [
+                {"type": "text", "text": "Contact: user＠example．com"},  # Fullwidth @ and .
+            ],
+        }
+    ]
+
+    modified = client._apply_preflight_modifications(messages, guardrail_results)
+
+    # Should detect and mask the obfuscated email
+    assert "<EMAIL_ADDRESS>" in modified[0]["content"][0]["text"]  # noqa: S101
+    assert "@" not in modified[0]["content"][0]["text"] or "＠" not in modified[0]["content"][0]["text"]  # noqa: S101
+
+
+def test_apply_preflight_modifications_structured_content_with_url_encoded_pii() -> None:
+    """Structured content should detect URL-encoded PII when flag enabled."""
+    client = GuardrailsBaseClient()
+    guardrail_results = [
+        GuardrailResult(
+            tripwire_triggered=False,
+            info={
+                "guardrail_name": "Contains PII",
+                "pii_detected": True,
+                "detected_entities": {"EMAIL_ADDRESS": []},
+                "checked_text": "User: <EMAIL_ADDRESS>",
+                "detect_encoded_pii": True,
+            },
+        )
+    ]
+    messages = [
+        {
+            "role": "user",
+            "content": [
+                {"type": "text", "text": "User: %6a%6f%68%6e%40%65%78%61%6d%70%6c%65%2e%63%6f%6d"},  # john@example.com
+            ],
+        }
+    ]
+
+    modified = client._apply_preflight_modifications(messages, guardrail_results)
+
+    # Should mask the URL-encoded email with _ENCODED suffix
+    assert "<EMAIL_ADDRESS_ENCODED>" in modified[0]["content"][0]["text"]  # noqa: S101
+    assert "%6a%6f%68%6e" not in modified[0]["content"][0]["text"]  # noqa: S101
 
 
 def test_apply_preflight_modifications_non_dict_part_preserved() -> None:
@@ -208,6 +340,7 @@ def test_apply_preflight_modifications_non_dict_part_preserved() -> None:
                 "pii_detected": True,
                 "detected_entities": {"NAME": ["Alice"]},
                 "checked_text": "raw text",
+                "detect_encoded_pii": False,
             },
         )
     ]
@@ -365,6 +498,7 @@ def test_apply_preflight_modifications_leaves_unknown_content() -> None:
             "pii_detected": True,
             "detected_entities": {"NAME": ["Alice"]},
             "checked_text": "<NAME>",
+            "detect_encoded_pii": False,
         },
     )
     messages = [{"role": "user", "content": {"unknown": "value"}}]
@@ -384,6 +518,7 @@ def test_apply_preflight_modifications_non_string_text_retained() -> None:
             "pii_detected": True,
             "detected_entities": {"PHONE": ["123"]},
             "checked_text": "<PHONE>",
+            "detect_encoded_pii": False,
         },
     )
     messages = [
@@ -499,6 +634,7 @@ def test_apply_preflight_modifications_only_uses_pii_checked_text() -> None:
                 "pii_detected": True,
                 "detected_entities": {"EMAIL_ADDRESS": ["user@example.com"]},
                 "checked_text": "Contact <EMAIL_ADDRESS>",
+                "detect_encoded_pii": False,
             },
         ),
     ]
@@ -520,6 +656,7 @@ def test_apply_preflight_modifications_no_pii_detected() -> None:
                 "pii_detected": False,  # No PII found
                 "detected_entities": {},
                 "checked_text": "Clean text",
+                "detect_encoded_pii": False,
             },
         ),
     ]
