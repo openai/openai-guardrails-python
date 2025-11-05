@@ -461,7 +461,7 @@ def _try_decode_base64(text: str) -> str | None:
         # Security: Fail closed - reject content > 10KB to prevent memory DoS and PII bypass
         if len(decoded_bytes) > 10_000:
             msg = (
-                f"Base64 decoded content too large ({len(decoded_bytes):,} bytes). "
+                f"Base64 decoded content too large ({len(decoded_bytes):,} bytes). Maximum allowed is 10KB."
             )
             raise ValueError(msg)
         # Check if result is valid UTF-8
@@ -487,12 +487,16 @@ def _try_decode_hex(text: str) -> str | None:
     """
     try:
         decoded_bytes = bytes.fromhex(text)
-        # Security: Fail closed - reject content > 10KB to prevent memory DoS and PII bypass
-        if len(decoded_bytes) > 10_000:
-            msg = (
-                f"Hex decoded content too large ({len(decoded_bytes):,} bytes). "
-            )
-            raise ValueError(msg)
+    except ValueError:
+        # Invalid hex string - return None
+        return None
+
+    # Security: Fail closed - reject content > 10KB to prevent memory DoS and PII bypass
+    if len(decoded_bytes) > 10_000:
+        msg = f"Hex decoded content too large ({len(decoded_bytes):,} bytes). Maximum allowed is 10KB."
+        raise ValueError(msg)
+
+    try:
         return decoded_bytes.decode("utf-8", errors="strict")
     except UnicodeDecodeError:
         return None
