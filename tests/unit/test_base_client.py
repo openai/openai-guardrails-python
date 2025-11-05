@@ -295,7 +295,7 @@ def test_apply_preflight_modifications_structured_content_with_unicode_obfuscati
 
     # Should detect and mask the obfuscated email
     assert "<EMAIL_ADDRESS>" in modified[0]["content"][0]["text"]  # noqa: S101
-    assert "@" not in modified[0]["content"][0]["text"] or "＠" not in modified[0]["content"][0]["text"]  # noqa: S101
+    assert "@" not in modified[0]["content"][0]["text"] and "＠" not in modified[0]["content"][0]["text"]  # noqa: S101
 
 
 def test_apply_preflight_modifications_structured_content_with_url_encoded_pii() -> None:

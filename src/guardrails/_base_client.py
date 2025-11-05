@@ -287,7 +287,6 @@ class GuardrailsBaseClient:
             # Check for encoded PII if enabled
             has_encoded_pii = False
             encoded_candidates = []
-            decoded_text = normalized
 
             if detect_encoded_pii:
                 decoded_text, encoded_candidates = _build_decoded_text(normalized)
