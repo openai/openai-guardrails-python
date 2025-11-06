@@ -19,7 +19,6 @@ def test_match_keywords_sanitizes_trailing_punctuation() -> None:
     assert result.info["sanitized_keywords"] == ["token", "secret", "KEY"]  # noqa: S101
     assert result.info["matched"] == ["token"]  # noqa: S101
     assert result.info["guardrail_name"] == "Test Guardrail"  # noqa: S101
-    assert result.info["checked_text"] == "Leaked token appears here."  # noqa: S101
 
 
 def test_match_keywords_deduplicates_case_insensitive_matches() -> None:

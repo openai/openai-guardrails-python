@@ -57,12 +57,10 @@ Returns a `GuardrailResult` with the following `info` dictionary:
         "violence": 0.12,
         "self-harm": 0.08,
         "sexual": 0.03
-    },
-    "checked_text": "Original input text"
+    }
 }
 ```
 
 - **`flagged`**: Whether any category violation was detected
 - **`categories`**: Boolean flags for each category indicating violations
 - **`category_scores`**: Confidence scores (0.0 to 1.0) for each category
-- **`checked_text`**: Original input text

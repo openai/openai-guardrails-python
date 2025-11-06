@@ -36,7 +36,7 @@ def test_extract_latest_user_message_content_parts() -> None:
             "role": "user",
             "content": [
                 {"type": "input_text", "text": "first"},
-                {"type": "summary_text", "text": "second"},
+                {"type": "output_text", "text": "second"},
             ],
         },
     ]
@@ -58,12 +58,18 @@ def test_extract_latest_user_message_missing_user() -> None:
 
 
 def test_apply_preflight_modifications_masks_user_message() -> None:
-    """Mask PII tokens for the most recent user message."""
+    """Mask PII tokens for the most recent user message using PII guardrail."""
     client = GuardrailsBaseClient()
     guardrail_results = [
         GuardrailResult(
             tripwire_triggered=False,
-            info={"detected_entities": {"PERSON": ["Alice Smith"]}},
+            info={
+                "guardrail_name": "Contains PII",
+                "pii_detected": True,
+                "detected_entities": {"PERSON": ["Alice Smith"]},
+                "checked_text": "My name is <PERSON>.",
+                "detect_encoded_pii": False,
+            },
         )
     ]
     messages = [
@@ -78,12 +84,18 @@ def test_apply_preflight_modifications_masks_user_message() -> None:
 
 
 def test_apply_preflight_modifications_handles_strings() -> None:
-    """Apply masking for string payloads."""
+    """Apply masking for string payloads using PII guardrail."""
     client = GuardrailsBaseClient()
     guardrail_results = [
         GuardrailResult(
             tripwire_triggered=False,
-            info={"detected_entities": {"PHONE": ["+1-555-0100"]}},
+            info={
+                "guardrail_name": "Contains PII",
+                "pii_detected": True,
+                "detected_entities": {"PHONE": ["+1-555-0100"]},
+                "checked_text": "<PHONE>",
+                "detect_encoded_pii": False,
+            },
         )
     ]
 
@@ -104,19 +116,25 @@ def test_apply_preflight_modifications_skips_when_no_entities() -> None:
 
 
 def test_apply_preflight_modifications_structured_content() -> None:
-    """Structured content parts should be masked individually."""
+    """Structured content parts should be masked individually using PII guardrail."""
     client = GuardrailsBaseClient()
     guardrail_results = [
         GuardrailResult(
             tripwire_triggered=False,
-            info={"detected_entities": {"PHONE": ["123-456"]}},
+            info={
+                "guardrail_name": "Contains PII",
+                "pii_detected": True,
+                "detected_entities": {"PHONE_NUMBER": ["123-456-7890"]},
+                "checked_text": "Call <PHONE_NUMBER>",
+                "detect_encoded_pii": False,
+            },
         )
     ]
     messages = [
         {
             "role": "user",
             "content": [
-                {"type": "input_text", "text": "Call 123-456"},
+                {"type": "input_text", "text": "Call 123-456-7890"},
                 {"type": "json", "value": {"raw": "no change"}},
             ],
         }
@@ -124,7 +142,7 @@ def test_apply_preflight_modifications_structured_content() -> None:
 
     modified = client._apply_preflight_modifications(messages, guardrail_results)
 
-    assert modified[0]["content"][0]["text"] == "Call <PHONE>"  # noqa: S101
+    assert modified[0]["content"][0]["text"] == "Call <PHONE_NUMBER>"  # noqa: S101
     assert modified[0]["content"][1]["value"] == {"raw": "no change"}  # noqa: S101
 
 
@@ -134,7 +152,13 @@ def test_apply_preflight_modifications_object_message_handles_failure() -> None:
     guardrail_results = [
         GuardrailResult(
             tripwire_triggered=False,
-            info={"detected_entities": {"NAME": ["Alice"]}},
+            info={
+                "guardrail_name": "Contains PII",
+                "pii_detected": True,
+                "detected_entities": {"NAME": ["Alice"]},
+                "checked_text": "<NAME>",
+                "detect_encoded_pii": False,
+            },
         )
     ]
 
@@ -159,7 +183,18 @@ def test_apply_preflight_modifications_object_message_handles_failure() -> None:
 def test_apply_preflight_modifications_no_user_message() -> None:
     """When no user message exists, data should be returned unchanged."""
     client = GuardrailsBaseClient()
-    guardrail_results = [GuardrailResult(tripwire_triggered=False, info={"detected_entities": {"NAME": ["Alice"]}})]
+    guardrail_results = [
+        GuardrailResult(
+            tripwire_triggered=False,
+            info={
+                "guardrail_name": "Contains PII",
+                "pii_detected": True,
+                "detected_entities": {"NAME": ["Alice"]},
+                "checked_text": "<NAME>",
+                "detect_encoded_pii": False,
+            },
+        )
+    ]
     messages = [{"role": "assistant", "content": "hi"}]
 
     modified = client._apply_preflight_modifications(messages, guardrail_results)
@@ -167,10 +202,148 @@ def test_apply_preflight_modifications_no_user_message() -> None:
     assert modified is messages  # noqa: S101
 
 
-def test_apply_preflight_modifications_non_dict_part_preserved() -> None:
-    """Non-dict content parts should be preserved as-is."""
+def test_apply_preflight_modifications_structured_content_with_encoded_pii() -> None:
+    """Structured content should detect Base64 encoded PII when flag enabled."""
     client = GuardrailsBaseClient()
-    guardrail_results = [GuardrailResult(tripwire_triggered=False, info={"detected_entities": {"NAME": ["Alice"]}})]
+    guardrail_results = [
+        GuardrailResult(
+            tripwire_triggered=False,
+            info={
+                "guardrail_name": "Contains PII",
+                "pii_detected": True,
+                "detected_entities": {"EMAIL_ADDRESS": []},  # Will be detected from encoded
+                "checked_text": "Email: <EMAIL_ADDRESS>",
+                "detect_encoded_pii": True,
+            },
+        )
+    ]
+    messages = [
+        {
+            "role": "user",
+            "content": [
+                {"type": "text", "text": "Email: am9obkBleGFtcGxlLmNvbQ=="},  # john@example.com
+                {"type": "json", "value": {"raw": "no change"}},
+            ],
+        }
+    ]
+
+    modified = client._apply_preflight_modifications(messages, guardrail_results)
+
+    # Should mask the encoded email with _ENCODED suffix
+    assert "<EMAIL_ADDRESS_ENCODED>" in modified[0]["content"][0]["text"]  # noqa: S101
+    assert "am9obkBleGFtcGxlLmNvbQ==" not in modified[0]["content"][0]["text"]  # noqa: S101
+    assert modified[0]["content"][1]["value"] == {"raw": "no change"}  # noqa: S101
+
+
+def test_apply_preflight_modifications_structured_content_ignores_encoded_when_disabled() -> None:
+    """Structured content should ignore encoded PII when flag disabled."""
+    client = GuardrailsBaseClient()
+    guardrail_results = [
+        GuardrailResult(
+            tripwire_triggered=False,
+            info={
+                "guardrail_name": "Contains PII",
+                "pii_detected": True,
+                "detected_entities": {"PHONE_NUMBER": ["212-555-1234"]},
+                "checked_text": "Call <PHONE_NUMBER>",
+                "detect_encoded_pii": False,  # Disabled
+            },
+        )
+    ]
+    messages = [
+        {
+            "role": "user",
+            "content": [
+                # Contains both plain and encoded email - should only mask plain phone
+                {"type": "text", "text": "Call 212-555-1234 or email am9obkBleGFtcGxlLmNvbQ=="},
+            ],
+        }
+    ]
+
+    modified = client._apply_preflight_modifications(messages, guardrail_results)
+
+    # Should mask phone but NOT encoded email (since detect_encoded_pii=False)
+    assert "<PHONE_NUMBER>" in modified[0]["content"][0]["text"]  # noqa: S101
+    assert "am9obkBleGFtcGxlLmNvbQ==" in modified[0]["content"][0]["text"]  # noqa: S101
+
+
+def test_apply_preflight_modifications_structured_content_with_unicode_obfuscation() -> None:
+    """Structured content should detect Unicode-obfuscated PII after normalization."""
+    client = GuardrailsBaseClient()
+    guardrail_results = [
+        GuardrailResult(
+            tripwire_triggered=False,
+            info={
+                "guardrail_name": "Contains PII",
+                "pii_detected": True,
+                "detected_entities": {"EMAIL_ADDRESS": []},
+                "checked_text": "Contact: <EMAIL_ADDRESS>",
+                "detect_encoded_pii": False,
+            },
+        )
+    ]
+    messages = [
+        {
+            "role": "user",
+            "content": [
+                {"type": "text", "text": "Contact: user＠example．com"},  # Fullwidth @ and .
+            ],
+        }
+    ]
+
+    modified = client._apply_preflight_modifications(messages, guardrail_results)
+
+    # Should detect and mask the obfuscated email
+    assert "<EMAIL_ADDRESS>" in modified[0]["content"][0]["text"]  # noqa: S101
+    assert "@" not in modified[0]["content"][0]["text"] and "＠" not in modified[0]["content"][0]["text"]  # noqa: S101
+
+
+def test_apply_preflight_modifications_structured_content_with_url_encoded_pii() -> None:
+    """Structured content should detect URL-encoded PII when flag enabled."""
+    client = GuardrailsBaseClient()
+    guardrail_results = [
+        GuardrailResult(
+            tripwire_triggered=False,
+            info={
+                "guardrail_name": "Contains PII",
+                "pii_detected": True,
+                "detected_entities": {"EMAIL_ADDRESS": []},
+                "checked_text": "User: <EMAIL_ADDRESS>",
+                "detect_encoded_pii": True,
+            },
+        )
+    ]
+    messages = [
+        {
+            "role": "user",
+            "content": [
+                {"type": "text", "text": "User: %6a%6f%68%6e%40%65%78%61%6d%70%6c%65%2e%63%6f%6d"},  # john@example.com
+            ],
+        }
+    ]
+
+    modified = client._apply_preflight_modifications(messages, guardrail_results)
+
+    # Should mask the URL-encoded email with _ENCODED suffix
+    assert "<EMAIL_ADDRESS_ENCODED>" in modified[0]["content"][0]["text"]  # noqa: S101
+    assert "%6a%6f%68%6e" not in modified[0]["content"][0]["text"]  # noqa: S101
+
+
+def test_apply_preflight_modifications_non_dict_part_preserved() -> None:
+    """Non-dict content parts should be preserved as-is when PII guardrail runs."""
+    client = GuardrailsBaseClient()
+    guardrail_results = [
+        GuardrailResult(
+            tripwire_triggered=False,
+            info={
+                "guardrail_name": "Contains PII",
+                "pii_detected": True,
+                "detected_entities": {"NAME": ["Alice"]},
+                "checked_text": "raw text",
+                "detect_encoded_pii": False,
+            },
+        )
+    ]
     messages = [
         {
             "role": "user",
@@ -180,6 +353,8 @@ def test_apply_preflight_modifications_non_dict_part_preserved() -> None:
 
     modified = client._apply_preflight_modifications(messages, guardrail_results)
 
+    # Content is a list (not string), so structured content path is used
+    # which preserves non-dict parts
     assert modified[0]["content"][0] == "raw text"  # noqa: S101
 
 
@@ -316,7 +491,16 @@ def test_validate_context_invokes_validator(monkeypatch: pytest.MonkeyPatch) -> 
 def test_apply_preflight_modifications_leaves_unknown_content() -> None:
     """Unknown content types should remain untouched."""
     client = GuardrailsBaseClient()
-    result = GuardrailResult(tripwire_triggered=False, info={"detected_entities": {"NAME": ["Alice"]}})
+    result = GuardrailResult(
+        tripwire_triggered=False,
+        info={
+            "guardrail_name": "Contains PII",
+            "pii_detected": True,
+            "detected_entities": {"NAME": ["Alice"]},
+            "checked_text": "<NAME>",
+            "detect_encoded_pii": False,
+        },
+    )
     messages = [{"role": "user", "content": {"unknown": "value"}}]
 
     modified = client._apply_preflight_modifications(messages, [result])
@@ -327,7 +511,16 @@ def test_apply_preflight_modifications_leaves_unknown_content() -> None:
 def test_apply_preflight_modifications_non_string_text_retained() -> None:
     """Content parts without string text should remain unchanged."""
     client = GuardrailsBaseClient()
-    result = GuardrailResult(tripwire_triggered=False, info={"detected_entities": {"PHONE": ["123"]}})
+    result = GuardrailResult(
+        tripwire_triggered=False,
+        info={
+            "guardrail_name": "Contains PII",
+            "pii_detected": True,
+            "detected_entities": {"PHONE": ["123"]},
+            "checked_text": "<PHONE>",
+            "detect_encoded_pii": False,
+        },
+    )
     messages = [
         {
             "role": "user",
@@ -400,3 +593,75 @@ def test_create_default_context_uses_existing_context() -> None:
         assert client._create_default_context() is existing  # noqa: S101
     finally:
         guardrails_context.clear_context()
+
+
+def test_apply_preflight_modifications_ignores_non_pii_guardrails() -> None:
+    """Non-PII guardrails should not trigger text modifications."""
+    client = GuardrailsBaseClient()
+    guardrail_results = [
+        GuardrailResult(
+            tripwire_triggered=False,
+            info={
+                "guardrail_name": "Moderation",
+                "detected_entities": {"PERSON": ["Alice"]},  # Should be ignored
+            },
+        )
+    ]
+    messages = [{"role": "user", "content": "Hello Alice"}]
+
+    modified = client._apply_preflight_modifications(messages, guardrail_results)
+
+    # Should return original - no PII guardrail present
+    assert modified is messages  # noqa: S101
+
+
+def test_apply_preflight_modifications_only_uses_pii_checked_text() -> None:
+    """Only PII guardrail's checked_text should be used."""
+    client = GuardrailsBaseClient()
+    guardrail_results = [
+        # Moderation result (should be ignored)
+        GuardrailResult(
+            tripwire_triggered=False,
+            info={
+                "guardrail_name": "Moderation",
+            },
+        ),
+        # PII result (should be used)
+        GuardrailResult(
+            tripwire_triggered=False,
+            info={
+                "guardrail_name": "Contains PII",
+                "pii_detected": True,
+                "detected_entities": {"EMAIL_ADDRESS": ["user@example.com"]},
+                "checked_text": "Contact <EMAIL_ADDRESS>",
+                "detect_encoded_pii": False,
+            },
+        ),
+    ]
+
+    masked = client._apply_preflight_modifications("Contact user@example.com", guardrail_results)
+
+    # Should use PII's checked_text, not moderation's
+    assert masked == "Contact <EMAIL_ADDRESS>"  # noqa: S101
+
+
+def test_apply_preflight_modifications_no_pii_detected() -> None:
+    """When PII guardrail runs but finds nothing, don't modify text."""
+    client = GuardrailsBaseClient()
+    guardrail_results = [
+        GuardrailResult(
+            tripwire_triggered=False,
+            info={
+                "guardrail_name": "Contains PII",
+                "pii_detected": False,  # No PII found
+                "detected_entities": {},
+                "checked_text": "Clean text",
+                "detect_encoded_pii": False,
+            },
+        ),
+    ]
+
+    result = client._apply_preflight_modifications("Clean text", guardrail_results)
+
+    # Should return original since no PII was detected
+    assert result == "Clean text"  # noqa: S101

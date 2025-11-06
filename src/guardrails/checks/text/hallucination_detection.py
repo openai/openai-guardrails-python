@@ -233,7 +233,6 @@ async def hallucination_detection(
                 "guardrail_name": "Hallucination Detection",
                 **analysis.model_dump(),
                 "threshold": config.confidence_threshold,
-                "checked_text": candidate,  # Hallucination Detection doesn't modify text, pass through unchanged
             },
         )
 
@@ -248,7 +247,6 @@ async def hallucination_detection(
         return create_error_result(
             guardrail_name="Hallucination Detection",
             analysis=error_output,
-            checked_text=candidate,
             additional_info={
                 "threshold": config.confidence_threshold,
                 "reasoning": f"Validation failed: {str(e)}",
@@ -268,7 +266,6 @@ async def hallucination_detection(
         return create_error_result(
             guardrail_name="Hallucination Detection",
             analysis=error_output,
-            checked_text=candidate,
             additional_info={
                 "threshold": config.confidence_threshold,
                 "reasoning": f"Analysis failed: {str(e)}",

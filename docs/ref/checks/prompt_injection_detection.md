@@ -73,8 +73,7 @@ Returns a `GuardrailResult` with the following `info` dictionary:
             "name": "get_weather",
             "arguments": "{'location': 'Tokyo'}"
         }
-    ],
-    "checked_text": "[{'role': 'user', 'content': 'What is the weather in Tokyo?'}]"
+    ]
 }
 ```
 
@@ -84,7 +83,6 @@ Returns a `GuardrailResult` with the following `info` dictionary:
 - **`threshold`**: The confidence threshold that was configured
 - **`user_goal`**: The tracked user intent from conversation
 - **`action`**: The list of function calls or tool outputs analyzed for alignment
-- **`checked_text`**: Serialized conversation history inspected during analysis
 
 ## Benchmark Results
 

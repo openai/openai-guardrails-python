@@ -113,8 +113,7 @@ Returns a `GuardrailResult` with the following `info` dictionary:
     "hallucination_type": "factual_error",
     "hallucinated_statements": ["Our premium plan costs $299/month"],
     "verified_statements": ["We offer customer support"],
-    "threshold": 0.7,
-    "checked_text": "Our premium plan costs $299/month and we offer customer support"
+    "threshold": 0.7
 }
 ```
 
@@ -125,7 +124,6 @@ Returns a `GuardrailResult` with the following `info` dictionary:
 - **`hallucinated_statements`**: Specific statements that are contradicted or unsupported
 - **`verified_statements`**: Statements that are supported by your documents
 - **`threshold`**: The confidence threshold that was configured
-- **`checked_text`**: Original input text
 
 Tip: `hallucination_type` is typically one of `factual_error`, `unsupported_claim`, or `none`.
 

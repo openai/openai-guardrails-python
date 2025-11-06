@@ -33,8 +33,11 @@ PIPELINE_CONFIG = {
                         "PHONE_NUMBER",
                         "US_SSN",
                         "CREDIT_CARD",
+                        "CVV",
+                        "BIC_SWIFT",
                     ],
                     "block": False,  # Default - won't block, just mask
+                    "detect_encoded_pii": True,
                 },
             }
         ],

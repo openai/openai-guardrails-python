@@ -70,4 +70,3 @@ def test_does_not_support_safety_identifier_for_alternative_provider() -> None:
     mock_client.__class__.__name__ = "AsyncOpenAI"
 
     assert supports_safety_identifier(mock_client) is False  # noqa: S101
-

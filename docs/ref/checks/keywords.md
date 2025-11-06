@@ -25,11 +25,9 @@ Returns a `GuardrailResult` with the following `info` dictionary:
 {
     "guardrail_name": "Keyword Filter",
     "matched": ["confidential", "secret"],
-    "checked": ["confidential", "secret", "internal only"],
-    "checked_text": "This is confidential information that should be kept secret"
+    "checked": ["confidential", "secret", "internal only"]
 }
 ```
 
 - **`matched`**: List of keywords found in the text
 - **`checked`**: List of keywords that were configured for detection
-- **`checked_text`**: Original input text

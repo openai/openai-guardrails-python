@@ -9,7 +9,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Union
+from typing import Any, Final, Union
 
 from openai.types import Completion
 from openai.types.chat import ChatCompletion, ChatCompletionChunk
@@ -25,6 +25,9 @@ logger = logging.getLogger(__name__)
 
 # Type alias for OpenAI response types
 OpenAIResponseType = Union[Completion, ChatCompletion, ChatCompletionChunk, Response]  # noqa: UP007
+
+# Text content types recognized in message content parts
+_TEXT_CONTENT_TYPES: Final[set[str]] = {"text", "input_text", "output_text"}
 
 
 @dataclass(frozen=True, slots=True)
@@ -97,13 +100,13 @@ class GuardrailsBaseClient:
                     if isinstance(part, dict):
                         part_type = part.get("type")
                         text_val = part.get("text", "")
-                        if part_type in {"input_text", "text", "output_text", "summary_text"} and isinstance(text_val, str):
+                        if part_type in _TEXT_CONTENT_TYPES and isinstance(text_val, str):
                             parts.append(text_val)
                     else:
                         # Object-like content part
                         ptype = getattr(part, "type", None)
                         ptext = getattr(part, "text", "")
-                        if ptype in {"input_text", "text", "output_text", "summary_text"} and isinstance(ptext, str):
+                        if ptype in _TEXT_CONTENT_TYPES and isinstance(ptext, str):
                             parts.append(ptext)
                 return " ".join(parts).strip()
             return ""
@@ -153,99 +156,204 @@ class GuardrailsBaseClient:
             preflight_results: Results from pre-flight guardrails
 
         Returns:
-            Modified data with pre-flight changes applied
+            Modified data with PII masking applied if PII was detected
         """
         if not preflight_results:
             return data
 
-        # Get PII mappings from preflight results for individual text processing
-        pii_mappings = {}
+        # Look specifically for PII guardrail results with actual modifications
+        pii_result = None
         for result in preflight_results:
-            if "detected_entities" in result.info:
-                detected = result.info["detected_entities"]
-                for entity_type, entities in detected.items():
-                    for entity in entities:
-                        # Map original PII to masked token
-                        pii_mappings[entity] = f"<{entity_type}>"
+            # Only PII guardrail modifies text - check name first (faster)
+            if result.info.get("guardrail_name") == "Contains PII" and result.info.get("pii_detected"):
+                pii_result = result
+                break  # PII is the only guardrail that modifies text
 
-        if not pii_mappings:
+        # If no PII modifications were made, return original data
+        if pii_result is None:
             return data
 
+        # Apply PII-masked text to data
+        if isinstance(data, str):
+            # Simple case: string input (Responses API)
+            checked_text = pii_result.info.get("checked_text")
+            return checked_text if checked_text is not None else data
+
+        # Complex case: message list (Chat API)
+        _, latest_user_idx = self._extract_latest_user_message(data)
+        if latest_user_idx == -1:
+            return data
+
+        # Get current content
+        current_content = (
+            data[latest_user_idx]["content"] if isinstance(data[latest_user_idx], dict) else getattr(data[latest_user_idx], "content", None)
+        )
+
+        # Apply PII-masked text based on content type
+        if isinstance(current_content, str):
+            # Plain string content - replace with masked version
+            checked_text = pii_result.info.get("checked_text")
+            if checked_text is None:
+                return data
+            return self._update_message_content(data, latest_user_idx, checked_text)
+
+        if isinstance(current_content, list):
+            # Structured content - mask each text part individually using Presidio
+            return self._apply_pii_masking_to_structured_content(data, pii_result, latest_user_idx, current_content)
+
+        # Unknown content type, return unchanged
+        return data
+
+    def _update_message_content(self, data: list[dict[str, str]], user_idx: int, new_content: Any) -> list[dict[str, str]]:
+        """Update message content at the specified index.
+
+        Args:
+            data: Message list
+            user_idx: Index of message to update
+            new_content: New content value
+
+        Returns:
+            Modified message list or original if update fails
+        """
+        modified_messages = data.copy()
+        try:
+            if isinstance(modified_messages[user_idx], dict):
+                modified_messages[user_idx] = {
+                    **modified_messages[user_idx],
+                    "content": new_content,
+                }
+            else:
+                modified_messages[user_idx].content = new_content
+        except Exception:
+            return data
+        return modified_messages
+
+    def _apply_pii_masking_to_structured_content(
+        self,
+        data: list[dict[str, str]],
+        pii_result: GuardrailResult,
+        user_idx: int,
+        current_content: list,
+    ) -> list[dict[str, str]]:
+        """Apply PII masking to structured content parts using Presidio.
+
+        Args:
+            data: Message list with structured content
+            pii_result: PII guardrail result containing detected entities
+            user_idx: Index of the user message to modify
+            current_content: The structured content list (already extracted)
+
+        Returns:
+            Modified messages with PII masking applied to each text part
+        """
+        from presidio_anonymizer import AnonymizerEngine
+        from presidio_anonymizer.entities import OperatorConfig
+
+        # Extract detected entity types and config
+        detected = pii_result.info.get("detected_entities", {})
+        if not detected:
+            return data
+
+        detect_encoded_pii = pii_result.info.get("detect_encoded_pii", False)
+
+        # Get Presidio engines - entity types are guaranteed valid from detection
+        from .checks.text.pii import _get_analyzer_engine
+
+        analyzer = _get_analyzer_engine()
+        anonymizer = AnonymizerEngine()
+        entity_types = list(detected.keys())
+
+        # Create operators for each entity type
+        operators = {entity_type: OperatorConfig("replace", {"new_value": f"<{entity_type}>"}) for entity_type in entity_types}
+
         def _mask_text(text: str) -> str:
-            """Apply PII masking to individual text with robust replacement."""
-            if not isinstance(text, str):
+            """Mask using Presidio's analyzer and anonymizer with Unicode normalization.
+
+            Handles both plain and encoded PII consistently with main detection path.
+            """
+            if not text:
                 return text
 
-            masked_text = text
+            # Import functions from pii module
+            from .checks.text.pii import _build_decoded_text, _normalize_unicode
 
-            # Sort PII entities by length (longest first) to avoid partial replacements
-            # (shouldn't need this as Presidio should handle this, but just in case)
-            sorted_pii = sorted(pii_mappings.items(), key=lambda x: len(x[0]), reverse=True)
+            # Normalize to prevent bypasses
+            normalized = _normalize_unicode(text)
 
-            for original_pii, masked_token in sorted_pii:
-                if original_pii in masked_text:
-                    # Use replace() which handles special characters safely
-                    masked_text = masked_text.replace(original_pii, masked_token)
+            # Check for plain PII
+            analyzer_results = analyzer.analyze(normalized, entities=entity_types, language="en")
+            has_plain_pii = bool(analyzer_results)
 
-            return masked_text
+            # Check for encoded PII if enabled
+            has_encoded_pii = False
+            encoded_candidates = []
 
-        if isinstance(data, str):
-            # Handle string input (for responses API)
-            return _mask_text(data)
-        else:
-            # Handle message list input (primarily for chat API and structured Responses API)
-            _, latest_user_idx = self._extract_latest_user_message(data)
-            if latest_user_idx == -1:
-                return data
+            if detect_encoded_pii:
+                decoded_text, encoded_candidates = _build_decoded_text(normalized)
+                if encoded_candidates:
+                    # Analyze decoded text
+                    decoded_results = analyzer.analyze(decoded_text, entities=entity_types, language="en")
+                    has_encoded_pii = bool(decoded_results)
 
-            # Use shallow copy for efficiency - we only modify the content field of one message
-            modified_messages = data.copy()
+            # If no PII found at all, return original text
+            if not has_plain_pii and not has_encoded_pii:
+                return text
 
-            # Extract current content safely
-            current_content = (
-                data[latest_user_idx]["content"] if isinstance(data[latest_user_idx], dict) else getattr(data[latest_user_idx], "content", None)
-            )
+            # Mask plain PII
+            masked = normalized
+            if has_plain_pii:
+                masked = anonymizer.anonymize(text=masked, analyzer_results=analyzer_results, operators=operators).text
 
-            # Apply modifications based on content type
-            if isinstance(current_content, str):
-                # Plain string content - mask individually
-                modified_content = _mask_text(current_content)
-            elif isinstance(current_content, list):
-                # Structured content - mask each text part individually
-                modified_content = []
-                for part in current_content:
-                    if isinstance(part, dict):
-                        part_type = part.get("type")
-                        if part_type in {"input_text", "text", "output_text", "summary_text"} and "text" in part:
-                            # Mask this specific text part individually
-                            original_text = part["text"]
-                            masked_text = _mask_text(original_text)
-                            modified_content.append({**part, "text": masked_text})
-                        else:
-                            # Keep non-text parts unchanged
-                            modified_content.append(part)
-                    else:
-                        # Keep unknown parts unchanged
-                        modified_content.append(part)
-            else:
-                # Unknown content type - skip modifications
-                return data
+            # Mask encoded PII if found
+            if has_encoded_pii:
+                # Re-analyze to get positions in the (potentially) masked text
+                decoded_text_for_masking, candidates_for_masking = _build_decoded_text(masked)
+                decoded_results = analyzer.analyze(decoded_text_for_masking, entities=entity_types, language="en")
 
-            # Only modify the specific message that needs content changes
-            if modified_content != current_content:
-                if isinstance(modified_messages[latest_user_idx], dict):
-                    modified_messages[latest_user_idx] = {
-                        **modified_messages[latest_user_idx],
-                        "content": modified_content,
-                    }
+                if decoded_results:
+                    # Map detections back to mask encoded chunks
+                    for result in decoded_results:
+                        detected_value = decoded_text_for_masking[result.start : result.end]
+                        entity_type = result.entity_type
+
+                        # Find candidate that contains this PII
+                        for candidate in candidates_for_masking:
+                            if detected_value in candidate.decoded_text:
+                                # Mask the encoded version
+                                entity_marker = f"<{entity_type}_ENCODED>"
+                                masked = masked[: candidate.start] + entity_marker + masked[candidate.end :]
+                                break
+
+            return masked
+
+        # Mask each text part
+        modified_content = []
+        for part in current_content:
+            if isinstance(part, dict):
+                part_text = part.get("text")
+                if part.get("type") in _TEXT_CONTENT_TYPES and isinstance(part_text, str) and part_text:
+                    modified_content.append({**part, "text": _mask_text(part_text)})
                 else:
-                    # Fallback: if it's an object-like, set attribute when possible
+                    modified_content.append(part)
+            else:
+                # Handle object-based content parts
+                if (
+                    hasattr(part, "type")
+                    and hasattr(part, "text")
+                    and part.type in _TEXT_CONTENT_TYPES
+                    and isinstance(part.text, str)
+                    and part.text
+                ):
                     try:
-                        modified_messages[latest_user_idx].content = modified_content
+                        part.text = _mask_text(part.text)
                     except Exception:
-                        return data
+                        pass
+                    modified_content.append(part)
+                else:
+                    # Preserve non-dict, non-object parts (e.g., raw strings)
+                    modified_content.append(part)
 
-            return modified_messages
+        return self._update_message_content(data, user_idx, modified_content)
 
     def _instantiate_all_guardrails(self) -> dict[str, list]:
         """Instantiate guardrails for all stages."""
