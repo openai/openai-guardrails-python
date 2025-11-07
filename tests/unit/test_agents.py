@@ -7,7 +7,7 @@ import types
 from collections.abc import Callable
 from dataclasses import dataclass
 from types import SimpleNamespace
-from typing import Any, TypedDict
+from typing import Any
 
 import pytest
 
@@ -128,15 +128,6 @@ agents_module.run = agents_run_module
 
 import guardrails.agents as agents  # noqa: E402  (import after stubbing)
 import guardrails.runtime as runtime_module  # noqa: E402
-
-
-# Add mock for TResponseInputItem for testing
-class TResponseInputItem(TypedDict):
-    """Mock type for Agents SDK response input item."""
-
-    role: str
-    content: Any
-    type: str
 
 
 def _make_guardrail(name: str) -> Any:
@@ -884,6 +875,20 @@ def test_extract_text_from_input_preserves_empty_strings() -> None:
     result = agents._extract_text_from_input(input_data)
     # Empty string should be included, resulting in extra space
     assert result == "Hello  World"  # noqa: S101
+
+
+def test_extract_text_from_input_with_empty_content_list() -> None:
+    """Empty content list should return empty string, not stringified list."""
+    input_data = [
+        {
+            "role": "user",
+            "type": "message",
+            "content": [],  # Empty content list
+        }
+    ]
+    result = agents._extract_text_from_input(input_data)
+    # Should return empty string, not "[]"
+    assert result == ""  # noqa: S101
 
 
 # =============================================================================

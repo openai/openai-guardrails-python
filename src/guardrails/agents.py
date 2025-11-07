@@ -370,6 +370,9 @@ def _extract_text_from_input(input_data: Any) -> str:
                     if isinstance(content, str):
                         return content
                     elif isinstance(content, list):
+                        if not content:
+                            # Empty content list returns empty string (consistent with no text parts found)
+                            return ""
                         # Extract text from content parts
                         text_parts = []
                         for part in content:
@@ -385,6 +388,8 @@ def _extract_text_from_input(input_data: Any) -> str:
                                     text_parts.append(text)
                         if text_parts:
                             return " ".join(text_parts)
+                        # No text parts found, return empty string
+                        return ""
                     # If content is something else, try to stringify it
                     elif content is not None:
                         return str(content)
@@ -452,8 +457,12 @@ def _create_agents_guardrails_from_config(
 
     def _create_individual_guardrail(guardrail):
         """Create a function for a single specific guardrail."""
-        async def single_guardrail(ctx: RunContextWrapper[None], agent: Agent, input_data: str) -> GuardrailFunctionOutput:
-            """Guardrail function for a specific guardrail check."""
+        async def single_guardrail(ctx: RunContextWrapper[None], agent: Agent, input_data: str | list) -> GuardrailFunctionOutput:
+            """Guardrail function for a specific guardrail check.
+
+            Note: input_data is typed as str in Agents SDK, but can actually be a list
+            of message objects when conversation history is used. We handle both cases.
+            """
             try:
                 # Extract text from input_data (handle both string and conversation history formats)
                 text_data = _extract_text_from_input(input_data)
