@@ -25,6 +25,7 @@ PIPELINE_CONFIG = {
                     "categories": ["hate", "violence", "self-harm"],
                 },
             },
+            {"name": "Contains PII", "config": {"entities": ["US_SSN", "PHONE_NUMBER", "EMAIL_ADDRESS"]}},
         ],
     },
     "input": {
@@ -75,11 +76,15 @@ async def main() -> None:
             except EOFError:
                 print("\nExiting.")
                 break
-            except InputGuardrailTripwireTriggered:
+            except InputGuardrailTripwireTriggered as exc:
                 print("🛑 Input guardrail triggered!")
+                print(exc.guardrail_result.guardrail.name)
+                print(exc.guardrail_result.output.output_info)
                 continue
-            except OutputGuardrailTripwireTriggered:
+            except OutputGuardrailTripwireTriggered as exc:
                 print("🛑 Output guardrail triggered!")
+                print(exc.guardrail_result.guardrail.name)
+                print(exc.guardrail_result.output.output_info)
                 continue
 
 
