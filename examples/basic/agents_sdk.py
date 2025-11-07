@@ -25,6 +25,7 @@ PIPELINE_CONFIG = {
                     "categories": ["hate", "violence", "self-harm"],
                 },
             },
+            {"name": "Contains PII", "config": {"entities": ["US_SSN", "PHONE_NUMBER", "EMAIL_ADDRESS"]}},
         ],
     },
     "input": {
@@ -71,15 +72,23 @@ async def main() -> None:
                     run_config=RunConfig(tracing_disabled=True),
                     session=session,
                 )
+                agent = result.new_items[0].agent
+                print(f"Input guardrails: {[x.name for x in agent.input_guardrails]}")
+                breakpoint()
+                print(f"Output guardrails: {[x.name for x in agent.output_guardrails]}")
                 print(f"Assistant: {result.final_output}")
             except EOFError:
                 print("\nExiting.")
                 break
-            except InputGuardrailTripwireTriggered:
+            except InputGuardrailTripwireTriggered as exc:
                 print("🛑 Input guardrail triggered!")
+                print(exc.guardrail_result.guardrail.name)
+                print(exc.guardrail_result.output.output_info)
                 continue
-            except OutputGuardrailTripwireTriggered:
+            except OutputGuardrailTripwireTriggered as exc:
                 print("🛑 Output guardrail triggered!")
+                print(exc.guardrail_result.guardrail.name)
+                print(exc.guardrail_result.output.output_info)
                 continue
 
 
