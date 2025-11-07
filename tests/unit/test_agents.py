@@ -868,6 +868,24 @@ def test_extract_text_from_input_with_no_user_messages() -> None:
     assert result == ""  # noqa: S101
 
 
+def test_extract_text_from_input_preserves_empty_strings() -> None:
+    """Empty strings in content parts should be preserved, not filtered out."""
+    input_data = [
+        {
+            "role": "user",
+            "type": "message",
+            "content": [
+                {"type": "input_text", "text": "Hello"},
+                {"type": "input_text", "text": ""},  # Empty string should be preserved
+                {"type": "input_text", "text": "World"},
+            ],
+        }
+    ]
+    result = agents._extract_text_from_input(input_data)
+    # Empty string should be included, resulting in extra space
+    assert result == "Hello  World"  # noqa: S101
+
+
 # =============================================================================
 # Tests for updated agent-level guardrail behavior (stage_name and metadata)
 # =============================================================================

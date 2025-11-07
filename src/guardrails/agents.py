@@ -380,7 +380,8 @@ def _extract_text_from_input(input_data: Any) -> str:
                                     if field in part:
                                         text = part[field]
                                         break
-                                if text and isinstance(text, str):
+                                # Preserve empty strings, only filter None
+                                if text is not None and isinstance(text, str):
                                     text_parts.append(text)
                         if text_parts:
                             return " ".join(text_parts)
@@ -478,8 +479,8 @@ def _create_agents_guardrails_from_config(
 
             except Exception as e:
                 if raise_guardrail_errors:
-                    # Re-raise the exception to stop execution
-                    raise e
+                    # Re-raise the exception to stop execution (preserve traceback)
+                    raise
                 else:
                     # Current behavior: treat errors as tripwires
                     # Return structured error info for consistency
