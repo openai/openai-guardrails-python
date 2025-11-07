@@ -72,10 +72,6 @@ async def main() -> None:
                     run_config=RunConfig(tracing_disabled=True),
                     session=session,
                 )
-                agent = result.new_items[0].agent
-                print(f"Input guardrails: {[x.name for x in agent.input_guardrails]}")
-                breakpoint()
-                print(f"Output guardrails: {[x.name for x in agent.output_guardrails]}")
                 print(f"Assistant: {result.final_output}")
             except EOFError:
                 print("\nExiting.")

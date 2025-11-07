@@ -356,7 +356,10 @@ def _extract_text_from_input(input_data: Any) -> str:
         return input_data
 
     # If it's a list (conversation history), extract the latest user message
-    if isinstance(input_data, list) and len(input_data) > 0:
+    if isinstance(input_data, list):
+        if len(input_data) == 0:
+            return ""  # Empty list returns empty string
+
         # Iterate from the end to find the latest user message
         for msg in reversed(input_data):
             if isinstance(msg, dict):
@@ -380,6 +383,9 @@ def _extract_text_from_input(input_data: Any) -> str:
                     # If content is something else, try to stringify it
                     elif content is not None:
                         return str(content)
+
+        # No user message found in list
+        return ""
 
     # Fallback: convert to string
     return str(input_data)
@@ -483,7 +489,7 @@ def _create_agents_guardrails_from_config(
 
         # Set the function name to the guardrail name (e.g., "Moderation" → "Moderation")
         single_guardrail.__name__ = guardrail.definition.name.replace(" ", "_")
-        
+
         return single_guardrail
 
     guardrail_functions = []
