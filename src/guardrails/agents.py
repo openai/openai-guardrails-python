@@ -357,7 +357,7 @@ def _extract_text_from_input(input_data: Any) -> str:
 
     # If it's a list (conversation history), extract the latest user message
     if isinstance(input_data, list):
-        if len(input_data) == 0:
+        if not input_data:
             return ""  # Empty list returns empty string
 
         # Iterate from the end to find the latest user message
@@ -374,8 +374,12 @@ def _extract_text_from_input(input_data: Any) -> str:
                         text_parts = []
                         for part in content:
                             if isinstance(part, dict):
-                                # Check for various text field names
-                                text = part.get("text") or part.get("input_text") or part.get("output_text")
+                                # Check for various text field names (avoid falsy empty string issue)
+                                text = None
+                                for field in ['text', 'input_text', 'output_text']:
+                                    if field in part:
+                                        text = part[field]
+                                        break
                                 if text and isinstance(text, str):
                                     text_parts.append(text)
                         if text_parts:
