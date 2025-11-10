@@ -309,18 +309,27 @@ class GuardrailsBaseClient:
                 decoded_results = analyzer.analyze(decoded_text_for_masking, entities=entity_types, language="en")
 
                 if decoded_results:
-                    # Map detections back to mask encoded chunks
+                    # Build list of (candidate, entity_type) pairs to mask
+                    candidates_to_mask = []
+
                     for result in decoded_results:
                         detected_value = decoded_text_for_masking[result.start : result.end]
                         entity_type = result.entity_type
 
                         # Find candidate that contains this PII
                         for candidate in candidates_for_masking:
-                            if detected_value in candidate.decoded_text:
-                                # Mask the encoded version
-                                entity_marker = f"<{entity_type}_ENCODED>"
-                                masked = masked[: candidate.start] + entity_marker + masked[candidate.end :]
+                            if candidate.decoded_text and detected_value.lower() in candidate.decoded_text.lower():
+                                candidates_to_mask.append((candidate, entity_type))
                                 break
+
+                    # Sort by position (reverse) to mask from end to start
+                    # This preserves position validity for subsequent replacements
+                    candidates_to_mask.sort(key=lambda x: x[0].start, reverse=True)
+
+                    # Mask from end to start
+                    for candidate, entity_type in candidates_to_mask:
+                        entity_marker = f"<{entity_type}_ENCODED>"
+                        masked = masked[: candidate.start] + entity_marker + masked[candidate.end :]
 
             return masked
 
