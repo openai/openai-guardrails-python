@@ -171,23 +171,24 @@ def _get_analyzer_engine() -> AnalyzerEngine:
     # Pattern 2: Known banking institutions (4-letter bank codes from major banks)
     # This whitelist approach has very low false positive rate
     # Only detects codes starting with known bank identifiers
+    # NOTE: Must be exactly 4 characters (bank identifier only, not full BIC)
     known_bank_codes = (
         "DEUT|CHAS|BARC|HSBC|BNPA|CITI|WELL|BOFA|JPMC|GSCC|MSNY|"  # Major international
-        "COBA|DRSD|BYLADEM|MALADE|HYVEDEMM|"  # Germany
+        "COBA|DRSD|BYLA|MALA|HYVE|"  # Germany
         "WFBI|USBC|"  # US
         "LOYD|MIDL|NWBK|RBOS|"  # UK
-        "CRLY|SOGEFRPP|AGRIFRPP|"  # France
-        "UBSW|CRESCHZZ|"  # Switzerland
+        "CRLY|SOGE|AGRI|"  # France
+        "UBSW|CRES|"  # Switzerland
         "SANB|BBVA|"  # Spain
-        "UNCRITMM|BCITITMMXXX|"  # Italy
+        "UNCR|BCIT|"  # Italy
         "INGB|ABNA|RABO|"  # Netherlands
         "ROYA|TDOM|BNSC|"  # Canada
         "ANZB|NATA|WPAC|CTBA|"  # Australia
-        "BKCHJPJT|MHCBJPJT|BOTKJPJT|"  # Japan
-        "ICBKCNBJ|BKCHCNBJ|ABOCCNBJ|PCBCCNBJ|"  # China
-        "HSBCHKHH|SCBLHKHH|"  # Hong Kong
-        "DBSSSGSG|OCBCSGSG|UOVBSGSG|"  # Singapore
-        "CZNB|SHBK|KOEX|HVBK|NACF|IBKO|KODB|HNBN|CITIKRSX"  # South Korea
+        "BKCH|MHCB|BOTK|"  # Japan
+        "ICBK|ABOC|PCBC|"  # China
+        "HSBC|SCBL|"  # Hong Kong
+        "DBSS|OCBC|UOVB|"  # Singapore
+        "CZNB|SHBK|KOEX|HVBK|NACF|IBKO|KODB|HNBN|CITI"  # South Korea
     )
 
     known_bic_pattern = Pattern(
