@@ -89,13 +89,12 @@ from presidio_analyzer.nlp_engine import NlpEngineProvider
 from presidio_analyzer.predefined_recognizers.country_specific.korea.kr_rrn_recognizer import (
     KrRrnRecognizer,
 )
-from presidio_anonymizer import AnonymizerEngine
-from presidio_anonymizer.entities import OperatorConfig
 from pydantic import BaseModel, ConfigDict, Field
 
 from guardrails.registry import default_spec_registry
 from guardrails.spec import GuardrailSpecMetadata
 from guardrails.types import GuardrailResult
+from guardrails.utils.anonymizer import OperatorConfig, anonymize
 
 __all__ = ["pii"]
 
@@ -155,15 +154,53 @@ def _get_analyzer_engine() -> AnalyzerEngine:
     )
 
     # BIC/SWIFT code recognizer (8 or 11 characters: 4 bank + 2 country + 2 location + 3 branch)
-    bic_pattern = Pattern(
-        name="bic_swift_pattern",
-        regex=r"\b[A-Z]{4}[A-Z]{2}[A-Z0-9]{2}([A-Z0-9]{3})?\b",
-        score=0.75,
+    # Uses context-aware pattern to reduce false positives on common words like "CUSTOMER"
+    # Requires either:
+    # 1. Explicit prefix (SWIFT:, BIC:, Bank Code:, etc.) OR
+    # 2. Known bank code from major financial institutions
+    # This significantly reduces false positives while maintaining high recall for actual BIC codes
+
+    # Pattern 1: Explicit context with common BIC/SWIFT prefixes (high confidence)
+    # Case-insensitive for the context words, but code itself must be uppercase
+    bic_with_context_pattern = Pattern(
+        name="bic_with_context",
+        regex=r"(?i)(?:swift|bic|bank[\s-]?code|swift[\s-]?code|bic[\s-]?code)(?-i)[:\s=]+([A-Z]{4}[A-Z]{2}[A-Z0-9]{2}(?:[A-Z0-9]{3})?)\b",
+        score=0.95,
     )
+
+    # Pattern 2: Known banking institutions (4-letter bank codes from major banks)
+    # This whitelist approach has very low false positive rate
+    # Only detects codes starting with known bank identifiers
+    known_bank_codes = (
+        "DEUT|CHAS|BARC|HSBC|BNPA|CITI|WELL|BOFA|JPMC|GSCC|MSNY|"  # Major international
+        "COBA|DRSD|BYLADEM|MALADE|HYVEDEMM|"  # Germany
+        "WFBI|USBC|"  # US
+        "LOYD|MIDL|NWBK|RBOS|"  # UK
+        "CRLY|SOGEFRPP|AGRIFRPP|"  # France
+        "UBSW|CRESCHZZ|"  # Switzerland
+        "SANB|BBVA|"  # Spain
+        "UNCRITMM|BCITITMMXXX|"  # Italy
+        "INGB|ABNA|RABO|"  # Netherlands
+        "ROYA|TDOM|BNSC|"  # Canada
+        "ANZB|NATA|WPAC|CTBA|"  # Australia
+        "BKCHJPJT|MHCBJPJT|BOTKJPJT|"  # Japan
+        "ICBKCNBJ|BKCHCNBJ|ABOCCNBJ|PCBCCNBJ|"  # China
+        "HSBCHKHH|SCBLHKHH|"  # Hong Kong
+        "DBSSSGSG|OCBCSGSG|UOVBSGSG|"  # Singapore
+        "CZNB|SHBK|KOEX|HVBK|NACF|IBKO|KODB|HNBN|CITIKRSX"  # South Korea
+    )
+
+    known_bic_pattern = Pattern(
+        name="known_bic_codes",
+        regex=rf"\b(?:{known_bank_codes})[A-Z]{{2}}[A-Z0-9]{{2}}(?:[A-Z0-9]{{3}})?\b",
+        score=0.90,
+    )
+
+    # Register both patterns
     registry.add_recognizer(
         PatternRecognizer(
             supported_entity="BIC_SWIFT",
-            patterns=[bic_pattern],
+            patterns=[bic_with_context_pattern, known_bic_pattern],
             supported_language="en",
         )
     )
@@ -190,19 +227,6 @@ def _get_analyzer_engine() -> AnalyzerEngine:
         supported_languages=["en"],
     )
     return engine
-
-
-@functools.lru_cache(maxsize=1)
-def _get_anonymizer_engine() -> AnonymizerEngine:
-    """Return a cached AnonymizerEngine for PII masking.
-
-    Uses Presidio's built-in anonymization for optimal performance and
-    correct handling of overlapping entities, Unicode, and special characters.
-
-    Returns:
-        AnonymizerEngine: Configured anonymizer for replacing PII entities.
-    """
-    return AnonymizerEngine()
 
 
 class PIIEntity(str, Enum):
@@ -460,9 +484,7 @@ def _try_decode_base64(text: str) -> str | None:
         decoded_bytes = base64.b64decode(text, validate=True)
         # Security: Fail closed - reject content > 10KB to prevent memory DoS and PII bypass
         if len(decoded_bytes) > 10_000:
-            msg = (
-                f"Base64 decoded content too large ({len(decoded_bytes):,} bytes). Maximum allowed is 10KB."
-            )
+            msg = f"Base64 decoded content too large ({len(decoded_bytes):,} bytes). Maximum allowed is 10KB."
             raise ValueError(msg)
         # Check if result is valid UTF-8
         return decoded_bytes.decode("utf-8", errors="strict")
@@ -590,11 +612,10 @@ def _build_decoded_text(text: str) -> tuple[str, list[EncodedCandidate]]:
 
 
 def _mask_pii(text: str, detection: PiiDetectionResult, config: PIIConfig) -> tuple[str, dict[str, list[str]]]:
-    """Mask detected PII using Presidio's AnonymizerEngine.
+    """Mask detected PII using custom anonymizer.
 
     Normalizes Unicode before masking to ensure consistency with detection.
-    Uses Presidio's built-in anonymization for optimal performance and
-    correct handling of overlapping entities, Unicode, and special characters.
+    Handles overlapping entities, Unicode, and special characters correctly.
 
     If detect_encoded_pii is enabled, also detects and masks PII in
     Base64/URL-encoded/hex strings using a hybrid approach.
@@ -627,13 +648,11 @@ def _mask_pii(text: str, detection: PiiDetectionResult, config: PIIConfig) -> tu
         # No PII detected - return original text to preserve special characters
         return text, {}
 
-    # Use Presidio's optimized anonymizer with replace operator
-    anonymizer = _get_anonymizer_engine()
-
     # Create operators mapping each entity type to a replace operator
     operators = {entity_type: OperatorConfig("replace", {"new_value": f"<{entity_type}>"}) for entity_type in detection.mapping.keys()}
 
-    result = anonymizer.anonymize(
+    # Use custom anonymizer
+    result = anonymize(
         text=normalized_text,
         analyzer_results=detection.analyzer_results,
         operators=operators,

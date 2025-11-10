@@ -348,6 +348,67 @@ async def test_pii_detects_8char_bic() -> None:
     assert "BIC_SWIFT" in result.info["detected_entities"]  # noqa: S101
 
 
+@pytest.mark.asyncio
+async def test_pii_does_not_detect_common_words_as_bic() -> None:
+    """Common 8-letter words should NOT be detected as BIC/SWIFT codes."""
+    config = PIIConfig(entities=[PIIEntity.BIC_SWIFT], block=False)
+    # Test words that match the length pattern but have invalid country codes
+    test_cases = [
+        "The CUSTOMER ordered a product.",
+        "We will REGISTER your account.",
+        "Please CONSIDER this option.",
+        "The DOCUMENT is ready.",
+        "This is ABSTRACT art.",
+    ]
+
+    for text in test_cases:
+        result = await pii(None, text, config)
+        assert result.info["pii_detected"] is False, f"False positive for: {text}"  # noqa: S101
+        assert "BIC_SWIFT" not in result.info["detected_entities"], f"False positive for: {text}"  # noqa: S101
+
+
+@pytest.mark.asyncio
+async def test_pii_detects_various_country_bic_codes() -> None:
+    """BIC codes from various countries should be detected."""
+    config = PIIConfig(entities=[PIIEntity.BIC_SWIFT], block=False)
+    test_cases = [
+        ("DEUTDEFF500", "Germany"),  # Deutsche Bank
+        ("CHASUS33", "United States"),  # Chase
+        ("BARCGB22", "United Kingdom"),  # Barclays
+        ("BNPAFRPP", "France"),  # BNP Paribas
+        ("HSBCJPJT", "Japan"),  # HSBC Japan
+        ("CITIGB2L", "United Kingdom"),  # Citibank UK
+    ]
+
+    for bic_code, country in test_cases:
+        text = f"Bank code: {bic_code}"
+        result = await pii(None, text, config)
+        assert result.info["pii_detected"] is True, f"Failed to detect {country} BIC: {bic_code}"  # noqa: S101
+        assert "BIC_SWIFT" in result.info["detected_entities"], f"Failed to detect {country} BIC: {bic_code}"  # noqa: S101
+
+
+@pytest.mark.asyncio
+async def test_pii_detects_korean_bank_bic_codes() -> None:
+    """BIC codes from Korean banks should be detected."""
+    config = PIIConfig(entities=[PIIEntity.BIC_SWIFT], block=False)
+    test_cases = [
+        ("CZNBKRSE", "KB Kookmin Bank"),
+        ("SHBKKRSE", "Shinhan Bank"),
+        ("KOEXKRSE", "Hana Bank"),
+        ("HVBKKRSE", "Woori Bank"),
+        ("NACFKRSE", "NH Bank"),
+        ("IBKOKRSE", "IBK Industrial Bank"),
+        ("KODBKRSE", "Korea Development Bank"),
+    ]
+
+    for bic_code, bank_name in test_cases:
+        text = f"Transfer to {bic_code}"
+        result = await pii(None, text, config)
+        assert result.info["pii_detected"] is True, f"Failed to detect {bank_name}: {bic_code}"  # noqa: S101
+        assert "BIC_SWIFT" in result.info["detected_entities"], f"Failed to detect {bank_name}: {bic_code}"  # noqa: S101
+        assert bic_code in result.info["detected_entities"]["BIC_SWIFT"], f"BIC code {bic_code} not in detected entities"  # noqa: S101
+
+
 # Encoded PII Detection Tests
 
 

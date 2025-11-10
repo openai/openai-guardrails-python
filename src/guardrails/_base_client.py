@@ -246,8 +246,7 @@ class GuardrailsBaseClient:
         Returns:
             Modified messages with PII masking applied to each text part
         """
-        from presidio_anonymizer import AnonymizerEngine
-        from presidio_anonymizer.entities import OperatorConfig
+        from guardrails.utils.anonymizer import OperatorConfig, anonymize
 
         # Extract detected entity types and config
         detected = pii_result.info.get("detected_entities", {})
@@ -256,18 +255,17 @@ class GuardrailsBaseClient:
 
         detect_encoded_pii = pii_result.info.get("detect_encoded_pii", False)
 
-        # Get Presidio engines - entity types are guaranteed valid from detection
+        # Get analyzer engine - entity types are guaranteed valid from detection
         from .checks.text.pii import _get_analyzer_engine
 
         analyzer = _get_analyzer_engine()
-        anonymizer = AnonymizerEngine()
         entity_types = list(detected.keys())
 
         # Create operators for each entity type
         operators = {entity_type: OperatorConfig("replace", {"new_value": f"<{entity_type}>"}) for entity_type in entity_types}
 
         def _mask_text(text: str) -> str:
-            """Mask using Presidio's analyzer and anonymizer with Unicode normalization.
+            """Mask using custom anonymizer with Unicode normalization.
 
             Handles both plain and encoded PII consistently with main detection path.
             """
@@ -302,7 +300,7 @@ class GuardrailsBaseClient:
             # Mask plain PII
             masked = normalized
             if has_plain_pii:
-                masked = anonymizer.anonymize(text=masked, analyzer_results=analyzer_results, operators=operators).text
+                masked = anonymize(text=masked, analyzer_results=analyzer_results, operators=operators).text
 
             # Mask encoded PII if found
             if has_encoded_pii:
