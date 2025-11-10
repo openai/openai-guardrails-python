@@ -316,9 +316,31 @@ class GuardrailsBaseClient:
                         detected_value = decoded_text_for_masking[result.start : result.end]
                         entity_type = result.entity_type
 
-                        # Find candidate that contains this PII
+                        # Find candidate that overlaps with this PII
+                        # Use comprehensive overlap logic matching pii.py implementation
                         for candidate in candidates_for_masking:
-                            if candidate.decoded_text and detected_value.lower() in candidate.decoded_text.lower():
+                            if not candidate.decoded_text:
+                                continue
+
+                            candidate_lower = candidate.decoded_text.lower()
+                            detected_lower = detected_value.lower()
+
+                            # Check if candidate's decoded text overlaps with the detection
+                            # Handle partial encodings where encoded span may include extra characters
+                            # e.g., %3A%6a%6f%65%40 → ":joe@" but only "joe@" is in email "joe@domain.com"
+                            has_overlap = (
+                                candidate_lower in detected_lower  # Candidate is substring of detection
+                                or detected_lower in candidate_lower  # Detection is substring of candidate
+                                or (
+                                    len(candidate_lower) >= 3
+                                    and any(  # Any 3-char chunk overlaps
+                                        candidate_lower[i : i + 3] in detected_lower
+                                        for i in range(0, len(candidate_lower) - 2, 2)  # Step by 2 for efficiency
+                                    )
+                                )
+                            )
+
+                            if has_overlap:
                                 candidates_to_mask.append((candidate, entity_type))
                                 break
 
