@@ -48,9 +48,8 @@ async def test_baseline_multiple_non_overlapping_entities() -> None:
         config,
     )
 
-    # Record baseline output - will fill in after running
+    # Record baseline output
     checked_text = result.info["checked_text"]
-    print(f"Multiple entities result: {checked_text}")
     assert "<EMAIL_ADDRESS>" in checked_text  # noqa: S101
     assert "<PHONE_NUMBER>" in checked_text  # noqa: S101
 
@@ -70,7 +69,6 @@ async def test_baseline_consecutive_entities() -> None:
 
     # Record baseline output
     checked_text = result.info["checked_text"]
-    print(f"Consecutive entities result: {checked_text}")
     assert checked_text.count("<EMAIL_ADDRESS>") == 2  # noqa: S101
 
 
@@ -81,11 +79,9 @@ async def test_baseline_entity_at_boundaries() -> None:
 
     # Email at start
     result_start = await pii(None, "user@example.com is the contact", config)
-    print(f"Entity at start: {result_start.info['checked_text']}")
 
     # Email at end
     result_end = await pii(None, "Contact: user@example.com", config)
-    print(f"Entity at end: {result_end.info['checked_text']}")
 
     assert result_start.info["checked_text"].startswith("<EMAIL_ADDRESS>")  # noqa: S101
     assert result_end.info["checked_text"].endswith("<EMAIL_ADDRESS>")  # noqa: S101
@@ -103,7 +99,6 @@ async def test_baseline_unicode_characters() -> None:
 
     # Record baseline output
     checked_text = result.info["checked_text"]
-    print(f"Unicode result: {checked_text}")
     assert "<EMAIL_ADDRESS>" in checked_text  # noqa: S101
     assert "🔒" in checked_text  # noqa: S101
 
@@ -120,7 +115,6 @@ async def test_baseline_special_characters() -> None:
 
     # Record baseline output
     checked_text = result.info["checked_text"]
-    print(f"Special chars result: {checked_text}")
     assert "[<EMAIL_ADDRESS>]" in checked_text or "Contact: <EMAIL_ADDRESS>" in checked_text  # noqa: S101
 
 
@@ -143,7 +137,6 @@ async def test_baseline_credit_card_masking() -> None:
 
     # Record baseline output
     checked_text = result.info["checked_text"]
-    print(f"Credit card result: {checked_text}")
     # Credit card detection may be inconsistent with certain formats
     if result.info["pii_detected"]:
         assert "<CREDIT_CARD>" in checked_text  # noqa: S101
@@ -165,10 +158,6 @@ async def test_baseline_phone_number_formats() -> None:
 
     result3 = await pii(None, "Mobile: 5551234567", config)
     texts_and_results.append(("5551234567", result3.info["checked_text"]))
-
-    for original, checked in texts_and_results:
-        print(f"Phone format '{original}': {checked}")
-        # At least one should be detected and masked
 
     # Check that at least the first format is detected
     assert "<PHONE_NUMBER>" in result1.info["checked_text"]  # noqa: S101
@@ -194,7 +183,6 @@ async def test_baseline_mixed_entities_complex() -> None:
 
     # Record baseline output
     checked_text = result.info["checked_text"]
-    print(f"Complex mixed result: {checked_text}")
 
     # Verify all entity types are masked
     assert "<EMAIL_ADDRESS>" in checked_text  # noqa: S101
