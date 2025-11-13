@@ -145,8 +145,8 @@ class GuardrailsBaseClient:
         elif isinstance(llm_response, Response):
             return GuardrailedResponse(guardrail_results=guardrail_results, **llm_response.__dict__)
         else:
-            # TODO: This is just a hack to make the unit test pass for now. We should fix this
-            # if we actually want to proceed with this PR.
+            # TODO: This is just a hack to make the unit test pass for now. We should fix the unit tests
+            # appropriately (and here we should just throw Exception) if we actually want to proceed with this PR.
             llm_response.guardrail_results = guardrail_results
             return llm_response
 
