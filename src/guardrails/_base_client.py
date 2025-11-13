@@ -54,22 +54,23 @@ class GuardrailResults:
         return [r for r in self.all_results if r.tripwire_triggered]
 
 
-@dataclass(frozen=True, slots=True)
-class GuardrailsResponse:
-    """Wrapper around any OpenAI response with guardrail results.
-
-    This class provides the same interface as OpenAI responses, with additional
-    guardrail results accessible via the guardrail_results attribute.
-
-    Users should access content the same way as with OpenAI responses:
-    - For chat completions: response.choices[0].message.content
-    - For responses: response.output_text
-    - For streaming: response.choices[0].delta.content
-    """
-
-    llm_response: OpenAIResponseType  # OpenAI response object (chat completion, response, etc.)
+class GuardrailedCompletion(Completion):
     guardrail_results: GuardrailResults
 
+
+class GuardrailedChatCompletion(ChatCompletion):
+    guardrail_results: GuardrailResults
+
+
+class GuardrailedChatCompletionChunk(ChatCompletionChunk):
+    guardrail_results: GuardrailResults
+
+
+class GuardrailedResponse(Response):
+    guardrail_results: GuardrailResults
+
+
+GuardrailsResponse = GuardrailedCompletion | GuardrailedChatCompletion | GuardrailedChatCompletionChunk | GuardrailedResponse
 
 class GuardrailsBaseClient:
     """Base class with shared functionality for guardrails clients."""
@@ -134,10 +135,17 @@ class GuardrailsBaseClient:
             input=input_results,
             output=output_results,
         )
-        return GuardrailsResponse(
-            llm_response=llm_response,
-            guardrail_results=guardrail_results,
-        )
+
+        if isinstance(llm_response, Completion):
+            return GuardrailedCompletion(guardrail_results=guardrail_results, **llm_response.__dict__)
+        elif isinstance(llm_response, ChatCompletion):
+            return GuardrailedChatCompletion(guardrail_results=guardrail_results, **llm_response.__dict__)
+        elif isinstance(llm_response, ChatCompletionChunk):
+            return GuardrailedChatCompletionChunk(guardrail_results=guardrail_results, **llm_response.__dict__)
+        elif isinstance(llm_response, Response):
+            return GuardrailedResponse(guardrail_results=guardrail_results, **llm_response.__dict__)
+        else:
+            raise Exception(f"Unhandled llm_response type {type(llm_response)}")
 
     def _setup_guardrails(self, config: str | Path | dict[str, Any], context: Any | None = None) -> None:
         """Setup guardrail infrastructure."""

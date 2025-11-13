@@ -70,8 +70,7 @@ async def main():
             input="Hello world"
         )
         
-        # Access OpenAI response via .llm_response
-        print(response.llm_response.output_text)
+        print(response.output_text)
         
     except GuardrailTripwireTriggered as exc:
         print(f"Guardrail triggered: {exc.guardrail_result.info}")
@@ -79,7 +78,7 @@ async def main():
 asyncio.run(main())
 ```
 
-**That's it!** Your existing OpenAI code now includes automatic guardrail validation based on your pipeline configuration. Just use `response.llm_response` instead of `response`.
+**That's it!** Your existing OpenAI code now includes automatic guardrail validation based on your pipeline configuration.
 
 ## Multi-Turn Conversations
 
@@ -98,7 +97,7 @@ while True:
             model="gpt-4o"
         )
         
-        response_content = response.llm_response.choices[0].message.content
+        response_content = response.choices[0].message.content
         print(f"Assistant: {response_content}")
         
         # ✅ Only append AFTER guardrails pass

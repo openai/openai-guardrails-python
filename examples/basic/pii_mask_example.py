@@ -90,7 +90,7 @@ async def process_input(
         )
 
         # Show the LLM response (already masked if PII was detected)
-        content = response.llm_response.choices[0].message.content
+        content = response.choices[0].message.content
         console.print(f"\n[bold blue]Assistant output:[/bold blue] {content}\n")
 
         # Show PII masking information if detected in pre-flight

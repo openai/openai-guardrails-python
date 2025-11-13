@@ -49,14 +49,14 @@ try:
         model="gpt-5",
         messages=[{"role": "user", "content": "Hello world"}],
     )
-    print(chat.llm_response.choices[0].message.content)
+    print(chat.choices[0].message.content)
 
     # Or with the Responses API
     resp = client.responses.create(
         model="gpt-5",
         input="What are the main features of your premium plan?",
     )
-    print(resp.llm_response.output_text)
+    print(resp.output_text)
 except GuardrailTripwireTriggered as e:
     print(f"Guardrail triggered: {e}")
 ```
