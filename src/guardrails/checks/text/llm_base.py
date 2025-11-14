@@ -158,13 +158,38 @@ def create_error_result(
     )
 
 
-def _build_full_prompt(system_prompt: str) -> str:
+def _format_field_instruction(name: str, annotation: Any) -> str:
+    """Return a natural language description for a response field."""
+    if name == "flagged":
+        return '- "flagged": boolean (true if detected and false otherwise)'
+    if name == "confidence":
+        return '- "confidence": float (0.0 to 1.0)'
+    if name == "reason":
+        return '- "reason": string explaining the rationale for the decision'
+
+    type_name = getattr(annotation, "__name__", None) or str(annotation)
+    normalized_type = type_name.lower()
+    if "bool" in normalized_type:
+        value_type = "boolean"
+    elif "float" in normalized_type:
+        value_type = "float"
+    elif "int" in normalized_type:
+        value_type = "integer"
+    elif "str" in normalized_type:
+        value_type = "string"
+    else:
+        value_type = normalized_type
+    return f'- "{name}": {value_type}'
+
+
+def _build_full_prompt(system_prompt: str, output_model: type[LLMOutput]) -> str:
     """Assemble a complete LLM prompt with instructions and response schema.
 
     Incorporates the supplied system prompt and specifies the required JSON response fields.
 
     Args:
         system_prompt (str): The instructions describing analysis criteria.
+        output_model (type[LLMOutput]): Pydantic model defining expected response structure.
 
     Returns:
         str: Formatted prompt string for LLM input.
@@ -173,8 +198,7 @@ def _build_full_prompt(system_prompt: str) -> str:
     {system_prompt}
 
     Respond with a json object containing:
-    - "flagged": boolean (true if detected and false otherwise)
-    - "confidence": float (0.0 to 1.0)
+    {field_instructions}
 
     Only respond with the json object, nothing else.
 
@@ -186,7 +210,14 @@ def _build_full_prompt(system_prompt: str) -> str:
 
     Analyze the following text according to the instructions above.
     """
-    return textwrap.dedent(template).strip().format(system_prompt=system_prompt)
+    field_instructions = "\n".join(
+        _format_field_instruction(name, field.annotation)
+        for name, field in output_model.model_fields.items()
+    )
+    return textwrap.dedent(template).strip().format(
+        system_prompt=system_prompt,
+        field_instructions=field_instructions,
+    )
 
 
 def _strip_json_code_fence(text: str) -> str:
@@ -282,7 +313,7 @@ async def run_llm(
     Returns:
         LLMOutput: Structured output containing the detection decision and confidence.
     """
-    full_prompt = _build_full_prompt(system_prompt)
+    full_prompt = _build_full_prompt(system_prompt, output_model)
 
     try:
         response = await _request_chat_completion(

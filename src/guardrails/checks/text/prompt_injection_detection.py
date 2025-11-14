@@ -401,5 +401,8 @@ default_spec_registry.register(
         "LLM-based analysis for prompt injection detection checking."
     ),
     media_type="text/plain",
-    metadata=GuardrailSpecMetadata(engine="LLM"),
+    metadata=GuardrailSpecMetadata(
+        engine="LLM",
+        uses_conversation_history=True,
+    ),
 )
