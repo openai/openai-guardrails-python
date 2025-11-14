@@ -292,3 +292,41 @@ async def test_jailbreak_confidence_below_threshold_not_flagged(monkeypatch: pyt
     assert result.tripwire_triggered is False
     assert result.info["flagged"] is False
     assert result.info["confidence"] == 0.95
+
+
+@pytest.mark.asyncio
+async def test_jailbreak_handles_context_without_get_conversation_history(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Guardrail should gracefully handle contexts that don't implement get_conversation_history."""
+    from dataclasses import dataclass
+
+    @dataclass(frozen=True, slots=True)
+    class MinimalContext:
+        """Context without get_conversation_history method."""
+
+        guardrail_llm: Any
+
+    recorded: dict[str, Any] = {}
+
+    async def fake_run_llm(
+        text: str,
+        system_prompt: str,
+        client: Any,
+        model: str,
+        output_model: type[LLMOutput],
+    ) -> LLMOutput:
+        recorded["text"] = text
+        return output_model(flagged=False, confidence=0.1, reason="Test")
+
+    monkeypatch.setattr("guardrails.checks.text.jailbreak.run_llm", fake_run_llm)
+
+    # Context without get_conversation_history method
+    ctx = MinimalContext(guardrail_llm=DummyGuardrailLLM())
+    config = LLMConfig(model="gpt-4.1-mini", confidence_threshold=0.5)
+
+    # Should not raise AttributeError
+    result = await jailbreak(ctx, "test input", config)
+
+    # Should treat as if no conversation history
+    payload = json.loads(recorded["text"])
+    assert payload["conversation"] == []
+    assert result.info["used_conversation_history"] is False

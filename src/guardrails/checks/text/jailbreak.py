@@ -234,7 +234,7 @@ def _build_analysis_payload(conversation_history: list[Any] | None, latest_input
 
 async def jailbreak(ctx: GuardrailLLMContextProto, data: str, config: LLMConfig) -> GuardrailResult:
     """Detect jailbreak attempts leveraging full conversation history when available."""
-    conversation_history = ctx.get_conversation_history() or []
+    conversation_history = getattr(ctx, "get_conversation_history", lambda: None)() or []
     analysis_payload = _build_analysis_payload(conversation_history, data)
 
     analysis = await run_llm(
