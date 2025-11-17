@@ -45,7 +45,7 @@ DEFAULT_BENCHMARK_MODELS = [
     "gpt-4.1-mini",
 ]
 DEFAULT_BATCH_SIZE = 32
-DEFAULT_LATENCY_ITERATIONS = 50
+DEFAULT_LATENCY_ITERATIONS = 25
 VALID_STAGES = {"pre_flight", "input", "output"}
 
 
@@ -66,6 +66,7 @@ class GuardrailEval:
         mode: str = "evaluate",
         models: Sequence[str] | None = None,
         latency_iterations: int = DEFAULT_LATENCY_ITERATIONS,
+        multi_turn: bool = False,
     ) -> None:
         """Initialize the evaluator.
 
@@ -81,6 +82,7 @@ class GuardrailEval:
             azure_api_version: Azure OpenAI API version (e.g., 2025-01-01-preview).
             mode: Evaluation mode ("evaluate" or "benchmark").
             models: Models to test in benchmark mode.
+            multi_turn: Whether to evaluate guardrails on multi-turn conversations.
             latency_iterations: Number of iterations for latency testing.
         """
         self._validate_inputs(config_path, dataset_path, batch_size, mode, latency_iterations)
@@ -97,6 +99,7 @@ class GuardrailEval:
         self.mode = mode
         self.models = models or DEFAULT_BENCHMARK_MODELS
         self.latency_iterations = latency_iterations
+        self.multi_turn = multi_turn
 
         # Validate Azure configuration
         if azure_endpoint and not AsyncAzureOpenAI:
@@ -382,7 +385,7 @@ class GuardrailEval:
             stage_bundle = getattr(pipeline_bundles, stage)
             guardrails = instantiate_guardrails(stage_bundle)
 
-            engine = AsyncRunEngine(guardrails)
+            engine = AsyncRunEngine(guardrails, multi_turn=self.multi_turn)
 
             stage_results = await engine.run(context, samples, self.batch_size, desc=f"Evaluating {stage} stage")
 
@@ -478,7 +481,7 @@ class GuardrailEval:
             model_context = self._create_context()
 
             guardrails = instantiate_guardrails(stage_bundle)
-            engine = AsyncRunEngine(guardrails)
+            engine = AsyncRunEngine(guardrails, multi_turn=self.multi_turn)
             model_results = await engine.run(model_context, samples, self.batch_size, desc=f"Benchmarking {model}")
 
             guardrail_config = stage_bundle.guardrails[0].config if stage_bundle.guardrails else None
@@ -586,6 +589,11 @@ Examples:
         default=Path("results"),
         help="Directory to save evaluation results (default: results)",
     )
+    parser.add_argument(
+        "--multi-turn",
+        action="store_true",
+        help="Process conversation-aware guardrails incrementally turn-by-turn instead of a single pass.",
+    )
 
     # API configuration
     parser.add_argument(
@@ -687,6 +695,11 @@ Examples:
             print(f"   Models: {', '.join(args.models or DEFAULT_BENCHMARK_MODELS)}")
             print(f"   Latency iterations: {args.latency_iterations}")
 
+        if args.multi_turn:
+            print("   Conversation handling: multi-turn incremental")
+        else:
+            print("   Conversation handling: single-pass")
+
         eval = GuardrailEval(
             config_path=args.config_path,
             dataset_path=args.dataset_path,
@@ -700,6 +713,7 @@ Examples:
             mode=args.mode,
             models=args.models,
             latency_iterations=args.latency_iterations,
+            multi_turn=args.multi_turn,
         )
 
         asyncio.run(eval.run())

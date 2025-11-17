@@ -150,3 +150,7 @@ uv.lock
 
 # Internal files
 internal_examples/
+scripts/
+PROJECT_CONTEXT.md
+PR_READINESS_CHECKLIST.md
+sys_prompts/

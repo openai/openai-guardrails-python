@@ -37,11 +37,17 @@ class GuardrailSpecMetadata(BaseModel):
     Attributes:
         engine (str | None): Short string identifying the implementation type or
             engine backing the guardrail (e.g., "regex", "LLM", "API"). Optional.
+        uses_conversation_history (bool): Whether the guardrail analyzes conversation
+            history in addition to the current input. Defaults to False.
     """
 
     engine: str | None = Field(
         default=None,
         description="How the guardrail is implemented (regex/LLM/etc.)",
+    )
+    uses_conversation_history: bool = Field(
+        default=False,
+        description="Whether this guardrail requires conversation history for analysis",
     )
 
     model_config = ConfigDict(extra="allow")
