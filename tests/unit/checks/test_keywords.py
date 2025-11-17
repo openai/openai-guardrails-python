@@ -142,3 +142,55 @@ def test_match_keywords_applies_boundaries_to_all_keywords() -> None:
 
     assert result.tripwire_triggered is True  # noqa: S101
     assert result.info["matched"] == ["hello", "world"]  # noqa: S101
+
+
+def test_match_keywords_detects_email_like_patterns() -> None:
+    """Email-like keywords starting with punctuation should match after word chars."""
+    config = KeywordCfg(keywords=["@corp.com"])
+    result = match_keywords("foo@corp.com", config, guardrail_name="Test Guardrail")
+
+    assert result.tripwire_triggered is True  # noqa: S101
+    assert result.info["matched"] == ["@corp.com"]  # noqa: S101
+
+
+def test_match_keywords_detects_hashtag_patterns() -> None:
+    """Hashtag keywords starting with punctuation should match after word chars."""
+    config = KeywordCfg(keywords=["#leak"])
+    result = match_keywords("abc#leak", config, guardrail_name="Test Guardrail")
+
+    assert result.tripwire_triggered is True  # noqa: S101
+    assert result.info["matched"] == ["#leak"]  # noqa: S101
+
+
+def test_match_keywords_respects_end_boundary_for_punctuation_prefixed() -> None:
+    """Punctuation-prefixed keywords ending with word chars need end boundary."""
+    config = KeywordCfg(keywords=["@leak"])
+    # Should not match when word chars continue after
+    result = match_keywords("foo@leakmore", config, guardrail_name="Test Guardrail")
+    assert result.tripwire_triggered is False  # noqa: S101
+
+    # Should match when followed by non-word char
+    result = match_keywords("foo@leak bar", config, guardrail_name="Test Guardrail")
+    assert result.tripwire_triggered is True  # noqa: S101
+    assert result.info["matched"] == ["@leak"]  # noqa: S101
+
+
+def test_match_keywords_handles_full_punctuation_keywords() -> None:
+    """Keywords consisting only of punctuation should match anywhere."""
+    config = KeywordCfg(keywords=["@#$"])
+    result = match_keywords("test@#$test", config, guardrail_name="Test Guardrail")
+
+    assert result.tripwire_triggered is True  # noqa: S101
+    assert result.info["matched"] == ["@#$"]  # noqa: S101
+
+
+def test_match_keywords_mixed_punctuation_and_word_chars() -> None:
+    """Keywords with both punctuation prefix and suffix should work correctly."""
+    config = KeywordCfg(keywords=["@user@"])
+    # Should match when embedded
+    result = match_keywords("test@user@test", config, guardrail_name="Test Guardrail")
+    assert result.tripwire_triggered is True  # noqa: S101
+
+    # Should not match when word chars continue into the keyword
+    result = match_keywords("test@user@more", config, guardrail_name="Test Guardrail")
+    assert result.tripwire_triggered is True  # noqa: S101
