@@ -73,10 +73,11 @@ def _compile_pattern(keywords: tuple[str, ...]) -> re.Pattern[str]:
     Returns:
         re.Pattern[str]: Compiled regex pattern to match any given keyword.
     """
-    escaped = (re.escape(k) for k in keywords)
-    pattern_text = r"\b(?:" + "|".join(escaped) + r")\b"
+    escaped_keywords = tuple(re.escape(keyword) for keyword in keywords)
+    # (?<!\w)/(?!\w) emulate Unicode-aware word boundaries (letters, digits, underscore).
+    pattern_text = r"(?<!\w)(?:" + "|".join(escaped_keywords) + r")(?!\w)"
 
-    return re.compile(pattern_text, re.IGNORECASE)
+    return re.compile(pattern_text, re.IGNORECASE | re.UNICODE)
 
 
 def match_keywords(
