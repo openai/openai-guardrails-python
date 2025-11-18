@@ -284,14 +284,13 @@ class GuardrailEval:
         samples = loader.load(self.dataset_path)
         logger.info('event="benchmark_samples_loaded" duration_ms=0 count=%d', len(samples))
 
-        context = self._create_context()
         benchmark_calculator = BenchmarkMetricsCalculator()
         basic_calculator = GuardrailMetricsCalculator()
         benchmark_reporter = BenchmarkReporter(self.output_dir)
 
         # Run benchmark for all models
         results_by_model, metrics_by_model = await self._benchmark_all_models(
-            stage_to_test, guardrail_name, samples, context, benchmark_calculator, basic_calculator
+            stage_to_test, guardrail_name, samples, benchmark_calculator, basic_calculator
         )
 
         # Run latency testing
@@ -506,7 +505,6 @@ class GuardrailEval:
         stage_to_test: str,
         guardrail_name: str,
         samples: list[Sample],
-        context: Context,
         benchmark_calculator: BenchmarkMetricsCalculator,
         basic_calculator: GuardrailMetricsCalculator,
     ) -> tuple[dict[str, list], dict[str, dict]]:
@@ -543,7 +541,6 @@ class GuardrailEval:
                         model,
                         modified_stage_bundle,
                         samples,
-                        context,
                         guardrail_name,
                         benchmark_calculator,
                         basic_calculator,
@@ -601,7 +598,6 @@ class GuardrailEval:
         model: str,
         stage_bundle,
         samples: list[Sample],
-        context: Context,
         guardrail_name: str,
         benchmark_calculator: BenchmarkMetricsCalculator,
         basic_calculator: GuardrailMetricsCalculator,
