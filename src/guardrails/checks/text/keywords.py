@@ -79,8 +79,8 @@ def _compile_pattern(keywords: tuple[str, ...]) -> re.Pattern[str]:
     for keyword in keywords:
         escaped = re.escape(keyword)
         # Check first and last character of the original keyword for word character status
-        starts_with_word_char = keyword and keyword[0].isalnum() or (keyword and keyword[0] == "_")
-        ends_with_word_char = keyword and keyword[-1].isalnum() or (keyword and keyword[-1] == "_")
+        starts_with_word_char = keyword and (keyword[0].isalnum() or keyword[0] == "_")
+        ends_with_word_char = keyword and (keyword[-1].isalnum() or keyword[-1] == "_")
 
         prefix = r"(?<!\w)" if starts_with_word_char else ""
         suffix = r"(?!\w)" if ends_with_word_char else ""

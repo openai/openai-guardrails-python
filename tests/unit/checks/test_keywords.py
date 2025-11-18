@@ -191,6 +191,6 @@ def test_match_keywords_mixed_punctuation_and_word_chars() -> None:
     result = match_keywords("test@user@test", config, guardrail_name="Test Guardrail")
     assert result.tripwire_triggered is True  # noqa: S101
 
-    # Should not match when word chars continue into the keyword
+    # Should match even when followed by more text (no boundaries applied to punctuation edges)
     result = match_keywords("test@user@more", config, guardrail_name="Test Guardrail")
     assert result.tripwire_triggered is True  # noqa: S101
