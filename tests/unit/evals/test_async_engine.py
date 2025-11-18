@@ -9,7 +9,7 @@ import pytest
 
 from guardrails.evals.core.async_engine import (
     _parse_conversation_payload,
-    _run_incremental_prompt_injection,
+    _run_incremental_guardrails,
 )
 from guardrails.types import GuardrailResult
 
@@ -61,7 +61,7 @@ async def test_incremental_prompt_injection_stops_on_trigger() -> None:
     histories: list[list[Any]] = []
     client = _FakeClient(sequences, histories)
 
-    results = await _run_incremental_prompt_injection(client, conversation)
+    results = await _run_incremental_guardrails(client, conversation)
 
     assert client._call_index == 2  # noqa: S101
     assert histories[0] == conversation[:1]  # noqa: S101
@@ -89,7 +89,7 @@ async def test_incremental_prompt_injection_returns_last_result_when_no_trigger(
     histories: list[list[Any]] = []
     client = _FakeClient(sequences, histories)
 
-    results = await _run_incremental_prompt_injection(client, conversation)
+    results = await _run_incremental_guardrails(client, conversation)
 
     assert client._call_index == 3  # noqa: S101
     assert results == sequences[-1]  # noqa: S101

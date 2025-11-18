@@ -58,9 +58,11 @@ def test_strip_json_code_fence_removes_wrapping() -> None:
 
 def test_build_full_prompt_includes_instructions() -> None:
     """Generated prompt should embed system instructions and schema guidance."""
-    prompt = _build_full_prompt("Analyze text")
+    prompt = _build_full_prompt("Analyze text", LLMOutput)
     assert "Analyze text" in prompt  # noqa: S101
     assert "Respond with a json object" in prompt  # noqa: S101
+    assert "flagged" in prompt  # noqa: S101
+    assert "confidence" in prompt  # noqa: S101
 
 
 @pytest.mark.asyncio

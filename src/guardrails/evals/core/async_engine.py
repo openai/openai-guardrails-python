@@ -19,8 +19,17 @@ from .types import Context, RunEngine, Sample, SampleResult
 logger = logging.getLogger(__name__)
 
 
-def _safe_getattr(obj: Any, key: str, default: Any = None) -> Any:
-    """Get attribute or dict key defensively."""
+def _safe_getattr(obj: dict[str, Any] | Any, key: str, default: Any = None) -> Any:
+    """Get attribute or dict key defensively.
+
+    Args:
+        obj: Dictionary or object to query
+        key: Attribute or dictionary key name
+        default: Default value if key not found
+
+    Returns:
+        Value of the attribute/key, or default if not found
+    """
     if isinstance(obj, dict):
         return obj.get(key, default)
     return getattr(obj, key, default)
@@ -59,8 +68,18 @@ def _parse_conversation_payload(data: str) -> list[Any]:
         return [{"role": "user", "content": data}]
 
 
-def _annotate_prompt_injection_result(result: Any, turn_index: int, message: Any) -> None:
-    """Annotate guardrail result with incremental evaluation metadata."""
+def _annotate_prompt_injection_result(
+    result: Any,
+    turn_index: int,
+    message: dict[str, Any] | Any,
+) -> None:
+    """Annotate guardrail result with incremental evaluation metadata.
+
+    Args:
+        result: GuardrailResult to annotate
+        turn_index: Index of the conversation turn (0-based)
+        message: Message object being evaluated (dict or object format)
+    """
     role = _safe_getattr(message, "role")
     msg_type = _safe_getattr(message, "type")
     info = result.info
@@ -78,11 +97,22 @@ def _annotate_prompt_injection_result(result: Any, turn_index: int, message: Any
         info["trigger_message"] = message
 
 
-async def _run_incremental_prompt_injection(
+async def _run_incremental_guardrails(
     client: GuardrailsAsyncOpenAI,
-    conversation_history: list[Any],
+    conversation_history: list[dict[str, Any]],
 ) -> list[Any]:
-    """Run prompt injection guardrail incrementally over a conversation."""
+    """Run guardrails incrementally over a conversation history.
+
+    Processes the conversation turn-by-turn, checking for violations at each step.
+    Stops on the first turn that triggers any guardrail.
+
+    Args:
+        client: GuardrailsAsyncOpenAI client with configured guardrails
+        conversation_history: Normalized conversation history (list of message dicts)
+
+    Returns:
+        List of guardrail results from the triggering turn (or final turn if none triggered)
+    """
     latest_results: list[Any] = []
 
     for turn_index in range(len(conversation_history)):
@@ -96,11 +126,16 @@ async def _run_incremental_prompt_injection(
 
         latest_results = stage_results or latest_results
 
+        triggered = False
         for result in stage_results:
-            if result.info.get("guardrail_name") == "Prompt Injection Detection":
+            guardrail_name = result.info.get("guardrail_name")
+            if guardrail_name == "Prompt Injection Detection":
                 _annotate_prompt_injection_result(result, turn_index, current_history[-1])
-                if result.tripwire_triggered:
-                    return stage_results
+            if result.tripwire_triggered:
+                triggered = True
+
+        if triggered:
+            return stage_results
 
     return latest_results
 
@@ -108,14 +143,16 @@ async def _run_incremental_prompt_injection(
 class AsyncRunEngine(RunEngine):
     """Runs guardrail evaluations asynchronously."""
 
-    def __init__(self, guardrails: list[Any]) -> None:
+    def __init__(self, guardrails: list[Any], *, multi_turn: bool = False) -> None:
         """Initialize the run engine.
 
         Args:
             guardrails: List of configured guardrails to evaluate
+            multi_turn: Whether to evaluate guardrails on multi-turn conversations
         """
         self.guardrails = guardrails
         self.guardrail_names = [g.definition.name for g in guardrails]
+        self.multi_turn = multi_turn
         logger.info(
             "Initialized engine with %d guardrails: %s",
             len(self.guardrail_names),
@@ -220,9 +257,12 @@ class AsyncRunEngine(RunEngine):
             Evaluation result for the sample
         """
         try:
-            # Detect if this sample requires conversation history
-            conversation_aware_names = {"Prompt Injection Detection", "Jailbreak"}
-            needs_conversation_history = any(name in sample.expected_triggers for name in conversation_aware_names)
+            # Detect if this sample requires conversation history by checking guardrail metadata
+            needs_conversation_history = any(
+                guardrail.definition.metadata and guardrail.definition.metadata.uses_conversation_history
+                for guardrail in self.guardrails
+                if guardrail.definition.name in sample.expected_triggers
+            )
 
             if needs_conversation_history:
                 try:
@@ -240,7 +280,7 @@ class AsyncRunEngine(RunEngine):
                                     "config": (guardrail.config.__dict__ if hasattr(guardrail.config, "__dict__") else guardrail.config),
                                 }
                                 for guardrail in self.guardrails
-                                if guardrail.definition.name in conversation_aware_names
+                                if guardrail.definition.metadata and guardrail.definition.metadata.uses_conversation_history
                             ],
                         },
                     }
@@ -254,15 +294,12 @@ class AsyncRunEngine(RunEngine):
                     # Normalize conversation history using the client's normalization
                     normalized_conversation = temp_client._normalize_conversation(conversation_history)
 
-                    # Prompt injection detection uses incremental evaluation (per turn)
-                    # Jailbreak uses full conversation evaluation
-                    if "Prompt Injection Detection" in sample.expected_triggers:
-                        results = await _run_incremental_prompt_injection(
+                    if self.multi_turn:
+                        results = await _run_incremental_guardrails(
                             temp_client,
                             normalized_conversation,
                         )
                     else:
-                        # Jailbreak or other conversation-aware guardrails
                         results = await temp_client._run_stage_guardrails(
                             stage_name="output",
                             text="",

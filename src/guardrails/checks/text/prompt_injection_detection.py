@@ -232,7 +232,7 @@ async def prompt_injection_detection(
     """
     try:
         # Get conversation history (already normalized by the client)
-        conversation_history = ctx.get_conversation_history() or []
+        conversation_history = getattr(ctx, "get_conversation_history", lambda: None)() or []
         if not conversation_history:
             return _create_skip_result(
                 "No conversation history available",
@@ -401,5 +401,8 @@ default_spec_registry.register(
         "LLM-based analysis for prompt injection detection checking."
     ),
     media_type="text/plain",
-    metadata=GuardrailSpecMetadata(engine="LLM"),
+    metadata=GuardrailSpecMetadata(
+        engine="LLM",
+        uses_conversation_history=True,
+    ),
 )
