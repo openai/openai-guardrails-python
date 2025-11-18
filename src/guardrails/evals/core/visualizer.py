@@ -12,6 +12,7 @@ from typing import Any
 import matplotlib.pyplot as plt
 import numpy as np
 import seaborn as sns
+from sklearn.metrics import roc_auc_score, roc_curve
 
 logger = logging.getLogger(__name__)
 
@@ -111,10 +112,8 @@ class BenchmarkVisualizer:
                 continue
 
             try:
-                from sklearn.metrics import roc_curve
-
                 fpr, tpr, _ = roc_curve(y_true, y_scores)
-                roc_auc = np.trapz(tpr, fpr)
+                roc_auc = roc_auc_score(y_true, y_scores)
                 ax.plot(fpr, tpr, label=f"{model_name} (AUC = {roc_auc:.3f})", linewidth=2)
             except Exception as e:
                 logger.error("Failed to calculate ROC curve for model %s: %s", model_name, e)
@@ -144,14 +143,24 @@ class BenchmarkVisualizer:
         y_scores = []
 
         for result in results:
-            if guardrail_name in result.expected_triggers:
-                expected = result.expected_triggers[guardrail_name]
-                actual = result.triggered.get(guardrail_name, False)
+            if guardrail_name not in result.expected_triggers:
+                logger.warning("Guardrail '%s' not found in expected_triggers for sample %s", guardrail_name, result.id)
+                continue
 
-                y_true.append(1 if expected else 0)
-                y_scores.append(1 if actual else 0)
+            expected = result.expected_triggers[guardrail_name]
+            y_true.append(1 if expected else 0)
+            y_scores.append(self._get_confidence_score(result, guardrail_name))
 
         return y_true, y_scores
+
+    def _get_confidence_score(self, result: Any, guardrail_name: str) -> float:
+        """Extract the model-reported confidence score for plotting."""
+        if guardrail_name in result.details:
+            guardrail_details = result.details[guardrail_name]
+            if isinstance(guardrail_details, dict) and "confidence" in guardrail_details:
+                return float(guardrail_details["confidence"])
+
+        return 1.0 if result.triggered.get(guardrail_name, False) else 0.0
 
     def create_latency_comparison_chart(self, latency_results: dict[str, dict[str, Any]]) -> Path:
         """Create a chart comparing latency across models."""
