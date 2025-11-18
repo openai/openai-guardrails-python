@@ -188,7 +188,7 @@ class GuardrailEval:
             chunk_size: Optional maximum chunk size to enforce.
 
         Returns:
-            Iterator yielding slices of the provided samples.
+            Iterator yielding chunks of the provided samples.
 
         Raises:
             ValueError: If chunk_size is non-positive when provided.
@@ -771,7 +771,7 @@ Examples:
     parser.add_argument(
         "--max-parallel-models",
         type=int,
-        help="Maximum number of models to benchmark concurrently (default: min(models, cpu_count))",
+        help="Maximum number of models to benchmark concurrently (default: max(1, min(model_count, cpu_count)))",
     )
     parser.add_argument(
         "--benchmark-chunk-size",

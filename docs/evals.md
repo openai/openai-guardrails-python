@@ -67,7 +67,7 @@ This installs:
 | `--azure-api-version` | ❌ | Azure OpenAI API version (default: 2025-01-01-preview) |
 | `--models` | ❌ | Models for benchmark mode (benchmark only) |
 | `--latency-iterations` | ❌ | Latency test samples (default: 25) (benchmark only) |
-| `--max-parallel-models` | ❌ | Maximum number of models to benchmark concurrently (default: min(models, cpu_count)) (benchmark only) |
+| `--max-parallel-models` | ❌ | Maximum number of models to benchmark concurrently (default: max(1, min(model_count, cpu_count))) (benchmark only) |
 | `--benchmark-chunk-size` | ❌ | Optional number of samples per chunk when benchmarking to limit long-running runs (benchmark only) |
 
 ## Configuration
