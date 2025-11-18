@@ -67,6 +67,8 @@ This installs:
 | `--azure-api-version` | ❌ | Azure OpenAI API version (default: 2025-01-01-preview) |
 | `--models` | ❌ | Models for benchmark mode (benchmark only) |
 | `--latency-iterations` | ❌ | Latency test samples (default: 25) (benchmark only) |
+| `--max-parallel-models` | ❌ | Maximum number of models to benchmark concurrently (default: min(models, cpu_count)) (benchmark only) |
+| `--benchmark-chunk-size` | ❌ | Optional number of samples per chunk when benchmarking to limit long-running runs (benchmark only) |
 
 ## Configuration
 
@@ -205,6 +207,8 @@ guardrails-evals \
 - **Automatic stage detection**: Evaluates all stages found in configuration
 - **Batch processing**: Configurable parallel processing
 - **Benchmark mode**: Model performance comparison with ROC AUC, precision at recall thresholds
+- **Parallel benchmarking**: Run multiple models concurrently (defaults to CPU count)
+- **Benchmark chunking**: Process large datasets in chunks for better progress tracking
 - **Latency testing**: End-to-end guardrail performance measurement
 - **Visualization**: Automatic chart and graph generation
 - **Multi-provider support**: OpenAI, Azure OpenAI, Ollama, vLLM, and other OpenAI-compatible APIs
