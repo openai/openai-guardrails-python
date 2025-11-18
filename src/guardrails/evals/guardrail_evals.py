@@ -512,18 +512,18 @@ class GuardrailEval:
         pipeline_bundles = load_pipeline_bundles(self.config_path)
         stage_bundle = getattr(pipeline_bundles, stage_to_test)
 
-        results_by_model = {}
-        metrics_by_model = {}
-
         semaphore = asyncio.Semaphore(self.max_parallel_models)
         total_models = len(self.models)
 
-        async def run_model_task(index: int, model: str) -> None:
+        async def run_model_task(index: int, model: str) -> tuple[str, dict[str, Any]]:
             """Execute a benchmark task under concurrency control.
 
             Args:
                 index: One-based position of the model being benchmarked.
                 model: Identifier of the model to benchmark.
+
+            Returns:
+                Tuple of (model_name, results_dict) where results_dict contains "results" and "metrics" keys.
             """
             async with semaphore:
                 start_time = time.perf_counter()
@@ -549,34 +549,38 @@ class GuardrailEval:
                     elapsed_ms = (time.perf_counter() - start_time) * 1000
 
                     if model_results:
-                        results_by_model[model] = model_results["results"]
-                        metrics_by_model[model] = model_results["metrics"]
                         logger.info(
                             'event="benchmark_model_complete" duration_ms=%.2f model="%s" status="success"',
                             elapsed_ms,
                             model,
                         )
+                        return (model, model_results)
                     else:
-                        results_by_model[model] = []
-                        metrics_by_model[model] = {}
                         logger.warning(
                             'event="benchmark_model_empty" duration_ms=%.2f model="%s" status="no_results"',
                             elapsed_ms,
                             model,
                         )
+                        return (model, {"results": [], "metrics": {}})
 
                 except Exception as e:
                     elapsed_ms = (time.perf_counter() - start_time) * 1000
-                    results_by_model[model] = []
-                    metrics_by_model[model] = {}
                     logger.error(
                         'event="benchmark_model_failure" duration_ms=%.2f model="%s" error="%s"',
                         elapsed_ms,
                         model,
                         e,
                     )
+                    return (model, {"results": [], "metrics": {}})
 
-        await asyncio.gather(*(run_model_task(index, model) for index, model in enumerate(self.models, start=1)))
+        task_results = await asyncio.gather(*(run_model_task(index, model) for index, model in enumerate(self.models, start=1)))
+
+        # Build dictionaries from collected results
+        results_by_model: dict[str, list] = {}
+        metrics_by_model: dict[str, dict] = {}
+        for model, result_dict in task_results:
+            results_by_model[model] = result_dict["results"]
+            metrics_by_model[model] = result_dict["metrics"]
 
         # Log summary
         successful_models = [model for model in self.models if results_by_model.get(model)]
