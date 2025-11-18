@@ -9,8 +9,11 @@ import argparse
 import asyncio
 import copy
 import logging
+import math
+import os
 import sys
-from collections.abc import Sequence
+import time
+from collections.abc import Iterator, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -33,7 +36,7 @@ from guardrails.evals.core import (
     JsonResultsReporter,
     LatencyTester,
 )
-from guardrails.evals.core.types import Context
+from guardrails.evals.core.types import Context, Sample
 
 logger = logging.getLogger(__name__)
 
@@ -67,6 +70,8 @@ class GuardrailEval:
         models: Sequence[str] | None = None,
         latency_iterations: int = DEFAULT_LATENCY_ITERATIONS,
         multi_turn: bool = False,
+        max_parallel_models: int | None = None,
+        benchmark_chunk_size: int | None = None,
     ) -> None:
         """Initialize the evaluator.
 
@@ -84,8 +89,18 @@ class GuardrailEval:
             models: Models to test in benchmark mode.
             multi_turn: Whether to evaluate guardrails on multi-turn conversations.
             latency_iterations: Number of iterations for latency testing.
+            max_parallel_models: Maximum number of models to benchmark concurrently.
+            benchmark_chunk_size: Optional sample chunk size for per-model benchmarking.
         """
-        self._validate_inputs(config_path, dataset_path, batch_size, mode, latency_iterations)
+        self._validate_inputs(
+            config_path,
+            dataset_path,
+            batch_size,
+            mode,
+            latency_iterations,
+            max_parallel_models,
+            benchmark_chunk_size,
+        )
 
         self.config_path = config_path
         self.dataset_path = dataset_path
@@ -97,7 +112,9 @@ class GuardrailEval:
         self.azure_endpoint = azure_endpoint
         self.azure_api_version = azure_api_version or "2025-01-01-preview"
         self.mode = mode
-        self.models = models or DEFAULT_BENCHMARK_MODELS
+        self.models = list(models) if models else list(DEFAULT_BENCHMARK_MODELS)
+        self.max_parallel_models = self._determine_parallel_model_limit(len(self.models), max_parallel_models)
+        self.benchmark_chunk_size = benchmark_chunk_size
         self.latency_iterations = latency_iterations
         self.multi_turn = multi_turn
 
@@ -105,7 +122,16 @@ class GuardrailEval:
         if azure_endpoint and not AsyncAzureOpenAI:
             raise ValueError("Azure OpenAI support requires openai>=1.0.0. Please upgrade: pip install --upgrade openai")
 
-    def _validate_inputs(self, config_path: Path, dataset_path: Path, batch_size: int, mode: str, latency_iterations: int) -> None:
+    def _validate_inputs(
+        self,
+        config_path: Path,
+        dataset_path: Path,
+        batch_size: int,
+        mode: str,
+        latency_iterations: int,
+        max_parallel_models: int | None,
+        benchmark_chunk_size: int | None,
+    ) -> None:
         """Validate input parameters."""
         if not config_path.exists():
             raise ValueError(f"Config file not found: {config_path}")
@@ -121,6 +147,61 @@ class GuardrailEval:
 
         if latency_iterations <= 0:
             raise ValueError(f"Latency iterations must be positive, got: {latency_iterations}")
+
+        if max_parallel_models is not None and max_parallel_models <= 0:
+            raise ValueError(f"max_parallel_models must be positive, got: {max_parallel_models}")
+
+        if benchmark_chunk_size is not None and benchmark_chunk_size <= 0:
+            raise ValueError(f"benchmark_chunk_size must be positive, got: {benchmark_chunk_size}")
+
+    @staticmethod
+    def _determine_parallel_model_limit(model_count: int, requested_limit: int | None) -> int:
+        """Resolve the number of benchmark tasks that can run concurrently.
+
+        Args:
+            model_count: Total number of models scheduled for benchmarking.
+            requested_limit: Optional user-provided parallelism limit.
+
+        Returns:
+            Number of concurrent benchmark tasks to run.
+
+        Raises:
+            ValueError: If either model_count or requested_limit is invalid.
+        """
+        if model_count <= 0:
+            raise ValueError("model_count must be positive")
+
+        if requested_limit is not None:
+            if requested_limit <= 0:
+                raise ValueError("max_parallel_models must be positive")
+            return min(requested_limit, model_count)
+
+        cpu_count = os.cpu_count() or 1
+        return max(1, min(cpu_count, model_count))
+
+    @staticmethod
+    def _chunk_samples(samples: list[Sample], chunk_size: int | None) -> Iterator[list[Sample]]:
+        """Yield contiguous sample chunks respecting the configured chunk size.
+
+        Args:
+            samples: Samples to evaluate.
+            chunk_size: Optional maximum chunk size to enforce.
+
+        Returns:
+            Iterator yielding slices of the provided samples.
+
+        Raises:
+            ValueError: If chunk_size is non-positive when provided.
+        """
+        if chunk_size is not None and chunk_size <= 0:
+            raise ValueError("chunk_size must be positive when provided")
+
+        if not samples or chunk_size is None or chunk_size >= len(samples):
+            yield samples
+            return
+
+        for start in range(0, len(samples), chunk_size):
+            yield samples[start : start + chunk_size]
 
     async def run(self) -> None:
         """Run the evaluation pipeline for all specified stages."""
@@ -178,7 +259,13 @@ class GuardrailEval:
 
     async def _run_benchmark(self) -> None:
         """Run benchmark mode comparing multiple models."""
-        logger.info("Running benchmark mode with models: %s", ", ".join(self.models))
+        logger.info('event="benchmark_start" duration_ms=0 models="%s"', ", ".join(self.models))
+        logger.info(
+            'event="benchmark_parallel_config" duration_ms=0 parallel_limit=%d chunk_size=%s batch_size=%d',
+            self.max_parallel_models,
+            self.benchmark_chunk_size if self.benchmark_chunk_size else "dataset",
+            self.batch_size,
+        )
 
         pipeline_bundles = load_pipeline_bundles(self.config_path)
         stage_to_test, guardrail_name = self._get_benchmark_target(pipeline_bundles)
@@ -191,11 +278,11 @@ class GuardrailEval:
                 "Benchmark mode requires LLM-based guardrails with configurable models."
             )
 
-        logger.info("Benchmarking guardrail '%s' from stage '%s'", guardrail_name, stage_to_test)
+        logger.info('event="benchmark_target" duration_ms=0 guardrail="%s" stage="%s"', guardrail_name, stage_to_test)
 
         loader = JsonlDatasetLoader()
         samples = loader.load(self.dataset_path)
-        logger.info("Loaded %d samples for benchmarking", len(samples))
+        logger.info('event="benchmark_samples_loaded" duration_ms=0 count=%d', len(samples))
 
         context = self._create_context()
         benchmark_calculator = BenchmarkMetricsCalculator()
@@ -208,7 +295,7 @@ class GuardrailEval:
         )
 
         # Run latency testing
-        logger.info("Running latency tests for all models")
+        logger.info('event="benchmark_latency_start" duration_ms=0 model_count=%d', len(self.models))
         latency_results = await self._run_latency_tests(stage_to_test, samples)
 
         # Save benchmark results
@@ -217,14 +304,14 @@ class GuardrailEval:
         )
 
         # Create visualizations
-        logger.info("Generating visualizations")
+        logger.info('event="benchmark_visualization_start" duration_ms=0 guardrail="%s"', guardrail_name)
         visualizer = BenchmarkVisualizer(benchmark_dir / "graphs")
         visualization_files = visualizer.create_all_visualizations(
             results_by_model, metrics_by_model, latency_results, guardrail_name, samples[0].expected_triggers if samples else {}
         )
 
-        logger.info("Benchmark completed. Results saved to: %s", benchmark_dir)
-        logger.info("Generated %d visualizations", len(visualization_files))
+        logger.info('event="benchmark_complete" duration_ms=0 output="%s"', benchmark_dir)
+        logger.info('event="benchmark_visualization_complete" duration_ms=0 count=%d', len(visualization_files))
 
     def _has_model_configuration(self, stage_bundle) -> bool:
         """Check if the guardrail has a model configuration."""
@@ -242,7 +329,7 @@ class GuardrailEval:
 
         return False
 
-    async def _run_latency_tests(self, stage_to_test: str, samples: list) -> dict[str, Any]:
+    async def _run_latency_tests(self, stage_to_test: str, samples: list[Sample]) -> dict[str, Any]:
         """Run latency tests for all models."""
         latency_results = {}
         latency_tester = LatencyTester(iterations=self.latency_iterations)
@@ -378,7 +465,7 @@ class GuardrailEval:
             return valid_requested_stages
 
     async def _evaluate_single_stage(
-        self, stage: str, pipeline_bundles, samples: list, context: Context, calculator: GuardrailMetricsCalculator
+        self, stage: str, pipeline_bundles, samples: list[Sample], context: Context, calculator: GuardrailMetricsCalculator
     ) -> dict[str, Any] | None:
         """Evaluate a single pipeline stage."""
         try:
@@ -418,7 +505,7 @@ class GuardrailEval:
         self,
         stage_to_test: str,
         guardrail_name: str,
-        samples: list,
+        samples: list[Sample],
         context: Context,
         benchmark_calculator: BenchmarkMetricsCalculator,
         basic_calculator: GuardrailMetricsCalculator,
@@ -430,39 +517,82 @@ class GuardrailEval:
         results_by_model = {}
         metrics_by_model = {}
 
-        for i, model in enumerate(self.models, 1):
-            logger.info("Testing model %d/%d: %s", i, len(self.models), model)
+        semaphore = asyncio.Semaphore(self.max_parallel_models)
+        total_models = len(self.models)
 
-            try:
-                modified_stage_bundle = self._create_model_specific_stage_bundle(stage_bundle, model)
+        async def run_model_task(index: int, model: str) -> None:
+            """Execute a benchmark task under concurrency control.
 
-                model_results = await self._benchmark_single_model(
-                    model, modified_stage_bundle, samples, context, guardrail_name, benchmark_calculator, basic_calculator
+            Args:
+                index: One-based position of the model being benchmarked.
+                model: Identifier of the model to benchmark.
+            """
+            async with semaphore:
+                start_time = time.perf_counter()
+                logger.info(
+                    'event="benchmark_model_start" duration_ms=0 model="%s" position=%d total=%d',
+                    model,
+                    index,
+                    total_models,
                 )
 
-                if model_results:
-                    results_by_model[model] = model_results["results"]
-                    metrics_by_model[model] = model_results["metrics"]
-                    logger.info("Completed benchmarking for model %s (%d/%d)", model, i, len(self.models))
-                else:
-                    logger.warning("Model %s benchmark returned no results (%d/%d)", model, i, len(self.models))
+                try:
+                    modified_stage_bundle = self._create_model_specific_stage_bundle(stage_bundle, model)
+
+                    model_results = await self._benchmark_single_model(
+                        model,
+                        modified_stage_bundle,
+                        samples,
+                        context,
+                        guardrail_name,
+                        benchmark_calculator,
+                        basic_calculator,
+                    )
+
+                    elapsed_ms = (time.perf_counter() - start_time) * 1000
+
+                    if model_results:
+                        results_by_model[model] = model_results["results"]
+                        metrics_by_model[model] = model_results["metrics"]
+                        logger.info(
+                            'event="benchmark_model_complete" duration_ms=%.2f model="%s" status="success"',
+                            elapsed_ms,
+                            model,
+                        )
+                    else:
+                        results_by_model[model] = []
+                        metrics_by_model[model] = {}
+                        logger.warning(
+                            'event="benchmark_model_empty" duration_ms=%.2f model="%s" status="no_results"',
+                            elapsed_ms,
+                            model,
+                        )
+
+                except Exception as e:
+                    elapsed_ms = (time.perf_counter() - start_time) * 1000
                     results_by_model[model] = []
                     metrics_by_model[model] = {}
+                    logger.error(
+                        'event="benchmark_model_failure" duration_ms=%.2f model="%s" error="%s"',
+                        elapsed_ms,
+                        model,
+                        e,
+                    )
 
-            except Exception as e:
-                logger.error("Failed to benchmark model %s (%d/%d): %s", model, i, len(self.models), e)
-                results_by_model[model] = []
-                metrics_by_model[model] = {}
+        await asyncio.gather(*(run_model_task(index, model) for index, model in enumerate(self.models, start=1)))
 
         # Log summary
-        successful_models = [model for model, results in results_by_model.items() if results]
-        failed_models = [model for model, results in results_by_model.items() if not results]
+        successful_models = [model for model in self.models if results_by_model.get(model)]
+        failed_models = [model for model in self.models if not results_by_model.get(model)]
 
-        logger.info("BENCHMARK SUMMARY")
-        logger.info("Successful models: %s", ", ".join(successful_models) if successful_models else "None")
+        logger.info('event="benchmark_summary" duration_ms=0 successful=%d failed=%d', len(successful_models), len(failed_models))
+        logger.info(
+            'event="benchmark_successful_models" duration_ms=0 models="%s"',
+            ", ".join(successful_models) if successful_models else "None",
+        )
         if failed_models:
-            logger.warning("Failed models: %s", ", ".join(failed_models))
-        logger.info("Total models tested: %d", len(self.models))
+            logger.warning('event="benchmark_failed_models" duration_ms=0 models="%s"', ", ".join(failed_models))
+        logger.info('event="benchmark_total_models" duration_ms=0 total=%d', len(self.models))
 
         return results_by_model, metrics_by_model
 
@@ -470,7 +600,7 @@ class GuardrailEval:
         self,
         model: str,
         stage_bundle,
-        samples: list,
+        samples: list[Sample],
         context: Context,
         guardrail_name: str,
         benchmark_calculator: BenchmarkMetricsCalculator,
@@ -482,7 +612,15 @@ class GuardrailEval:
 
             guardrails = instantiate_guardrails(stage_bundle)
             engine = AsyncRunEngine(guardrails, multi_turn=self.multi_turn)
-            model_results = await engine.run(model_context, samples, self.batch_size, desc=f"Benchmarking {model}")
+            chunk_total = 1
+            if self.benchmark_chunk_size and len(samples) > 0:
+                chunk_total = max(1, math.ceil(len(samples) / self.benchmark_chunk_size))
+
+            model_results: list[Any] = []
+            for chunk_index, chunk in enumerate(self._chunk_samples(samples, self.benchmark_chunk_size), start=1):
+                chunk_desc = f"Benchmarking {model}" if chunk_total == 1 else f"Benchmarking {model} ({chunk_index}/{chunk_total})"
+                chunk_results = await engine.run(model_context, chunk, self.batch_size, desc=chunk_desc)
+                model_results.extend(chunk_results)
 
             guardrail_config = stage_bundle.guardrails[0].config if stage_bundle.guardrails else None
 
@@ -630,6 +768,16 @@ Examples:
         default=DEFAULT_LATENCY_ITERATIONS,
         help=f"Number of iterations for latency testing in benchmark mode (default: {DEFAULT_LATENCY_ITERATIONS})",
     )
+    parser.add_argument(
+        "--max-parallel-models",
+        type=int,
+        help="Maximum number of models to benchmark concurrently (default: min(models, cpu_count))",
+    )
+    parser.add_argument(
+        "--benchmark-chunk-size",
+        type=int,
+        help="Optional number of samples per chunk when benchmarking to limit long-running runs.",
+    )
 
     args = parser.parse_args()
 
@@ -649,6 +797,14 @@ Examples:
 
         if args.latency_iterations <= 0:
             print(f"❌ Error: Latency iterations must be positive, got: {args.latency_iterations}")
+            sys.exit(1)
+
+        if args.max_parallel_models is not None and args.max_parallel_models <= 0:
+            print(f"❌ Error: max-parallel-models must be positive, got: {args.max_parallel_models}")
+            sys.exit(1)
+
+        if args.benchmark_chunk_size is not None and args.benchmark_chunk_size <= 0:
+            print(f"❌ Error: benchmark-chunk-size must be positive, got: {args.benchmark_chunk_size}")
             sys.exit(1)
 
         if args.stages:
@@ -694,6 +850,13 @@ Examples:
         if args.mode == "benchmark":
             print(f"   Models: {', '.join(args.models or DEFAULT_BENCHMARK_MODELS)}")
             print(f"   Latency iterations: {args.latency_iterations}")
+            model_count = len(args.models or DEFAULT_BENCHMARK_MODELS)
+            parallel_setting = GuardrailEval._determine_parallel_model_limit(model_count, args.max_parallel_models)
+            print(f"   Parallel models: {parallel_setting}")
+            if args.benchmark_chunk_size:
+                print(f"   Benchmark chunk size: {args.benchmark_chunk_size}")
+            else:
+                print("   Benchmark chunk size: dataset")
 
         if args.multi_turn:
             print("   Conversation handling: multi-turn incremental")
@@ -714,6 +877,8 @@ Examples:
             models=args.models,
             latency_iterations=args.latency_iterations,
             multi_turn=args.multi_turn,
+            max_parallel_models=args.max_parallel_models,
+            benchmark_chunk_size=args.benchmark_chunk_size,
         )
 
         asyncio.run(eval.run())
