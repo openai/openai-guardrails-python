@@ -86,10 +86,10 @@ def _compile_pattern(keywords: tuple[str, ...]) -> re.Pattern[str]:
         suffix = r"(?!\w)" if ends_with_word_char else ""
         patterns.append(f"{prefix}{escaped}{suffix}")
 
-    # (?<!\w) and (?!\w) emulate Unicode-aware word boundaries (letters, digits, underscore).
+    # (?<!\w) and (?!\w) use Unicode-aware lookbehind/lookahead to enforce word boundaries.
     pattern_text = "(?:" + "|".join(patterns) + ")"
 
-    return re.compile(pattern_text, re.IGNORECASE | re.UNICODE)
+    return re.compile(pattern_text, re.IGNORECASE)
 
 
 def match_keywords(
