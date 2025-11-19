@@ -173,28 +173,36 @@ def _create_conversation_context(
     conversation_history: list,
     base_context: Any,
 ) -> Any:
-    """Create a context compatible with prompt injection detection that includes conversation history.
+    """Augment existing context with conversation history method.
+
+    This wrapper preserves all fields from the base context while adding
+    get_conversation_history() method for conversation-aware guardrails.
 
     Args:
         conversation_history: User messages for alignment checking
-        base_context: Base context with guardrail_llm
+        base_context: Base context to augment (all fields preserved)
 
     Returns:
-        Context object with conversation history
+        Wrapper object that delegates to base_context and provides conversation history
     """
 
-    @dataclass
-    class ToolConversationContext:
-        guardrail_llm: Any
-        conversation_history: list
+    class ConversationContextWrapper:
+        """Wrapper that adds get_conversation_history() while preserving base context."""
+
+        def __init__(self, base: Any, history: list) -> None:
+            self._base = base
+            # Expose conversation_history as public attribute per GuardrailLLMContextProto
+            self.conversation_history = history
 
         def get_conversation_history(self) -> list:
+            """Return conversation history for conversation-aware guardrails."""
             return self.conversation_history
 
-    return ToolConversationContext(
-        guardrail_llm=base_context.guardrail_llm,
-        conversation_history=conversation_history,
-    )
+        def __getattr__(self, name: str) -> Any:
+            """Delegate all other attribute access to the base context."""
+            return getattr(self._base, name)
+
+    return ConversationContextWrapper(base_context, conversation_history)
 
 
 def _create_tool_guardrail(
@@ -455,6 +463,12 @@ def _create_agents_guardrails_from_config(
 
         context = DefaultContext(guardrail_llm=AsyncOpenAI())
 
+    # Check if any guardrail needs conversation history (optimization to avoid unnecessary loading)
+    needs_conversation_history = any(
+        getattr(g.definition, "metadata", None) and g.definition.metadata.uses_conversation_history
+        for g in all_guardrails
+    )
+
     def _create_individual_guardrail(guardrail):
         """Create a function for a single specific guardrail."""
         async def single_guardrail(ctx: RunContextWrapper[None], agent: Agent, input_data: str | list) -> GuardrailFunctionOutput:
@@ -467,9 +481,20 @@ def _create_agents_guardrails_from_config(
                 # Extract text from input_data (handle both string and conversation history formats)
                 text_data = _extract_text_from_input(input_data)
 
+                # Load conversation history only if any guardrail in this stage needs it
+                if needs_conversation_history:
+                    conversation_history = await _load_agent_conversation()
+                    # Create a context with conversation history for guardrails that need it
+                    guardrail_context = _create_conversation_context(
+                        conversation_history=conversation_history,
+                        base_context=context,
+                    )
+                else:
+                    guardrail_context = context
+
                 # Run this single guardrail
                 results = await run_guardrails(
-                    ctx=context,
+                    ctx=guardrail_context,
                     data=text_data,
                     media_type="text/plain",
                     guardrails=[guardrail],  # Just this one guardrail
