@@ -35,6 +35,47 @@ def _safe_getattr(obj: dict[str, Any] | Any, key: str, default: Any = None) -> A
     return getattr(obj, key, default)
 
 
+def _extract_text_from_content(content: Any) -> str:
+    """Extract plain text from message content, handling multi-part structures.
+
+    OpenAI ChatAPI supports content as either:
+    - String: "hello world"
+    - List of parts: [{"type": "text", "text": "hello"}, {"type": "image_url", ...}]
+
+    Args:
+        content: Message content (string, list of parts, or other)
+
+    Returns:
+        Extracted text as a plain string
+    """
+    # Content is already a string
+    if isinstance(content, str):
+        return content
+
+    # Content is a list of parts (multi-modal message)
+    if isinstance(content, list):
+        if not content:
+            return ""
+
+        text_parts = []
+        for part in content:
+            if isinstance(part, dict):
+                # Extract text from various field names
+                text = None
+                for field in ["text", "input_text", "output_text"]:
+                    if field in part:
+                        text = part[field]
+                        break
+
+                if text is not None and isinstance(text, str):
+                    text_parts.append(text)
+
+        return " ".join(text_parts) if text_parts else ""
+
+    # Fallback: stringify other types
+    return str(content) if content is not None else ""
+
+
 def _normalize_conversation_payload(payload: Any) -> list[Any] | None:
     """Normalize decoded sample payload into a conversation list if possible."""
     if isinstance(payload, list):
@@ -69,10 +110,21 @@ def _parse_conversation_payload(data: str) -> list[Any]:
 
 
 def _extract_latest_user_content(conversation_history: list[Any]) -> str:
-    """Return the content from the most recent user message, if any."""
+    """Extract plain text from the most recent user message.
+
+    Handles multi-part content structures (e.g., ChatAPI content parts) and
+    normalizes to plain text for guardrails expecting text/plain.
+
+    Args:
+        conversation_history: List of message dictionaries
+
+    Returns:
+        Plain text string from latest user message, or empty string if none found
+    """
     for message in reversed(conversation_history):
         if _safe_getattr(message, "role") == "user":
-            return _safe_getattr(message, "content", "")
+            content = _safe_getattr(message, "content", "")
+            return _extract_text_from_content(content)
     return ""
 
 
