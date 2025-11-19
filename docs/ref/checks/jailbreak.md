@@ -105,7 +105,7 @@ This benchmark combines multiple public datasets and synthetic benign conversati
 
 **Total n = 31,106; positives = 18,673; negatives = 12,433**
 
-For benchmarking, we randomly sampled 4,000 conversations from this pool while preserving the overall class balance.
+For benchmarking, we randomly sampled 4,000 conversations from this pool using a 50/50 split between positive and negative samples.
 
 ### Results
 
