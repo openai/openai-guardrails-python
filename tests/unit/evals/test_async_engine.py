@@ -8,11 +8,7 @@ from typing import Any
 
 import pytest
 
-from guardrails.evals.core.async_engine import (
-    AsyncRunEngine,
-    _parse_conversation_payload,
-    _run_incremental_guardrails,
-)
+import guardrails.evals.core.async_engine as async_engine_module
 from guardrails.evals.core.types import Context, Sample
 from guardrails.types import GuardrailResult
 
@@ -64,7 +60,7 @@ async def test_incremental_prompt_injection_stops_on_trigger() -> None:
     histories: list[list[Any]] = []
     client = _FakeClient(sequences, histories)
 
-    results = await _run_incremental_guardrails(client, conversation)
+    results = await async_engine_module._run_incremental_guardrails(client, conversation)
 
     assert client._call_index == 2  # noqa: S101
     assert histories[0] == conversation[:1]  # noqa: S101
@@ -92,7 +88,7 @@ async def test_incremental_prompt_injection_returns_last_result_when_no_trigger(
     histories: list[list[Any]] = []
     client = _FakeClient(sequences, histories)
 
-    results = await _run_incremental_guardrails(client, conversation)
+    results = await async_engine_module._run_incremental_guardrails(client, conversation)
 
     assert client._call_index == 3  # noqa: S101
     assert results == sequences[-1]  # noqa: S101
@@ -109,14 +105,14 @@ def test_parse_conversation_payload_supports_object_with_messages() -> None:
             {"role": "assistant", "content": "Hi"},
         ]
     }
-    parsed = _parse_conversation_payload(json.dumps(payload))
+    parsed = async_engine_module._parse_conversation_payload(json.dumps(payload))
 
     assert parsed == payload["messages"]  # noqa: S101
 
 
 def test_parse_conversation_payload_wraps_non_json_as_user_message() -> None:
     """Parser should wrap non-JSON strings as user messages."""
-    parsed = _parse_conversation_payload("not-json")
+    parsed = async_engine_module._parse_conversation_payload("not-json")
 
     assert parsed == [{"role": "user", "content": "not-json"}]  # noqa: S101
 
@@ -153,7 +149,7 @@ async def test_mixed_conversation_and_non_conversation_guardrails() -> None:
     )
 
     # Create engine with both guardrails
-    engine = AsyncRunEngine([jailbreak_guardrail, moderation_guardrail], multi_turn=False)
+    engine = async_engine_module.AsyncRunEngine([jailbreak_guardrail, moderation_guardrail], multi_turn=False)
 
     # Create a sample that expects both guardrails to trigger
     conversation_data = json.dumps([
@@ -202,8 +198,6 @@ async def test_mixed_conversation_and_non_conversation_guardrails() -> None:
         ]
 
     # Patch both GuardrailsAsyncOpenAI and run_guardrails
-    import guardrails.evals.core.async_engine as async_engine_module
-
     original_client = async_engine_module.GuardrailsAsyncOpenAI
     original_run_guardrails = async_engine_module.run_guardrails
 

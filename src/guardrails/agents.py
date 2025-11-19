@@ -173,28 +173,35 @@ def _create_conversation_context(
     conversation_history: list,
     base_context: Any,
 ) -> Any:
-    """Create a context compatible with prompt injection detection that includes conversation history.
+    """Augment existing context with conversation history method.
+
+    This wrapper preserves all fields from the base context while adding
+    get_conversation_history() method for conversation-aware guardrails.
 
     Args:
         conversation_history: User messages for alignment checking
-        base_context: Base context with guardrail_llm
+        base_context: Base context to augment (all fields preserved)
 
     Returns:
-        Context object with conversation history
+        Wrapper object that delegates to base_context and provides conversation history
     """
 
-    @dataclass
-    class ToolConversationContext:
-        guardrail_llm: Any
-        conversation_history: list
+    class ConversationContextWrapper:
+        """Wrapper that adds get_conversation_history() while preserving base context."""
+
+        def __init__(self, base: Any, history: list) -> None:
+            self._base = base
+            self._conversation_history = history
 
         def get_conversation_history(self) -> list:
-            return self.conversation_history
+            """Return conversation history for conversation-aware guardrails."""
+            return self._conversation_history
 
-    return ToolConversationContext(
-        guardrail_llm=base_context.guardrail_llm,
-        conversation_history=conversation_history,
-    )
+        def __getattr__(self, name: str) -> Any:
+            """Delegate all other attribute access to the base context."""
+            return getattr(self._base, name)
+
+    return ConversationContextWrapper(base_context, conversation_history)
 
 
 def _create_tool_guardrail(

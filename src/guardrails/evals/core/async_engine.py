@@ -68,6 +68,14 @@ def _parse_conversation_payload(data: str) -> list[Any]:
         return [{"role": "user", "content": data}]
 
 
+def _extract_latest_user_content(conversation_history: list[Any]) -> str:
+    """Return the content from the most recent user message, if any."""
+    for message in reversed(conversation_history):
+        if _safe_getattr(message, "role") == "user":
+            return _safe_getattr(message, "content", "")
+    return ""
+
+
 def _annotate_incremental_result(
     result: Any,
     turn_index: int,
@@ -328,15 +336,8 @@ class AsyncRunEngine(RunEngine):
                     # Evaluate non-conversation-aware guardrails (if any) on extracted text
                     non_conversation_results = []
                     if non_conversation_aware_guardrails:
-                        # Extract text from the latest user message in the conversation
                         # Non-conversation-aware guardrails expect plain text, not JSON
-                        latest_user_content = ""
-                        for msg in reversed(conversation_history):
-                            role = _safe_getattr(msg, "role")
-                            if role == "user":
-                                latest_user_content = _safe_getattr(msg, "content", "")
-                                break
-
+                        latest_user_content = _extract_latest_user_content(conversation_history)
                         non_conversation_results = await run_guardrails(
                             ctx=context,
                             data=latest_user_content,
