@@ -261,10 +261,10 @@ class AsyncRunEngine(RunEngine):
         """
         try:
             # Detect if this sample requires conversation history by checking guardrail metadata
+            # Check ALL guardrails, not just those in expected_triggers
             needs_conversation_history = any(
                 guardrail.definition.metadata and guardrail.definition.metadata.uses_conversation_history
                 for guardrail in self.guardrails
-                if guardrail.definition.name in sample.expected_triggers
             )
 
             if needs_conversation_history:
@@ -274,16 +274,16 @@ class AsyncRunEngine(RunEngine):
                     conversation_history = _parse_conversation_payload(sample.data)
 
                     # Separate conversation-aware and non-conversation-aware guardrails
+                    # Evaluate ALL guardrails, not just those in expected_triggers
+                    # (expected_triggers is used for metrics calculation, not for filtering)
                     conversation_aware_guardrails = [
                         g for g in self.guardrails
                         if g.definition.metadata
                         and g.definition.metadata.uses_conversation_history
-                        and g.definition.name in sample.expected_triggers
                     ]
                     non_conversation_aware_guardrails = [
                         g for g in self.guardrails
-                        if g.definition.name in sample.expected_triggers
-                        and not (g.definition.metadata and g.definition.metadata.uses_conversation_history)
+                        if not (g.definition.metadata and g.definition.metadata.uses_conversation_history)
                     ]
 
                     # Evaluate conversation-aware guardrails with conversation history
