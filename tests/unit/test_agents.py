@@ -1095,7 +1095,10 @@ async def test_agent_guardrail_receives_conversation_history(monkeypatch: pytest
     # Verify the context has the get_conversation_history method
     assert hasattr(captured_context, "get_conversation_history")  # noqa: S101
 
-    # Verify conversation history is present
+    # Verify conversation_history is accessible as an attribute (per GuardrailLLMContextProto)
+    assert hasattr(captured_context, "conversation_history")  # noqa: S101
+
+    # Verify conversation history is present via method
     conversation_history = captured_context.get_conversation_history()
     assert len(conversation_history) == 3  # noqa: S101
     assert conversation_history[0]["role"] == "user"  # noqa: S101
@@ -1103,6 +1106,9 @@ async def test_agent_guardrail_receives_conversation_history(monkeypatch: pytest
     assert conversation_history[1]["role"] == "assistant"  # noqa: S101
     assert conversation_history[2]["role"] == "user"  # noqa: S101
     assert conversation_history[2]["content"] == "Thanks!"  # noqa: S101
+
+    # Verify conversation history is also accessible via direct attribute access
+    assert captured_context.conversation_history == conversation_history  # noqa: S101
 
 
 @pytest.mark.asyncio
@@ -1142,9 +1148,15 @@ async def test_agent_guardrail_with_empty_conversation_history(monkeypatch: pyte
     # Verify the context has the get_conversation_history method
     assert hasattr(captured_context, "get_conversation_history")  # noqa: S101
 
-    # Verify conversation history is empty but accessible
+    # Verify conversation_history is accessible as an attribute (per GuardrailLLMContextProto)
+    assert hasattr(captured_context, "conversation_history")  # noqa: S101
+
+    # Verify conversation history is empty but accessible via method
     conversation_history = captured_context.get_conversation_history()
     assert conversation_history == []  # noqa: S101
+
+    # Verify conversation history is also accessible via direct attribute access
+    assert captured_context.conversation_history == []  # noqa: S101
 
 
 # =============================================================================

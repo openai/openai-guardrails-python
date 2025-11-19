@@ -770,8 +770,16 @@ if AzureOpenAI is not None:
 
             async def _run_async():
                 ctx = self.context
+
+                # Only wrap context with conversation history if any guardrail in this stage needs it
                 if conversation_history:
-                    ctx = self._create_context_with_conversation(conversation_history)
+                    needs_conversation = any(
+                        getattr(g.definition, "metadata", None)
+                        and g.definition.metadata.uses_conversation_history
+                        for g in self.guardrails[stage_name]
+                    )
+                    if needs_conversation:
+                        ctx = self._create_context_with_conversation(conversation_history)
 
                 results = await run_guardrails(
                     ctx=ctx,

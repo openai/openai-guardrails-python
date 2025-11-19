@@ -191,11 +191,12 @@ def _create_conversation_context(
 
         def __init__(self, base: Any, history: list) -> None:
             self._base = base
-            self._conversation_history = history
+            # Expose conversation_history as public attribute per GuardrailLLMContextProto
+            self.conversation_history = history
 
         def get_conversation_history(self) -> list:
             """Return conversation history for conversation-aware guardrails."""
-            return self._conversation_history
+            return self.conversation_history
 
         def __getattr__(self, name: str) -> Any:
             """Delegate all other attribute access to the base context."""
