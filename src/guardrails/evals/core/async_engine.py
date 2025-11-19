@@ -266,12 +266,6 @@ class AsyncRunEngine(RunEngine):
                 for guardrail in self.guardrails
                 if guardrail.definition.name in sample.expected_triggers
             )
-            # Detect if this sample requires conversation history by checking guardrail metadata
-            needs_conversation_history = any(
-                guardrail.definition.metadata and guardrail.definition.metadata.uses_conversation_history
-                for guardrail in self.guardrails
-                if guardrail.definition.name in sample.expected_triggers
-            )
 
             if needs_conversation_history:
                 try:
