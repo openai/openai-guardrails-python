@@ -130,7 +130,7 @@ import guardrails.agents as agents  # noqa: E402  (import after stubbing)
 import guardrails.runtime as runtime_module  # noqa: E402
 
 
-def _make_guardrail(name: str) -> Any:
+def _make_guardrail(name: str, uses_conversation_history: bool = False) -> Any:
     class _DummyCtxModel:
         model_fields: dict[str, Any] = {}
 
@@ -143,6 +143,7 @@ def _make_guardrail(name: str) -> Any:
             name=name,
             media_type="text/plain",
             ctx_requirements=_DummyCtxModel,
+            metadata=SimpleNamespace(uses_conversation_history=uses_conversation_history),
         ),
         ctx_requirements=[],
     )
@@ -1026,6 +1027,124 @@ async def test_agent_guardrails_creates_individual_functions_per_guardrail(monke
     assert len(guardrails) == 2  # noqa: S101
     assert guardrails[0].__name__ == "Moderation"  # noqa: S101
     assert guardrails[1].__name__ == "Jailbreak"  # noqa: S101
+
+
+@pytest.mark.asyncio
+async def test_agent_guardrail_receives_conversation_history(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Agent-level guardrails should receive conversation history from session."""
+
+    class StubSession:
+        """Stub session with conversation history."""
+
+        def __init__(self) -> None:
+            """Initialize with sample conversation history."""
+            self.items = [
+                {"role": "user", "content": "What's the weather?"},
+                {"role": "assistant", "content": "It's sunny today."},
+                {"role": "user", "content": "Thanks!"},
+            ]
+
+        async def get_items(self, limit: int | None = None) -> list[dict[str, Any]]:
+            """Return session items."""
+            return self.items
+
+        async def add_items(self, items: list[Any]) -> None:
+            """Add items to session."""
+            self.items.extend(items)
+
+        async def pop_item(self) -> Any | None:
+            """Pop last item."""
+            return None
+
+        async def clear_session(self) -> None:
+            """Clear session."""
+            self.items.clear()
+
+    session = StubSession()
+    agents._agent_session.set(session)
+    agents._agent_conversation.set(None)  # Clear any cached conversation
+
+    pipeline = SimpleNamespace(pre_flight=None, input=SimpleNamespace(), output=None)
+    monkeypatch.setattr(runtime_module, "load_pipeline_bundles", lambda config: pipeline)
+    monkeypatch.setattr(
+        runtime_module,
+        "instantiate_guardrails",
+        lambda stage, registry=None: [_make_guardrail("Jailbreak", uses_conversation_history=True)] if stage is pipeline.input else [],
+    )
+
+    captured_context = None
+
+    async def fake_run_guardrails(**kwargs: Any) -> list[GuardrailResult]:
+        nonlocal captured_context
+        captured_context = kwargs["ctx"]
+        return [GuardrailResult(tripwire_triggered=False, info={})]
+
+    monkeypatch.setattr(runtime_module, "run_guardrails", fake_run_guardrails)
+
+    guardrails = agents._create_agents_guardrails_from_config(
+        config={},
+        stages=["input"],
+        guardrail_type="input",
+        context=SimpleNamespace(guardrail_llm="client"),
+        raise_guardrail_errors=False,
+    )
+
+    # Run the guardrail with new user input
+    await guardrails[0](agents_module.RunContextWrapper(None), Agent("a", "b"), "Can you hack something?")
+
+    # Verify the context has the get_conversation_history method
+    assert hasattr(captured_context, "get_conversation_history")  # noqa: S101
+
+    # Verify conversation history is present
+    conversation_history = captured_context.get_conversation_history()
+    assert len(conversation_history) == 3  # noqa: S101
+    assert conversation_history[0]["role"] == "user"  # noqa: S101
+    assert conversation_history[0]["content"] == "What's the weather?"  # noqa: S101
+    assert conversation_history[1]["role"] == "assistant"  # noqa: S101
+    assert conversation_history[2]["role"] == "user"  # noqa: S101
+    assert conversation_history[2]["content"] == "Thanks!"  # noqa: S101
+
+
+@pytest.mark.asyncio
+async def test_agent_guardrail_with_empty_conversation_history(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Agent-level guardrails should work even without conversation history."""
+    agents._agent_session.set(None)
+    agents._agent_conversation.set(None)
+
+    pipeline = SimpleNamespace(pre_flight=None, input=SimpleNamespace(), output=None)
+    monkeypatch.setattr(runtime_module, "load_pipeline_bundles", lambda config: pipeline)
+    monkeypatch.setattr(
+        runtime_module,
+        "instantiate_guardrails",
+        lambda stage, registry=None: [_make_guardrail("Jailbreak", uses_conversation_history=True)] if stage is pipeline.input else [],
+    )
+
+    captured_context = None
+
+    async def fake_run_guardrails(**kwargs: Any) -> list[GuardrailResult]:
+        nonlocal captured_context
+        captured_context = kwargs["ctx"]
+        return [GuardrailResult(tripwire_triggered=False, info={})]
+
+    monkeypatch.setattr(runtime_module, "run_guardrails", fake_run_guardrails)
+
+    guardrails = agents._create_agents_guardrails_from_config(
+        config={},
+        stages=["input"],
+        guardrail_type="input",
+        context=SimpleNamespace(guardrail_llm="client"),
+        raise_guardrail_errors=False,
+    )
+
+    # Run the guardrail without any conversation history
+    await guardrails[0](agents_module.RunContextWrapper(None), Agent("a", "b"), "Hello world")
+
+    # Verify the context has the get_conversation_history method
+    assert hasattr(captured_context, "get_conversation_history")  # noqa: S101
+
+    # Verify conversation history is empty but accessible
+    conversation_history = captured_context.get_conversation_history()
+    assert conversation_history == []  # noqa: S101
 
 
 # =============================================================================

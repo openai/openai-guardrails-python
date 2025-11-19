@@ -68,12 +68,16 @@ def _parse_conversation_payload(data: str) -> list[Any]:
         return [{"role": "user", "content": data}]
 
 
-def _annotate_prompt_injection_result(
+def _annotate_incremental_result(
     result: Any,
     turn_index: int,
     message: dict[str, Any] | Any,
 ) -> None:
     """Annotate guardrail result with incremental evaluation metadata.
+
+    Adds turn-by-turn context to results from conversation-aware guardrails
+    being evaluated incrementally. This includes the turn index, role, and
+    message that triggered the guardrail (if applicable).
 
     Args:
         result: GuardrailResult to annotate
@@ -126,11 +130,10 @@ async def _run_incremental_guardrails(
 
         latest_results = stage_results or latest_results
 
+        # Annotate all results with turn metadata for multi-turn evaluation
         triggered = False
         for result in stage_results:
-            guardrail_name = result.info.get("guardrail_name")
-            if guardrail_name == "Prompt Injection Detection":
-                _annotate_prompt_injection_result(result, turn_index, current_history[-1])
+            _annotate_incremental_result(result, turn_index, current_history[-1])
             if result.tripwire_triggered:
                 triggered = True
 
@@ -263,6 +266,12 @@ class AsyncRunEngine(RunEngine):
                 for guardrail in self.guardrails
                 if guardrail.definition.name in sample.expected_triggers
             )
+            # Detect if this sample requires conversation history by checking guardrail metadata
+            needs_conversation_history = any(
+                guardrail.definition.metadata and guardrail.definition.metadata.uses_conversation_history
+                for guardrail in self.guardrails
+                if guardrail.definition.name in sample.expected_triggers
+            )
 
             if needs_conversation_history:
                 try:
@@ -270,42 +279,71 @@ class AsyncRunEngine(RunEngine):
                     # Handles JSON conversations, plain strings (wraps as user message), etc.
                     conversation_history = _parse_conversation_payload(sample.data)
 
-                    # Create a minimal guardrails config for conversation-aware checks
-                    minimal_config = {
-                        "version": 1,
-                        "output": {
-                            "guardrails": [
-                                {
-                                    "name": guardrail.definition.name,
-                                    "config": (guardrail.config.__dict__ if hasattr(guardrail.config, "__dict__") else guardrail.config),
-                                }
-                                for guardrail in self.guardrails
-                                if guardrail.definition.metadata and guardrail.definition.metadata.uses_conversation_history
-                            ],
-                        },
-                    }
+                    # Separate conversation-aware and non-conversation-aware guardrails
+                    conversation_aware_guardrails = [
+                        g for g in self.guardrails
+                        if g.definition.metadata
+                        and g.definition.metadata.uses_conversation_history
+                        and g.definition.name in sample.expected_triggers
+                    ]
+                    non_conversation_aware_guardrails = [
+                        g for g in self.guardrails
+                        if g.definition.name in sample.expected_triggers
+                        and not (g.definition.metadata and g.definition.metadata.uses_conversation_history)
+                    ]
 
-                    # Create a temporary GuardrailsAsyncOpenAI client for conversation-aware guardrails
-                    temp_client = GuardrailsAsyncOpenAI(
-                        config=minimal_config,
-                        api_key=getattr(context.guardrail_llm, "api_key", None) or "fake-key-for-eval",
-                    )
+                    # Evaluate conversation-aware guardrails with conversation history
+                    conversation_results = []
+                    if conversation_aware_guardrails:
+                        # Create a minimal guardrails config for conversation-aware checks
+                        minimal_config = {
+                            "version": 1,
+                            "output": {
+                                "guardrails": [
+                                    {
+                                        "name": guardrail.definition.name,
+                                        "config": (guardrail.config.__dict__ if hasattr(guardrail.config, "__dict__") else guardrail.config),
+                                    }
+                                    for guardrail in conversation_aware_guardrails
+                                ],
+                            },
+                        }
 
-                    # Normalize conversation history using the client's normalization
-                    normalized_conversation = temp_client._normalize_conversation(conversation_history)
-
-                    if self.multi_turn:
-                        results = await _run_incremental_guardrails(
-                            temp_client,
-                            normalized_conversation,
+                        # Create a temporary GuardrailsAsyncOpenAI client for conversation-aware guardrails
+                        temp_client = GuardrailsAsyncOpenAI(
+                            config=minimal_config,
+                            api_key=getattr(context.guardrail_llm, "api_key", None) or "fake-key-for-eval",
                         )
-                    else:
-                        results = await temp_client._run_stage_guardrails(
-                            stage_name="output",
-                            text="",
-                            conversation_history=normalized_conversation,
+
+                        # Normalize conversation history using the client's normalization
+                        normalized_conversation = temp_client._normalize_conversation(conversation_history)
+
+                        if self.multi_turn:
+                            conversation_results = await _run_incremental_guardrails(
+                                temp_client,
+                                normalized_conversation,
+                            )
+                        else:
+                            conversation_results = await temp_client._run_stage_guardrails(
+                                stage_name="output",
+                                text="",
+                                conversation_history=normalized_conversation,
+                                suppress_tripwire=True,
+                            )
+
+                    # Evaluate non-conversation-aware guardrails (if any) on the raw data
+                    non_conversation_results = []
+                    if non_conversation_aware_guardrails:
+                        non_conversation_results = await run_guardrails(
+                            ctx=context,
+                            data=sample.data,
+                            media_type="text/plain",
+                            guardrails=non_conversation_aware_guardrails,
                             suppress_tripwire=True,
                         )
+
+                    # Combine results from both types of guardrails
+                    results = conversation_results + non_conversation_results
                 except (json.JSONDecodeError, TypeError, ValueError) as e:
                     logger.error(
                         "Failed to parse conversation history for conversation-aware guardrail sample %s: %s",

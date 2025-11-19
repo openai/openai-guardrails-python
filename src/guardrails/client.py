@@ -769,15 +769,9 @@ if AzureOpenAI is not None:
                 asyncio.set_event_loop(loop)
 
             async def _run_async():
-                # Check if prompt injection detection guardrail is present and we have conversation history
-                has_injection_detection = any(
-                    guardrail.definition.name.lower() == "prompt injection detection" for guardrail in self.guardrails[stage_name]
-                )
-
-                if has_injection_detection and conversation_history:
+                ctx = self.context
+                if conversation_history:
                     ctx = self._create_context_with_conversation(conversation_history)
-                else:
-                    ctx = self.context
 
                 results = await run_guardrails(
                     ctx=ctx,

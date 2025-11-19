@@ -455,6 +455,12 @@ def _create_agents_guardrails_from_config(
 
         context = DefaultContext(guardrail_llm=AsyncOpenAI())
 
+    # Check if any guardrail needs conversation history (optimization to avoid unnecessary loading)
+    needs_conversation_history = any(
+        getattr(g.definition, "metadata", None) and g.definition.metadata.uses_conversation_history
+        for g in all_guardrails
+    )
+
     def _create_individual_guardrail(guardrail):
         """Create a function for a single specific guardrail."""
         async def single_guardrail(ctx: RunContextWrapper[None], agent: Agent, input_data: str | list) -> GuardrailFunctionOutput:
@@ -467,9 +473,20 @@ def _create_agents_guardrails_from_config(
                 # Extract text from input_data (handle both string and conversation history formats)
                 text_data = _extract_text_from_input(input_data)
 
+                # Load conversation history only if any guardrail in this stage needs it
+                if needs_conversation_history:
+                    conversation_history = await _load_agent_conversation()
+                    # Create a context with conversation history for guardrails that need it
+                    guardrail_context = _create_conversation_context(
+                        conversation_history=conversation_history,
+                        base_context=context,
+                    )
+                else:
+                    guardrail_context = context
+
                 # Run this single guardrail
                 results = await run_guardrails(
-                    ctx=context,
+                    ctx=guardrail_context,
                     data=text_data,
                     media_type="text/plain",
                     guardrails=[guardrail],  # Just this one guardrail
