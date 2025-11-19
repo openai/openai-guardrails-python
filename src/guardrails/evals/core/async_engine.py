@@ -325,12 +325,21 @@ class AsyncRunEngine(RunEngine):
                                 suppress_tripwire=True,
                             )
 
-                    # Evaluate non-conversation-aware guardrails (if any) on the raw data
+                    # Evaluate non-conversation-aware guardrails (if any) on extracted text
                     non_conversation_results = []
                     if non_conversation_aware_guardrails:
+                        # Extract text from the latest user message in the conversation
+                        # Non-conversation-aware guardrails expect plain text, not JSON
+                        latest_user_content = ""
+                        for msg in reversed(conversation_history):
+                            role = _safe_getattr(msg, "role")
+                            if role == "user":
+                                latest_user_content = _safe_getattr(msg, "content", "")
+                                break
+
                         non_conversation_results = await run_guardrails(
                             ctx=context,
-                            data=sample.data,
+                            data=latest_user_content,
                             media_type="text/plain",
                             guardrails=non_conversation_aware_guardrails,
                             suppress_tripwire=True,
