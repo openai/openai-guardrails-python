@@ -327,9 +327,6 @@ def _is_url_allowed(
         # Malformed port (out of range or invalid) - reject the URL
         return False
     url_port = _safe_get_port(parsed_url, scheme_lower)
-    # If port is invalid (None from _safe_get_port due to ValueError), reject the URL
-    if url_port is None and parsed_url.netloc and ":" in parsed_url.netloc:
-        return False
     url_path = parsed_url.path or "/"
     url_query = parsed_url.query
     url_fragment = parsed_url.fragment

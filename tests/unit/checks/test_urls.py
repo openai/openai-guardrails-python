@@ -395,6 +395,26 @@ async def test_urls_guardrail_scheme_matching_with_qualified_allow_list() -> Non
     assert result3.tripwire_triggered is True  # noqa: S101
 
 
+def test_is_url_allowed_handles_ipv6_addresses() -> None:
+    """IPv6 addresses should be handled correctly (colons are not ports)."""
+    config = URLConfig(
+        url_allow_list=["[2001:db8::1]", "ftp://[2001:db8::2]"],
+        allow_subdomains=False,
+        allowed_schemes={"https", "ftp"},
+    )
+    # IPv6 without scheme
+    ipv6_no_scheme, _, had_scheme1 = _validate_url_security("[2001:db8::1]", config)
+    # IPv6 with ftp scheme
+    ipv6_with_ftp, _, had_scheme2 = _validate_url_security("ftp://[2001:db8::2]", config)
+
+    assert ipv6_no_scheme is not None  # noqa: S101
+    assert ipv6_with_ftp is not None  # noqa: S101
+
+    # Both should be allowed
+    assert _is_url_allowed(ipv6_no_scheme, config.url_allow_list, config.allow_subdomains, had_scheme1) is True  # noqa: S101
+    assert _is_url_allowed(ipv6_with_ftp, config.url_allow_list, config.allow_subdomains, had_scheme2) is True  # noqa: S101
+
+
 @pytest.mark.asyncio
 async def test_urls_guardrail_blocks_subdomains_and_paths_correctly() -> None:
     """Verify subdomains and paths are still blocked according to allow list rules."""
