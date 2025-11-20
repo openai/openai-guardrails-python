@@ -346,10 +346,8 @@ def _is_url_allowed(parsed_url: ParseResult, allow_list: list[str], allow_subdom
             if url_ip is None:
                 continue
             # Scheme matching for IPs: if allow list entry has explicit scheme, it must match exactly
-            if has_explicit_scheme:
-                allowed_scheme = parsed_allowed.scheme.lower() if parsed_allowed.scheme else ""
-                if allowed_scheme and allowed_scheme != scheme_lower:
-                    continue
+            if has_explicit_scheme and allowed_scheme and allowed_scheme != scheme_lower:
+                continue
             if allowed_port is not None and allowed_port != url_port:
                 continue
             if allowed_ip == url_ip:
@@ -381,10 +379,8 @@ def _is_url_allowed(parsed_url: ParseResult, allow_list: list[str], allow_subdom
             continue
 
         # Scheme matching: if allow list entry has explicit scheme, it must match exactly
-        if has_explicit_scheme:
-            allowed_scheme = parsed_allowed.scheme.lower() if parsed_allowed.scheme else ""
-            if allowed_scheme and allowed_scheme != scheme_lower:
-                continue
+        if has_explicit_scheme and allowed_scheme and allowed_scheme != scheme_lower:
+            continue
 
         # Path matching with segment boundary respect
         if allowed_path not in ("", "/"):
