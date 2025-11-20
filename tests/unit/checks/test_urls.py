@@ -286,3 +286,42 @@ def test_validate_url_security_allows_userinfo_when_disabled() -> None:
 
     assert parsed is not None  # noqa: S101
     assert reason == ""  # noqa: S101
+
+
+def test_is_url_allowed_enforces_scheme_when_explicitly_specified() -> None:
+    """Scheme-qualified allow list entries must match scheme exactly (security)."""
+    config = URLConfig(
+        url_allow_list=["https://bank.example.com"],
+        allow_subdomains=False,
+        allowed_schemes={"https", "http"},  # Both schemes allowed globally
+    )
+    # HTTPS should be allowed (matches the scheme in allow list)
+    https_url, _ = _validate_url_security("https://bank.example.com", config)
+    # HTTP should be BLOCKED (doesn't match the explicit https:// in allow list)
+    http_url, _ = _validate_url_security("http://bank.example.com", config)
+
+    assert https_url is not None  # noqa: S101
+    assert http_url is not None  # noqa: S101
+
+    # This is the security-critical check: scheme-qualified entries must match exactly
+    assert _is_url_allowed(https_url, config.url_allow_list, config.allow_subdomains) is True  # noqa: S101
+    assert _is_url_allowed(http_url, config.url_allow_list, config.allow_subdomains) is False  # noqa: S101
+
+
+def test_is_url_allowed_enforces_scheme_for_ips() -> None:
+    """Scheme-qualified IP addresses in allow list must match scheme exactly."""
+    config = URLConfig(
+        url_allow_list=["https://192.168.1.100"],
+        allow_subdomains=False,
+        allowed_schemes={"https", "http"},
+    )
+    # HTTPS should be allowed
+    https_ip, _ = _validate_url_security("https://192.168.1.100", config)
+    # HTTP should be BLOCKED
+    http_ip, _ = _validate_url_security("http://192.168.1.100", config)
+
+    assert https_ip is not None  # noqa: S101
+    assert http_ip is not None  # noqa: S101
+
+    assert _is_url_allowed(https_ip, config.url_allow_list, config.allow_subdomains) is True  # noqa: S101
+    assert _is_url_allowed(http_ip, config.url_allow_list, config.allow_subdomains) is False  # noqa: S101
