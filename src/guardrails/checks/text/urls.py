@@ -384,9 +384,12 @@ def _is_url_allowed(parsed_url: ParseResult, allow_list: list[str], allow_subdom
 
         # Path matching with segment boundary respect
         if allowed_path not in ("", "/"):
+            # Normalize trailing slashes to prevent issues with entries like "/api/"
+            # which should match "/api/users" but would fail with double-slash check
+            normalized_allowed_path = allowed_path.rstrip("/")
             # Ensure path matching respects segment boundaries to prevent
             # "/api" from matching "/api2" or "/api-v2"
-            if url_path != allowed_path and not url_path.startswith(f"{allowed_path}/"):
+            if url_path != allowed_path and url_path != normalized_allowed_path and not url_path.startswith(f"{normalized_allowed_path}/"):
                 continue
 
         if allowed_query and allowed_query != url_query:

@@ -344,3 +344,23 @@ async def test_urls_guardrail_handles_malformed_ports_gracefully() -> None:
     assert len(result.info["blocked"]) == 3  # noqa: S101
     # All three URLs should be blocked (the key is they don't crash the guardrail)
     assert len(result.info["blocked_reasons"]) == 3  # noqa: S101
+
+
+def test_is_url_allowed_handles_trailing_slash_in_path() -> None:
+    """Allow list entries with trailing slashes should match subpaths correctly."""
+    config = URLConfig(
+        url_allow_list=["https://example.com/api/"],
+        allow_subdomains=False,
+        allowed_schemes={"https"},
+    )
+    # URL with subpath should be allowed
+    subpath_url, _ = _validate_url_security("https://example.com/api/users", config)
+    # Exact match (with trailing slash) should be allowed
+    exact_url, _ = _validate_url_security("https://example.com/api/", config)
+
+    assert subpath_url is not None  # noqa: S101
+    assert exact_url is not None  # noqa: S101
+
+    # Both should be allowed
+    assert _is_url_allowed(subpath_url, config.url_allow_list, config.allow_subdomains) is True  # noqa: S101
+    assert _is_url_allowed(exact_url, config.url_allow_list, config.allow_subdomains) is True  # noqa: S101
