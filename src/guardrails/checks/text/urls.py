@@ -320,13 +320,13 @@ def _is_url_allowed(
     url_host = url_host.lower()
     url_domain = url_host.replace("www.", "")
     scheme_lower = parsed_url.scheme.lower() if parsed_url.scheme else ""
-    # Check if port was explicitly specified (safely)
-    try:
-        url_port_explicit = parsed_url.port
-    except ValueError:
-        # Malformed port (out of range or invalid) - reject the URL
-        return False
+    # Safely get port (rejects malformed ports)
     url_port = _safe_get_port(parsed_url, scheme_lower)
+    # Early rejection of malformed ports
+    try:
+        _ = parsed_url.port  # This will raise ValueError for malformed ports
+    except ValueError:
+        return False
     url_path = parsed_url.path or "/"
     url_query = parsed_url.query
     url_fragment = parsed_url.fragment
@@ -368,8 +368,8 @@ def _is_url_allowed(
             # Scheme matching for IPs: if both allow list and URL have explicit schemes, they must match
             if has_explicit_scheme and url_had_explicit_scheme and allowed_scheme and allowed_scheme != scheme_lower:
                 continue
-            # Port matching: only enforce if either side explicitly specified a port
-            if (allowed_port_explicit is not None or url_port_explicit is not None) and allowed_port != url_port:
+            # Port matching: enforce if allow list has explicit port
+            if allowed_port_explicit is not None and allowed_port != url_port:
                 continue
             if allowed_ip == url_ip:
                 return True
@@ -390,8 +390,8 @@ def _is_url_allowed(
 
         allowed_domain = allowed_host.replace("www.", "")
 
-        # Port matching: only enforce if either side explicitly specified a port
-        if (allowed_port_explicit is not None or url_port_explicit is not None) and allowed_port != url_port:
+        # Port matching: enforce if allow list has explicit port
+        if allowed_port_explicit is not None and allowed_port != url_port:
             continue
 
         host_matches = url_domain == allowed_domain or (

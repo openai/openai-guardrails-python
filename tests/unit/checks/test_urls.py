@@ -230,30 +230,34 @@ def test_is_url_allowed_handles_cidr_blocks() -> None:
 
 
 def test_is_url_allowed_handles_port_matching() -> None:
-    """Port matching: only enforced when explicitly specified."""
+    """Port matching: enforced if allow list has explicit port, otherwise any port allowed."""
     config = URLConfig(
         url_allow_list=["https://example.com:8443", "api.internal.com"],
         allow_subdomains=False,
         allowed_schemes={"https"},
     )
-    # Explicit port 8443 matches allow list
+    # Explicit port 8443 matches allow list's explicit port → ALLOWED
     correct_port, _, had_scheme1 = _validate_url_security("https://example.com:8443", config)
-    # Implicit 443 doesn't match explicit 8443 in allow list
+    # Implicit 443 doesn't match allow list's explicit 8443 → BLOCKED
     wrong_port, _, had_scheme2 = _validate_url_security("https://example.com", config)
-    # Explicit 9000 doesn't match implicit default in allow list (no port = not checking)
-    explicit_port_vs_implicit, _, had_scheme3 = _validate_url_security("https://api.internal.com:9000", config)
-    # Implicit default matches implicit default
+    # Explicit 9000 with no port restriction in allow list → ALLOWED
+    explicit_port_no_restriction, _, had_scheme3 = _validate_url_security("https://api.internal.com:9000", config)
+    # Implicit 443 with no port restriction in allow list → ALLOWED
     implicit_match, _, had_scheme4 = _validate_url_security("https://api.internal.com", config)
+    # Explicit default 443 with no port restriction in allow list → ALLOWED (regression fix)
+    explicit_default_port, _, had_scheme5 = _validate_url_security("https://api.internal.com:443", config)
 
     assert correct_port is not None  # noqa: S101
     assert wrong_port is not None  # noqa: S101
-    assert explicit_port_vs_implicit is not None  # noqa: S101
+    assert explicit_port_no_restriction is not None  # noqa: S101
     assert implicit_match is not None  # noqa: S101
+    assert explicit_default_port is not None  # noqa: S101
 
     assert _is_url_allowed(correct_port, config.url_allow_list, config.allow_subdomains, had_scheme1) is True  # noqa: S101
     assert _is_url_allowed(wrong_port, config.url_allow_list, config.allow_subdomains, had_scheme2) is False  # noqa: S101
-    assert _is_url_allowed(explicit_port_vs_implicit, config.url_allow_list, config.allow_subdomains, had_scheme3) is False  # noqa: S101
+    assert _is_url_allowed(explicit_port_no_restriction, config.url_allow_list, config.allow_subdomains, had_scheme3) is True  # noqa: S101
     assert _is_url_allowed(implicit_match, config.url_allow_list, config.allow_subdomains, had_scheme4) is True  # noqa: S101
+    assert _is_url_allowed(explicit_default_port, config.url_allow_list, config.allow_subdomains, had_scheme5) is True  # noqa: S101
 
 
 def test_is_url_allowed_handles_query_and_fragment() -> None:
@@ -413,6 +417,31 @@ def test_is_url_allowed_handles_ipv6_addresses() -> None:
     # Both should be allowed
     assert _is_url_allowed(ipv6_no_scheme, config.url_allow_list, config.allow_subdomains, had_scheme1) is True  # noqa: S101
     assert _is_url_allowed(ipv6_with_ftp, config.url_allow_list, config.allow_subdomains, had_scheme2) is True  # noqa: S101
+
+
+def test_is_url_allowed_handles_ipv6_cidr_notation() -> None:
+    """IPv6 CIDR blocks should be handled correctly (brackets stripped, path concatenated)."""
+    config = URLConfig(
+        url_allow_list=["[2001:db8::]/64", "[fe80::]/10"],
+        allow_subdomains=False,
+        allowed_schemes={"https"},
+    )
+    # IP within first CIDR range
+    ip_in_range1, _, had_scheme1 = _validate_url_security("https://[2001:db8::1234]", config)
+    # IP within second CIDR range
+    ip_in_range2, _, had_scheme2 = _validate_url_security("https://[fe80::5678]", config)
+    # IP outside CIDR ranges
+    ip_outside, _, had_scheme3 = _validate_url_security("https://[2001:db9::1]", config)
+
+    assert ip_in_range1 is not None  # noqa: S101
+    assert ip_in_range2 is not None  # noqa: S101
+    assert ip_outside is not None  # noqa: S101
+
+    # IPs within CIDR ranges should be allowed
+    assert _is_url_allowed(ip_in_range1, config.url_allow_list, config.allow_subdomains, had_scheme1) is True  # noqa: S101
+    assert _is_url_allowed(ip_in_range2, config.url_allow_list, config.allow_subdomains, had_scheme2) is True  # noqa: S101
+    # IP outside should be blocked
+    assert _is_url_allowed(ip_outside, config.url_allow_list, config.allow_subdomains, had_scheme3) is False  # noqa: S101
 
 
 @pytest.mark.asyncio
