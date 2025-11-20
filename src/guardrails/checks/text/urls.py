@@ -96,7 +96,6 @@ class URLConfig(BaseModel):
             if cleaned.endswith("://"):
                 cleaned = cleaned[:-3]
             cleaned = cleaned.removesuffix(":")
-            cleaned = cleaned.strip()
             if cleaned:
                 normalized.add(cleaned)
 
@@ -267,6 +266,23 @@ def _validate_url_security(url_string: str, config: URLConfig) -> tuple[ParseRes
         return None, f"URL parsing error: {type(e).__name__}: {str(e)}"
 
 
+def _safe_get_port(parsed: ParseResult, scheme: str) -> int | None:
+    """Safely extract port from ParseResult, handling malformed ports.
+
+    Args:
+        parsed: The parsed URL.
+        scheme: The URL scheme (for default port lookup).
+
+    Returns:
+        The port number, the default port for the scheme, or None if invalid.
+    """
+    try:
+        return parsed.port or DEFAULT_PORTS.get(scheme.lower())
+    except ValueError:
+        # Port is out of range (0-65535) or malformed
+        return None
+
+
 def _is_url_allowed(parsed_url: ParseResult, allow_list: list[str], allow_subdomains: bool) -> bool:
     """Check if parsed URL matches any entry in the allow list.
 
@@ -292,7 +308,10 @@ def _is_url_allowed(parsed_url: ParseResult, allow_list: list[str], allow_subdom
     url_host = url_host.lower()
     url_domain = url_host.replace("www.", "")
     scheme_lower = parsed_url.scheme.lower() if parsed_url.scheme else ""
-    url_port = parsed_url.port or DEFAULT_PORTS.get(scheme_lower)
+    url_port = _safe_get_port(parsed_url, scheme_lower)
+    # If port is invalid (None from _safe_get_port due to ValueError), reject the URL
+    if url_port is None and parsed_url.netloc and ":" in parsed_url.netloc:
+        return False
     url_path = parsed_url.path or "/"
     url_query = parsed_url.query
     url_fragment = parsed_url.fragment
@@ -311,7 +330,8 @@ def _is_url_allowed(parsed_url: ParseResult, allow_list: list[str], allow_subdom
         else:
             parsed_allowed = urlparse(f"//{allowed_entry}")
         allowed_host = (parsed_allowed.hostname or "").lower()
-        allowed_port = parsed_allowed.port
+        allowed_scheme = parsed_allowed.scheme.lower() if parsed_allowed.scheme else ""
+        allowed_port = _safe_get_port(parsed_allowed, allowed_scheme)
         allowed_path = parsed_allowed.path
         allowed_query = parsed_allowed.query
         allowed_fragment = parsed_allowed.fragment

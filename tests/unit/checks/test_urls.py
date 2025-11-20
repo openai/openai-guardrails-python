@@ -325,3 +325,22 @@ def test_is_url_allowed_enforces_scheme_for_ips() -> None:
 
     assert _is_url_allowed(https_ip, config.url_allow_list, config.allow_subdomains) is True  # noqa: S101
     assert _is_url_allowed(http_ip, config.url_allow_list, config.allow_subdomains) is False  # noqa: S101
+
+
+@pytest.mark.asyncio
+async def test_urls_guardrail_handles_malformed_ports_gracefully() -> None:
+    """URLs with out-of-range or malformed ports should be blocked, not crash."""
+    config = URLConfig(
+        url_allow_list=["example.com"],
+        allowed_schemes={"https"},
+    )
+    # Test various malformed ports
+    text = "Visit https://example.com:99999 or https://example.com:abc or https://example.com:-1"
+
+    result = await urls(ctx=None, data=text, config=config)
+
+    # Should not crash; all should be blocked (either due to malformed ports or not in allow list)
+    assert result.tripwire_triggered is True  # noqa: S101
+    assert len(result.info["blocked"]) == 3  # noqa: S101
+    # All three URLs should be blocked (the key is they don't crash the guardrail)
+    assert len(result.info["blocked_reasons"]) == 3  # noqa: S101
