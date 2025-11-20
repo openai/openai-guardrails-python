@@ -27,7 +27,7 @@ def test_detect_urls_deduplicates_scheme_and_domain() -> None:
 def test_validate_url_security_blocks_bad_scheme() -> None:
     """Disallowed schemes should produce an error."""
     config = URLConfig()
-    parsed, reason = _validate_url_security("http://blocked.com", config)
+    parsed, reason, _ = _validate_url_security("http://blocked.com", config)
 
     assert parsed is None  # noqa: S101
     assert "Blocked scheme" in reason  # noqa: S101
@@ -36,7 +36,7 @@ def test_validate_url_security_blocks_bad_scheme() -> None:
 def test_validate_url_security_blocks_userinfo_when_configured() -> None:
     """URLs with embedded credentials should be rejected when block_userinfo=True."""
     config = URLConfig(allowed_schemes={"https"}, block_userinfo=True)
-    parsed, reason = _validate_url_security("https://user:pass@example.com", config)
+    parsed, reason, _ = _validate_url_security("https://user:pass@example.com", config)
 
     assert parsed is None  # noqa: S101
     assert "userinfo" in reason  # noqa: S101
@@ -45,7 +45,7 @@ def test_validate_url_security_blocks_userinfo_when_configured() -> None:
 def test_validate_url_security_blocks_password_without_username() -> None:
     """URLs that only include a password in userinfo must be blocked."""
     config = URLConfig(allowed_schemes={"https"}, block_userinfo=True)
-    parsed, reason = _validate_url_security("https://:secret@example.com", config)
+    parsed, reason, _ = _validate_url_security("https://:secret@example.com", config)
 
     assert parsed is None  # noqa: S101
     assert "userinfo" in reason  # noqa: S101
@@ -65,16 +65,16 @@ def test_is_url_allowed_handles_full_urls_with_paths() -> None:
         allow_subdomains=False,
         allowed_schemes={"https://"},
     )
-    root_url, _ = _validate_url_security("https://suntropy.es", config)
-    path_url, _ = _validate_url_security("https://api.example.com/v1/resources?id=2", config)
-    wrong_path_url, _ = _validate_url_security("https://api.example.com/v2", config)
+    root_url, _, had_scheme1 = _validate_url_security("https://suntropy.es", config)
+    path_url, _, had_scheme2 = _validate_url_security("https://api.example.com/v1/resources?id=2", config)
+    wrong_path_url, _, had_scheme3 = _validate_url_security("https://api.example.com/v2", config)
 
     assert root_url is not None  # noqa: S101
     assert path_url is not None  # noqa: S101
     assert wrong_path_url is not None  # noqa: S101
-    assert _is_url_allowed(root_url, config.url_allow_list, config.allow_subdomains) is True  # noqa: S101
-    assert _is_url_allowed(path_url, config.url_allow_list, config.allow_subdomains) is True  # noqa: S101
-    assert _is_url_allowed(wrong_path_url, config.url_allow_list, config.allow_subdomains) is False  # noqa: S101
+    assert _is_url_allowed(root_url, config.url_allow_list, config.allow_subdomains, had_scheme1) is True  # noqa: S101
+    assert _is_url_allowed(path_url, config.url_allow_list, config.allow_subdomains, had_scheme2) is True  # noqa: S101
+    assert _is_url_allowed(wrong_path_url, config.url_allow_list, config.allow_subdomains, had_scheme3) is False  # noqa: S101
 
 
 def test_is_url_allowed_respects_path_segment_boundaries() -> None:
@@ -85,12 +85,12 @@ def test_is_url_allowed_respects_path_segment_boundaries() -> None:
         allowed_schemes={"https"},
     )
     # These should be allowed
-    exact_match, _ = _validate_url_security("https://example.com/api", config)
-    valid_subpath, _ = _validate_url_security("https://example.com/api/users", config)
+    exact_match, _, had_scheme1 = _validate_url_security("https://example.com/api", config)
+    valid_subpath, _, had_scheme2 = _validate_url_security("https://example.com/api/users", config)
 
     # These should NOT be allowed (different path segments)
-    similar_path1, _ = _validate_url_security("https://example.com/api2", config)
-    similar_path2, _ = _validate_url_security("https://example.com/api-v2", config)
+    similar_path1, _, had_scheme3 = _validate_url_security("https://example.com/api2", config)
+    similar_path2, _, had_scheme4 = _validate_url_security("https://example.com/api-v2", config)
 
     assert exact_match is not None  # noqa: S101
     assert valid_subpath is not None  # noqa: S101
@@ -98,12 +98,12 @@ def test_is_url_allowed_respects_path_segment_boundaries() -> None:
     assert similar_path2 is not None  # noqa: S101
 
     # Exact match and valid subpath should be allowed
-    assert _is_url_allowed(exact_match, config.url_allow_list, config.allow_subdomains) is True  # noqa: S101
-    assert _is_url_allowed(valid_subpath, config.url_allow_list, config.allow_subdomains) is True  # noqa: S101
+    assert _is_url_allowed(exact_match, config.url_allow_list, config.allow_subdomains, had_scheme1) is True  # noqa: S101
+    assert _is_url_allowed(valid_subpath, config.url_allow_list, config.allow_subdomains, had_scheme2) is True  # noqa: S101
 
     # Similar paths that don't respect segment boundaries should be blocked
-    assert _is_url_allowed(similar_path1, config.url_allow_list, config.allow_subdomains) is False  # noqa: S101
-    assert _is_url_allowed(similar_path2, config.url_allow_list, config.allow_subdomains) is False  # noqa: S101
+    assert _is_url_allowed(similar_path1, config.url_allow_list, config.allow_subdomains, had_scheme3) is False  # noqa: S101
+    assert _is_url_allowed(similar_path2, config.url_allow_list, config.allow_subdomains, had_scheme4) is False  # noqa: S101
 
 
 def test_is_url_allowed_without_scheme_matches_multiple_protocols() -> None:
@@ -113,13 +113,13 @@ def test_is_url_allowed_without_scheme_matches_multiple_protocols() -> None:
         allow_subdomains=False,
         allowed_schemes={"https", "http"},
     )
-    https_result, https_reason = _validate_url_security("https://example.com", config)
-    http_result, http_reason = _validate_url_security("http://example.com", config)
+    https_result, https_reason, had_scheme1 = _validate_url_security("https://example.com", config)
+    http_result, http_reason, had_scheme2 = _validate_url_security("http://example.com", config)
 
     assert https_result is not None, https_reason  # noqa: S101
     assert http_result is not None, http_reason  # noqa: S101
-    assert _is_url_allowed(https_result, config.url_allow_list, config.allow_subdomains) is True  # noqa: S101
-    assert _is_url_allowed(http_result, config.url_allow_list, config.allow_subdomains) is True  # noqa: S101
+    assert _is_url_allowed(https_result, config.url_allow_list, config.allow_subdomains, had_scheme1) is True  # noqa: S101
+    assert _is_url_allowed(http_result, config.url_allow_list, config.allow_subdomains, had_scheme2) is True  # noqa: S101
 
 
 def test_is_url_allowed_supports_subdomains_and_cidr() -> None:
@@ -128,13 +128,13 @@ def test_is_url_allowed_supports_subdomains_and_cidr() -> None:
         url_allow_list=["example.com", "10.0.0.0/8"],
         allow_subdomains=True,
     )
-    https_result, _ = _validate_url_security("https://api.example.com", config)
-    ip_result, _ = _validate_url_security("https://10.1.2.3", config)
+    https_result, _, had_scheme1 = _validate_url_security("https://api.example.com", config)
+    ip_result, _, had_scheme2 = _validate_url_security("https://10.1.2.3", config)
 
     assert https_result is not None  # noqa: S101
     assert ip_result is not None  # noqa: S101
-    assert _is_url_allowed(https_result, config.url_allow_list, config.allow_subdomains) is True  # noqa: S101
-    assert _is_url_allowed(ip_result, config.url_allow_list, config.allow_subdomains) is True  # noqa: S101
+    assert _is_url_allowed(https_result, config.url_allow_list, config.allow_subdomains, had_scheme1) is True  # noqa: S101
+    assert _is_url_allowed(ip_result, config.url_allow_list, config.allow_subdomains, had_scheme2) is True  # noqa: S101
 
 
 @pytest.mark.asyncio
@@ -201,7 +201,7 @@ def test_url_config_rejects_empty_schemes() -> None:
 def test_validate_url_security_handles_malformed_urls() -> None:
     """Malformed URLs should be rejected with clear error messages."""
     config = URLConfig(allowed_schemes={"https"})
-    parsed, reason = _validate_url_security("https://", config)
+    parsed, reason, _ = _validate_url_security("https://", config)
 
     assert parsed is None  # noqa: S101
     assert "Invalid URL" in reason  # noqa: S101
@@ -215,41 +215,45 @@ def test_is_url_allowed_handles_cidr_blocks() -> None:
         allowed_schemes={"https"},
     )
     # IPs within CIDR ranges
-    ip_in_range1, _ = _validate_url_security("https://10.5.5.5", config)
-    ip_in_range2, _ = _validate_url_security("https://192.168.1.100", config)
+    ip_in_range1, _, had_scheme1 = _validate_url_security("https://10.5.5.5", config)
+    ip_in_range2, _, had_scheme2 = _validate_url_security("https://192.168.1.100", config)
     # IP outside CIDR range
-    ip_outside, _ = _validate_url_security("https://192.168.2.1", config)
+    ip_outside, _, had_scheme3 = _validate_url_security("https://192.168.2.1", config)
 
     assert ip_in_range1 is not None  # noqa: S101
     assert ip_in_range2 is not None  # noqa: S101
     assert ip_outside is not None  # noqa: S101
 
-    assert _is_url_allowed(ip_in_range1, config.url_allow_list, config.allow_subdomains) is True  # noqa: S101
-    assert _is_url_allowed(ip_in_range2, config.url_allow_list, config.allow_subdomains) is True  # noqa: S101
-    assert _is_url_allowed(ip_outside, config.url_allow_list, config.allow_subdomains) is False  # noqa: S101
+    assert _is_url_allowed(ip_in_range1, config.url_allow_list, config.allow_subdomains, had_scheme1) is True  # noqa: S101
+    assert _is_url_allowed(ip_in_range2, config.url_allow_list, config.allow_subdomains, had_scheme2) is True  # noqa: S101
+    assert _is_url_allowed(ip_outside, config.url_allow_list, config.allow_subdomains, had_scheme3) is False  # noqa: S101
 
 
 def test_is_url_allowed_handles_port_matching() -> None:
-    """Allow list entries with explicit ports should require exact port match."""
+    """Port matching: only enforced when explicitly specified."""
     config = URLConfig(
         url_allow_list=["https://example.com:8443", "api.internal.com"],
         allow_subdomains=False,
         allowed_schemes={"https"},
     )
-    # Correct port
-    correct_port, _ = _validate_url_security("https://example.com:8443", config)
-    # Wrong port (implicit 443)
-    wrong_port, _ = _validate_url_security("https://example.com", config)
-    # Any port when not specified in allow list
-    any_port, _ = _validate_url_security("https://api.internal.com:9000", config)
+    # Explicit port 8443 matches allow list
+    correct_port, _, had_scheme1 = _validate_url_security("https://example.com:8443", config)
+    # Implicit 443 doesn't match explicit 8443 in allow list
+    wrong_port, _, had_scheme2 = _validate_url_security("https://example.com", config)
+    # Explicit 9000 doesn't match implicit default in allow list (no port = not checking)
+    explicit_port_vs_implicit, _, had_scheme3 = _validate_url_security("https://api.internal.com:9000", config)
+    # Implicit default matches implicit default
+    implicit_match, _, had_scheme4 = _validate_url_security("https://api.internal.com", config)
 
     assert correct_port is not None  # noqa: S101
     assert wrong_port is not None  # noqa: S101
-    assert any_port is not None  # noqa: S101
+    assert explicit_port_vs_implicit is not None  # noqa: S101
+    assert implicit_match is not None  # noqa: S101
 
-    assert _is_url_allowed(correct_port, config.url_allow_list, config.allow_subdomains) is True  # noqa: S101
-    assert _is_url_allowed(wrong_port, config.url_allow_list, config.allow_subdomains) is False  # noqa: S101
-    assert _is_url_allowed(any_port, config.url_allow_list, config.allow_subdomains) is True  # noqa: S101
+    assert _is_url_allowed(correct_port, config.url_allow_list, config.allow_subdomains, had_scheme1) is True  # noqa: S101
+    assert _is_url_allowed(wrong_port, config.url_allow_list, config.allow_subdomains, had_scheme2) is False  # noqa: S101
+    assert _is_url_allowed(explicit_port_vs_implicit, config.url_allow_list, config.allow_subdomains, had_scheme3) is False  # noqa: S101
+    assert _is_url_allowed(implicit_match, config.url_allow_list, config.allow_subdomains, had_scheme4) is True  # noqa: S101
 
 
 def test_is_url_allowed_handles_query_and_fragment() -> None:
@@ -260,29 +264,29 @@ def test_is_url_allowed_handles_query_and_fragment() -> None:
         allowed_schemes={"https"},
     )
     # Exact query match
-    exact_query, _ = _validate_url_security("https://example.com/search?q=test", config)
+    exact_query, _, had_scheme1 = _validate_url_security("https://example.com/search?q=test", config)
     # Different query
-    diff_query, _ = _validate_url_security("https://example.com/search?q=other", config)
+    diff_query, _, had_scheme2 = _validate_url_security("https://example.com/search?q=other", config)
     # Exact fragment match
-    exact_fragment, _ = _validate_url_security("https://example.com/docs#intro", config)
+    exact_fragment, _, had_scheme3 = _validate_url_security("https://example.com/docs#intro", config)
     # Different fragment
-    diff_fragment, _ = _validate_url_security("https://example.com/docs#outro", config)
+    diff_fragment, _, had_scheme4 = _validate_url_security("https://example.com/docs#outro", config)
 
     assert exact_query is not None  # noqa: S101
     assert diff_query is not None  # noqa: S101
     assert exact_fragment is not None  # noqa: S101
     assert diff_fragment is not None  # noqa: S101
 
-    assert _is_url_allowed(exact_query, config.url_allow_list, config.allow_subdomains) is True  # noqa: S101
-    assert _is_url_allowed(diff_query, config.url_allow_list, config.allow_subdomains) is False  # noqa: S101
-    assert _is_url_allowed(exact_fragment, config.url_allow_list, config.allow_subdomains) is True  # noqa: S101
-    assert _is_url_allowed(diff_fragment, config.url_allow_list, config.allow_subdomains) is False  # noqa: S101
+    assert _is_url_allowed(exact_query, config.url_allow_list, config.allow_subdomains, had_scheme1) is True  # noqa: S101
+    assert _is_url_allowed(diff_query, config.url_allow_list, config.allow_subdomains, had_scheme2) is False  # noqa: S101
+    assert _is_url_allowed(exact_fragment, config.url_allow_list, config.allow_subdomains, had_scheme3) is True  # noqa: S101
+    assert _is_url_allowed(diff_fragment, config.url_allow_list, config.allow_subdomains, had_scheme4) is False  # noqa: S101
 
 
 def test_validate_url_security_allows_userinfo_when_disabled() -> None:
     """URLs with userinfo should be allowed when block_userinfo=False."""
     config = URLConfig(allowed_schemes={"https"}, block_userinfo=False)
-    parsed, reason = _validate_url_security("https://user:pass@example.com", config)
+    parsed, reason, _ = _validate_url_security("https://user:pass@example.com", config)
 
     assert parsed is not None  # noqa: S101
     assert reason == ""  # noqa: S101
@@ -296,16 +300,16 @@ def test_is_url_allowed_enforces_scheme_when_explicitly_specified() -> None:
         allowed_schemes={"https", "http"},  # Both schemes allowed globally
     )
     # HTTPS should be allowed (matches the scheme in allow list)
-    https_url, _ = _validate_url_security("https://bank.example.com", config)
+    https_url, _, had_scheme1 = _validate_url_security("https://bank.example.com", config)
     # HTTP should be BLOCKED (doesn't match the explicit https:// in allow list)
-    http_url, _ = _validate_url_security("http://bank.example.com", config)
+    http_url, _, had_scheme2 = _validate_url_security("http://bank.example.com", config)
 
     assert https_url is not None  # noqa: S101
     assert http_url is not None  # noqa: S101
 
     # This is the security-critical check: scheme-qualified entries must match exactly
-    assert _is_url_allowed(https_url, config.url_allow_list, config.allow_subdomains) is True  # noqa: S101
-    assert _is_url_allowed(http_url, config.url_allow_list, config.allow_subdomains) is False  # noqa: S101
+    assert _is_url_allowed(https_url, config.url_allow_list, config.allow_subdomains, had_scheme1) is True  # noqa: S101
+    assert _is_url_allowed(http_url, config.url_allow_list, config.allow_subdomains, had_scheme2) is False  # noqa: S101
 
 
 def test_is_url_allowed_enforces_scheme_for_ips() -> None:
@@ -316,15 +320,15 @@ def test_is_url_allowed_enforces_scheme_for_ips() -> None:
         allowed_schemes={"https", "http"},
     )
     # HTTPS should be allowed
-    https_ip, _ = _validate_url_security("https://192.168.1.100", config)
+    https_ip, _, had_scheme1 = _validate_url_security("https://192.168.1.100", config)
     # HTTP should be BLOCKED
-    http_ip, _ = _validate_url_security("http://192.168.1.100", config)
+    http_ip, _, had_scheme2 = _validate_url_security("http://192.168.1.100", config)
 
     assert https_ip is not None  # noqa: S101
     assert http_ip is not None  # noqa: S101
 
-    assert _is_url_allowed(https_ip, config.url_allow_list, config.allow_subdomains) is True  # noqa: S101
-    assert _is_url_allowed(http_ip, config.url_allow_list, config.allow_subdomains) is False  # noqa: S101
+    assert _is_url_allowed(https_ip, config.url_allow_list, config.allow_subdomains, had_scheme1) is True  # noqa: S101
+    assert _is_url_allowed(http_ip, config.url_allow_list, config.allow_subdomains, had_scheme2) is False  # noqa: S101
 
 
 @pytest.mark.asyncio
@@ -354,13 +358,58 @@ def test_is_url_allowed_handles_trailing_slash_in_path() -> None:
         allowed_schemes={"https"},
     )
     # URL with subpath should be allowed
-    subpath_url, _ = _validate_url_security("https://example.com/api/users", config)
+    subpath_url, _, had_scheme1 = _validate_url_security("https://example.com/api/users", config)
     # Exact match (with trailing slash) should be allowed
-    exact_url, _ = _validate_url_security("https://example.com/api/", config)
+    exact_url, _, had_scheme2 = _validate_url_security("https://example.com/api/", config)
 
     assert subpath_url is not None  # noqa: S101
     assert exact_url is not None  # noqa: S101
 
     # Both should be allowed
-    assert _is_url_allowed(subpath_url, config.url_allow_list, config.allow_subdomains) is True  # noqa: S101
-    assert _is_url_allowed(exact_url, config.url_allow_list, config.allow_subdomains) is True  # noqa: S101
+    assert _is_url_allowed(subpath_url, config.url_allow_list, config.allow_subdomains, had_scheme1) is True  # noqa: S101
+    assert _is_url_allowed(exact_url, config.url_allow_list, config.allow_subdomains, had_scheme2) is True  # noqa: S101
+
+
+@pytest.mark.asyncio
+async def test_urls_guardrail_scheme_matching_with_qualified_allow_list() -> None:
+    """Test exact behavior: scheme-qualified allow list vs scheme-less/explicit URLs."""
+    config = URLConfig(
+        url_allow_list=["https://suntropy.es"],
+        allowed_schemes={"https"},
+        allow_subdomains=False,
+    )
+
+    # Test schemeless URL
+    result1 = await urls(ctx=None, data="Visit suntropy.es", config=config)
+    assert "suntropy.es" in result1.info["allowed"]  # noqa: S101
+    assert result1.tripwire_triggered is False  # noqa: S101
+
+    # Test HTTPS URL (should match allow list scheme)
+    result2 = await urls(ctx=None, data="Visit https://suntropy.es", config=config)
+    assert "https://suntropy.es" in result2.info["allowed"]  # noqa: S101
+    assert result2.tripwire_triggered is False  # noqa: S101
+
+    # Test HTTP URL (wrong explicit scheme should be blocked)
+    result3 = await urls(ctx=None, data="Visit http://suntropy.es", config=config)
+    assert "http://suntropy.es" in result3.info["blocked"]  # noqa: S101
+    assert result3.tripwire_triggered is True  # noqa: S101
+
+
+@pytest.mark.asyncio
+async def test_urls_guardrail_blocks_subdomains_and_paths_correctly() -> None:
+    """Verify subdomains and paths are still blocked according to allow list rules."""
+    config = URLConfig(
+        url_allow_list=["https://suntropy.es"],
+        allowed_schemes={"https"},
+        allow_subdomains=False,
+    )
+    # Test blocked cases - different domains and subdomains
+    text = "Visit help-suntropy.es and help.suntropy.es"
+
+    result = await urls(ctx=None, data=text, config=config)
+
+    # Both should be blocked - not in allow list
+    assert result.tripwire_triggered is True  # noqa: S101
+    assert len(result.info["blocked"]) == 2  # noqa: S101
+    assert "help-suntropy.es" in result.info["blocked"]  # noqa: S101
+    assert "help.suntropy.es" in result.info["blocked"]  # noqa: S101
