@@ -68,8 +68,8 @@ async def process_input(
         else:
             console.print("[bold green]No guardrails triggered.[/bold green]")
 
-        console.print(f"\n[bold blue]Assistant output:[/bold blue] {response.llm_response.output_text}\n")
-        return response.llm_response.id
+        console.print(f"\n[bold blue]Assistant output:[/bold blue] {response.output_text}\n")
+        return response.id
 
     except Exception as e:
         console.print(f"[bold red]Error: {e}[/bold red]")

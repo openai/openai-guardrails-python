@@ -35,7 +35,7 @@ response = await client.responses.create(
     input="Hello"
 )
 # Guardrails run automatically
-print(response.llm_response.output_text)
+print(response.output_text)
 ```
 
 ## Next Steps

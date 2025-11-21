@@ -52,7 +52,7 @@ async def main():
                 model="gpt-4.1-mini",
             )
 
-            response_content = response.llm_response.choices[0].message.content
+            response_content = response.choices[0].message.content
             console.print(
                 Panel(
                     f"[bold green]Tripwire not triggered[/bold green]\n\nResponse: {response_content}",

@@ -75,7 +75,7 @@ async def process_input(
         )
 
         # Extract the response content from the GuardrailsResponse
-        response_text = response.llm_response.choices[0].message.content
+        response_text = response.choices[0].message.content
 
         # Only show output if all guardrails pass
         print(f"\nAssistant: {response_text}")

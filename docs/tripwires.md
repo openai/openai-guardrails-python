@@ -25,7 +25,7 @@ try:
         model="gpt-5",
         input="Tell me a secret"
     )
-    print(response.llm_response.output_text)
+    print(response.output_text)
     
 except GuardrailTripwireTriggered as exc:
     print(f"Guardrail triggered: {exc.guardrail_result.info}")

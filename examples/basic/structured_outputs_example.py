@@ -56,11 +56,11 @@ async def extract_user_info(
         )
 
         # Access the parsed structured output
-        user_info = response.llm_response.output_parsed
+        user_info = response.output_parsed
         print(f"✅ Successfully extracted: {user_info.name}, {user_info.age}, {user_info.email}")
 
         # Return user info and response ID (only returned if guardrails pass)
-        return user_info, response.llm_response.id
+        return user_info, response.id
 
     except GuardrailTripwireTriggered:
         # Guardrail blocked - no response ID returned, conversation history unchanged

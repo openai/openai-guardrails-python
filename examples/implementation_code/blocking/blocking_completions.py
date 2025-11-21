@@ -25,7 +25,7 @@ async def process_input(
             model="gpt-4.1-mini",
         )
 
-        response_content = response.llm_response.choices[0].message.content
+        response_content = response.choices[0].message.content
         print(f"\nAssistant: {response_content}")
 
         # Guardrails passed - now safe to add to conversation history
