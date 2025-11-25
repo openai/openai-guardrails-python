@@ -7,9 +7,11 @@ async and sync guardrails clients.
 from __future__ import annotations
 
 import logging
+import warnings
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Final, Union
+from weakref import WeakValueDictionary
 
 from openai.types import Completion
 from openai.types.chat import ChatCompletion, ChatCompletionChunk
@@ -22,6 +24,32 @@ from .utils.context import validate_guardrail_context
 from .utils.conversation import append_assistant_response, normalize_conversation
 
 logger = logging.getLogger(__name__)
+
+# Track which GuardrailsResponse instances (by id) have already emitted deprecation warnings
+# Uses WeakValueDictionary to avoid keeping instances alive just for warning tracking
+_warned_instance_ids: WeakValueDictionary[int, Any] = WeakValueDictionary()
+
+
+def _warn_llm_response_deprecation(instance: Any) -> None:
+    """Emit deprecation warning for llm_response access (once per instance).
+
+    This function is called when users explicitly access the llm_response attribute.
+    Uses instance ID tracking to avoid warning multiple times for the same instance.
+
+    Args:
+        instance: The GuardrailsResponse instance accessing llm_response.
+    """
+    instance_id = id(instance)
+    if instance_id not in _warned_instance_ids:
+        warnings.warn(
+            "Accessing 'llm_response' is deprecated. "
+            "Access response attributes directly instead (e.g., use 'response.output_text' "
+            "instead of 'response.llm_response.output_text'). "
+            "The 'llm_response' attribute will be removed in future versions.",
+            DeprecationWarning,
+            stacklevel=3,
+        )
+        _warned_instance_ids[instance_id] = instance
 
 # Type alias for OpenAI response types
 OpenAIResponseType = Union[Completion, ChatCompletion, ChatCompletionChunk, Response]  # noqa: UP007
@@ -54,21 +82,62 @@ class GuardrailResults:
         return [r for r in self.all_results if r.tripwire_triggered]
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, slots=True, weakref_slot=True)
 class GuardrailsResponse:
     """Wrapper around any OpenAI response with guardrail results.
 
-    This class provides the same interface as OpenAI responses, with additional
-    guardrail results accessible via the guardrail_results attribute.
+    This class acts as a transparent proxy to the underlying OpenAI response,
+    allowing direct access to all OpenAI response attributes while adding
+    guardrail results.
 
-    Users should access content the same way as with OpenAI responses:
+    Users can access response attributes directly (recommended):
     - For chat completions: response.choices[0].message.content
     - For responses: response.output_text
     - For streaming: response.choices[0].delta.content
+
+    The guardrail results are accessible via:
+    - response.guardrail_results.preflight
+    - response.guardrail_results.input
+    - response.guardrail_results.output
+
+    For backward compatibility, llm_response is still accessible but deprecated:
+    - response.llm_response (deprecated, emits warning once per instance)
     """
 
-    llm_response: OpenAIResponseType  # OpenAI response object (chat completion, response, etc.)
+    _llm_response: OpenAIResponseType  # Private: OpenAI response object
     guardrail_results: GuardrailResults
+
+    @property
+    def llm_response(self) -> OpenAIResponseType:
+        """Access the underlying OpenAI response (deprecated).
+
+        This property is provided for backward compatibility but is deprecated.
+        Users should access response attributes directly instead.
+
+        Returns:
+            The underlying OpenAI response object.
+        """
+        _warn_llm_response_deprecation(self)
+        return self._llm_response
+
+    def __getattr__(self, name: str) -> Any:
+        """Delegate attribute access to _llm_response for transparency.
+
+        This method is called when an attribute is not found on GuardrailsResponse.
+        It delegates the access to the underlying _llm_response object, making
+        GuardrailsResponse act as a transparent proxy.
+
+        Args:
+            name: The attribute name being accessed.
+
+        Returns:
+            The attribute value from _llm_response.
+
+        Raises:
+            AttributeError: If the attribute doesn't exist on _llm_response either.
+        """
+        # Access _llm_response directly without triggering deprecation warning
+        return getattr(self._llm_response, name)
 
 
 class GuardrailsBaseClient:
@@ -135,7 +204,7 @@ class GuardrailsBaseClient:
             output=output_results,
         )
         return GuardrailsResponse(
-            llm_response=llm_response,
+            _llm_response=llm_response,
             guardrail_results=guardrail_results,
         )
 

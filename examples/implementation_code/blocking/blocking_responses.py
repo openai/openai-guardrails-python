@@ -18,9 +18,9 @@ async def process_input(guardrails_client: GuardrailsAsyncOpenAI, user_input: st
         # including pre-flight, input, and output stages, plus the LLM call
         response = await guardrails_client.responses.create(input=user_input, model="gpt-4.1-mini", previous_response_id=response_id)
 
-        print(f"\nAssistant: {response.llm_response.output_text}")
+        print(f"\nAssistant: {response.output_text}")
 
-        return response.llm_response.id
+        return response.id
 
     except GuardrailTripwireTriggered:
         # GuardrailsClient automatically handles tripwire exceptions

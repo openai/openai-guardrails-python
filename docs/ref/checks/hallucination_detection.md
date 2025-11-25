@@ -76,7 +76,7 @@ response = await client.responses.create(
 )
 
 # Guardrails automatically validate against your reference documents
-print(response.llm_response.output_text)
+print(response.output_text)
 ```
 
 ### How It Works
