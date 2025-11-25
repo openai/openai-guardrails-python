@@ -139,6 +139,26 @@ class GuardrailsResponse:
         # Access _llm_response directly without triggering deprecation warning
         return getattr(self._llm_response, name)
 
+    def __dir__(self) -> list[str]:
+        """Support introspection by including delegated attributes.
+
+        Returns a list of all attributes available on this object, including
+        both GuardrailsResponse's own attributes and all attributes from the
+        underlying _llm_response object. This enables proper IDE autocomplete
+        and interactive exploration.
+
+        Returns:
+            List of all available attribute names.
+        """
+        # Get GuardrailsResponse's own attributes
+        own_attrs = set(object.__dir__(self))
+
+        # Get attributes from the underlying _llm_response
+        delegated_attrs = set(dir(self._llm_response))
+
+        # Combine and return as sorted list
+        return sorted(own_attrs | delegated_attrs)
+
 
 class GuardrailsBaseClient:
     """Base class with shared functionality for guardrails clients."""

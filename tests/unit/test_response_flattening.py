@@ -355,3 +355,36 @@ def test_separate_instances_warn_independently() -> None:
         deprecation_warnings = [warning for warning in w if issubclass(warning.category, DeprecationWarning)]
         assert len(deprecation_warnings) == 2  # noqa: S101
 
+
+def test_dir_includes_delegated_attributes() -> None:
+    """Test that dir() includes attributes from the underlying llm_response."""
+    mock_llm_response = _create_mock_chat_completion()
+    guardrail_results = _create_mock_guardrail_results()
+
+    response = GuardrailsResponse(
+        _llm_response=mock_llm_response,
+        guardrail_results=guardrail_results,
+    )
+
+    # Get all attributes via dir()
+    attrs = dir(response)
+
+    # Should include GuardrailsResponse's own attributes
+    assert "guardrail_results" in attrs  # noqa: S101
+    assert "llm_response" in attrs  # noqa: S101
+    assert "_llm_response" in attrs  # noqa: S101
+
+    # Should include delegated attributes from llm_response
+    assert "id" in attrs  # noqa: S101
+    assert "model" in attrs  # noqa: S101
+    assert "choices" in attrs  # noqa: S101
+
+    # Should be sorted
+    assert attrs == sorted(attrs)  # noqa: S101
+
+    # Verify dir() on llm_response and response have overlap
+    llm_attrs = set(dir(mock_llm_response))
+    response_attrs = set(attrs)
+    # All llm_response attributes should be in response's dir()
+    assert llm_attrs.issubset(response_attrs)  # noqa: S101
+
