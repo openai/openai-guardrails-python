@@ -107,6 +107,41 @@ class GuardrailsResponse:
     _llm_response: OpenAIResponseType  # Private: OpenAI response object
     guardrail_results: GuardrailResults
 
+    def __init__(
+        self,
+        guardrail_results: GuardrailResults,
+        _llm_response: OpenAIResponseType | None = None,
+        llm_response: OpenAIResponseType | None = None,
+    ) -> None:
+        """Initialize GuardrailsResponse with backward-compatible parameter names.
+
+        Accepts both _llm_response (new) and llm_response (deprecated) parameter names
+        to maintain backward compatibility with existing code.
+
+        Args:
+            guardrail_results: The guardrail results.
+            _llm_response: The underlying OpenAI response (preferred parameter name).
+            llm_response: The underlying OpenAI response (deprecated parameter name).
+
+        Raises:
+            TypeError: If neither or both llm_response parameters are provided.
+        """
+        # Handle backward compatibility: accept both parameter names
+        if _llm_response is not None and llm_response is not None:
+            msg = "Cannot specify both 'llm_response' and '_llm_response'"
+            raise TypeError(msg)
+
+        if _llm_response is None and llm_response is None:
+            msg = "Must specify either 'llm_response' or '_llm_response'"
+            raise TypeError(msg)
+
+        # Use whichever was provided
+        response_obj = _llm_response if _llm_response is not None else llm_response
+
+        # Set fields on frozen dataclass using object.__setattr__
+        object.__setattr__(self, "_llm_response", response_obj)
+        object.__setattr__(self, "guardrail_results", guardrail_results)
+
     @property
     def llm_response(self) -> OpenAIResponseType:
         """Access the underlying OpenAI response (deprecated).

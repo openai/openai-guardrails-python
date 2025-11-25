@@ -356,6 +356,38 @@ def test_separate_instances_warn_independently() -> None:
         assert len(deprecation_warnings) == 2  # noqa: S101
 
 
+def test_init_backward_compatibility_with_llm_response_param() -> None:
+    """Test that __init__ accepts both llm_response and _llm_response parameters."""
+    mock_llm_response = _create_mock_chat_completion()
+    guardrail_results = _create_mock_guardrail_results()
+
+    # Old parameter name should still work (backward compatibility)
+    response_old = GuardrailsResponse(
+        llm_response=mock_llm_response,
+        guardrail_results=guardrail_results,
+    )
+    assert response_old.id == "chatcmpl-123"  # noqa: S101
+
+    # New parameter name should work
+    response_new = GuardrailsResponse(
+        _llm_response=mock_llm_response,
+        guardrail_results=guardrail_results,
+    )
+    assert response_new.id == "chatcmpl-123"  # noqa: S101
+
+    # Both should raise TypeError
+    with pytest.raises(TypeError, match="Cannot specify both"):
+        GuardrailsResponse(
+            llm_response=mock_llm_response,
+            _llm_response=mock_llm_response,
+            guardrail_results=guardrail_results,
+        )
+
+    # Neither should raise TypeError
+    with pytest.raises(TypeError, match="Must specify either"):
+        GuardrailsResponse(guardrail_results=guardrail_results)
+
+
 def test_dir_includes_delegated_attributes() -> None:
     """Test that dir() includes attributes from the underlying llm_response."""
     mock_llm_response = _create_mock_chat_completion()
