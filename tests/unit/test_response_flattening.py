@@ -1,9 +1,4 @@
-"""Tests for GuardrailsResponse flattening and deprecation warnings.
-
-This module tests that GuardrailsResponse acts as a transparent proxy to the
-underlying OpenAI response, allowing direct attribute access while maintaining
-backward compatibility with deprecation warnings for llm_response access.
-"""
+"""Tests for GuardrailsResponse attribute delegation and deprecation warnings."""
 
 from __future__ import annotations
 
@@ -61,9 +56,8 @@ def test_direct_attribute_access_works() -> None:
         guardrail_results=guardrail_results,
     )
 
-    # Direct access should work without warnings
     with warnings.catch_warnings():
-        warnings.simplefilter("error")  # Turn warnings into errors
+        warnings.simplefilter("error")
         assert response.id == "chatcmpl-123"  # noqa: S101
         assert response.model == "gpt-4"  # noqa: S101
         assert response.choices[0].message.content == "Hello, world!"  # noqa: S101
@@ -80,7 +74,6 @@ def test_responses_api_direct_access_works() -> None:
         guardrail_results=guardrail_results,
     )
 
-    # Direct access should work without warnings
     with warnings.catch_warnings():
         warnings.simplefilter("error")
         assert response.id == "resp-123"  # noqa: S101
@@ -98,9 +91,8 @@ def test_guardrail_results_access_no_warning() -> None:
         guardrail_results=guardrail_results,
     )
 
-    # guardrail_results access should NOT emit warnings
     with warnings.catch_warnings():
-        warnings.simplefilter("error")  # Turn warnings into errors
+        warnings.simplefilter("error")
         assert response.guardrail_results is not None  # noqa: S101
         assert len(response.guardrail_results.preflight) == 1  # noqa: S101
         assert len(response.guardrail_results.input) == 1  # noqa: S101
@@ -117,7 +109,6 @@ def test_llm_response_access_emits_deprecation_warning() -> None:
         guardrail_results=guardrail_results,
     )
 
-    # Accessing llm_response should emit a deprecation warning
     with pytest.warns(DeprecationWarning, match="Accessing 'llm_response' is deprecated"):
         _ = response.llm_response
 
@@ -132,13 +123,11 @@ def test_llm_response_chained_access_emits_warning() -> None:
         guardrail_results=guardrail_results,
     )
 
-    # Accessing llm_response.attribute should emit a deprecation warning (first time)
     with pytest.warns(DeprecationWarning, match="Accessing 'llm_response' is deprecated"):
         _ = response.llm_response.id
 
-    # Accessing again should NOT emit another warning
     with warnings.catch_warnings():
-        warnings.simplefilter("error")  # Turn warnings into errors
+        warnings.simplefilter("error")
         _ = response.llm_response.model  # Should not raise
 
 
@@ -152,7 +141,6 @@ def test_hasattr_works_correctly() -> None:
         guardrail_results=guardrail_results,
     )
 
-    # hasattr should work for delegated attributes
     with warnings.catch_warnings():
         warnings.simplefilter("error")
         assert hasattr(response, "id")  # noqa: S101
@@ -172,7 +160,6 @@ def test_getattr_works_correctly() -> None:
         guardrail_results=guardrail_results,
     )
 
-    # getattr should work for delegated attributes
     with warnings.catch_warnings():
         warnings.simplefilter("error")
         assert response.id == "chatcmpl-123"  # noqa: S101
@@ -190,14 +177,12 @@ def test_attribute_error_for_missing_attributes() -> None:
         guardrail_results=guardrail_results,
     )
 
-    # Accessing non-existent attributes should raise AttributeError
     with pytest.raises(AttributeError):
         _ = response.nonexistent_attribute
 
 
 def test_method_calls_work() -> None:
     """Test that method calls on delegated objects work correctly."""
-    # Create a mock with a method
     mock_llm_response = SimpleNamespace(
         id="resp-123",
         custom_method=lambda: "method result",
@@ -209,7 +194,6 @@ def test_method_calls_work() -> None:
         guardrail_results=guardrail_results,
     )
 
-    # Method calls should work without warnings
     with warnings.catch_warnings():
         warnings.simplefilter("error")
         assert response.custom_method() == "method result"  # noqa: S101
@@ -271,7 +255,7 @@ def test_backward_compatibility_still_works() -> None:
 
     # Subsequent accesses should work without warnings
     with warnings.catch_warnings():
-        warnings.simplefilter("error")  # Turn warnings into errors
+        warnings.simplefilter("error")
         assert response.llm_response.model == "gpt-4"  # noqa: S101
         assert response.llm_response.choices[0].message.content == "Hello, world!"  # noqa: S101
 
@@ -361,21 +345,26 @@ def test_init_backward_compatibility_with_llm_response_param() -> None:
     mock_llm_response = _create_mock_chat_completion()
     guardrail_results = _create_mock_guardrail_results()
 
-    # Old parameter name should still work (backward compatibility)
+    # Positional arguments (original order) should work
+    response_positional = GuardrailsResponse(mock_llm_response, guardrail_results)
+    assert response_positional.id == "chatcmpl-123"  # noqa: S101
+    assert response_positional.guardrail_results == guardrail_results  # noqa: S101
+
+    # Old keyword parameter name should work (backward compatibility)
     response_old = GuardrailsResponse(
         llm_response=mock_llm_response,
         guardrail_results=guardrail_results,
     )
     assert response_old.id == "chatcmpl-123"  # noqa: S101
 
-    # New parameter name should work
+    # New keyword parameter name should work (keyword-only)
     response_new = GuardrailsResponse(
         _llm_response=mock_llm_response,
         guardrail_results=guardrail_results,
     )
     assert response_new.id == "chatcmpl-123"  # noqa: S101
 
-    # Both should raise TypeError
+    # Both llm_response parameters should raise TypeError
     with pytest.raises(TypeError, match="Cannot specify both"):
         GuardrailsResponse(
             llm_response=mock_llm_response,
@@ -383,9 +372,13 @@ def test_init_backward_compatibility_with_llm_response_param() -> None:
             guardrail_results=guardrail_results,
         )
 
-    # Neither should raise TypeError
+    # Neither llm_response parameter should raise TypeError
     with pytest.raises(TypeError, match="Must specify either"):
         GuardrailsResponse(guardrail_results=guardrail_results)
+
+    # Missing guardrail_results should raise TypeError
+    with pytest.raises(TypeError, match="Missing required argument"):
+        GuardrailsResponse(llm_response=mock_llm_response)
 
 
 def test_dir_includes_delegated_attributes() -> None:

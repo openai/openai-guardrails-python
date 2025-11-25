@@ -25,19 +25,15 @@ from .utils.conversation import append_assistant_response, normalize_conversatio
 
 logger = logging.getLogger(__name__)
 
-# Track which GuardrailsResponse instances (by id) have already emitted deprecation warnings
-# Uses WeakValueDictionary to avoid keeping instances alive just for warning tracking
+# Track instances that have emitted deprecation warnings
 _warned_instance_ids: WeakValueDictionary[int, Any] = WeakValueDictionary()
 
 
 def _warn_llm_response_deprecation(instance: Any) -> None:
-    """Emit deprecation warning for llm_response access (once per instance).
-
-    This function is called when users explicitly access the llm_response attribute.
-    Uses instance ID tracking to avoid warning multiple times for the same instance.
+    """Emit deprecation warning for llm_response access.
 
     Args:
-        instance: The GuardrailsResponse instance accessing llm_response.
+        instance: The GuardrailsResponse instance.
     """
     instance_id = id(instance)
     if instance_id not in _warned_instance_ids:
@@ -84,114 +80,87 @@ class GuardrailResults:
 
 @dataclass(frozen=True, slots=True, weakref_slot=True)
 class GuardrailsResponse:
-    """Wrapper around any OpenAI response with guardrail results.
+    """OpenAI response with guardrail results.
 
-    This class acts as a transparent proxy to the underlying OpenAI response,
-    allowing direct access to all OpenAI response attributes while adding
-    guardrail results.
+    Access OpenAI response attributes directly:
+        response.output_text
+        response.choices[0].message.content
 
-    Users can access response attributes directly (recommended):
-    - For chat completions: response.choices[0].message.content
-    - For responses: response.output_text
-    - For streaming: response.choices[0].delta.content
-
-    The guardrail results are accessible via:
-    - response.guardrail_results.preflight
-    - response.guardrail_results.input
-    - response.guardrail_results.output
-
-    For backward compatibility, llm_response is still accessible but deprecated:
-    - response.llm_response (deprecated, emits warning once per instance)
+    Access guardrail results:
+        response.guardrail_results.preflight
+        response.guardrail_results.input
+        response.guardrail_results.output
     """
 
-    _llm_response: OpenAIResponseType  # Private: OpenAI response object
+    _llm_response: OpenAIResponseType
     guardrail_results: GuardrailResults
 
     def __init__(
         self,
-        guardrail_results: GuardrailResults,
-        _llm_response: OpenAIResponseType | None = None,
         llm_response: OpenAIResponseType | None = None,
+        guardrail_results: GuardrailResults | None = None,
+        *,
+        _llm_response: OpenAIResponseType | None = None,
     ) -> None:
-        """Initialize GuardrailsResponse with backward-compatible parameter names.
-
-        Accepts both _llm_response (new) and llm_response (deprecated) parameter names
-        to maintain backward compatibility with existing code.
+        """Initialize GuardrailsResponse.
 
         Args:
-            guardrail_results: The guardrail results.
-            _llm_response: The underlying OpenAI response (preferred parameter name).
-            llm_response: The underlying OpenAI response (deprecated parameter name).
+            llm_response: OpenAI response object.
+            guardrail_results: Guardrail results.
+            _llm_response: OpenAI response object (keyword-only alias).
 
         Raises:
-            TypeError: If neither or both llm_response parameters are provided.
+            TypeError: If arguments are invalid.
         """
-        # Handle backward compatibility: accept both parameter names
-        if _llm_response is not None and llm_response is not None:
+        if llm_response is not None and _llm_response is not None:
             msg = "Cannot specify both 'llm_response' and '_llm_response'"
             raise TypeError(msg)
 
-        if _llm_response is None and llm_response is None:
+        if llm_response is None and _llm_response is None:
             msg = "Must specify either 'llm_response' or '_llm_response'"
             raise TypeError(msg)
 
-        # Use whichever was provided
-        response_obj = _llm_response if _llm_response is not None else llm_response
+        if guardrail_results is None:
+            msg = "Missing required argument: 'guardrail_results'"
+            raise TypeError(msg)
 
-        # Set fields on frozen dataclass using object.__setattr__
+        response_obj = llm_response if llm_response is not None else _llm_response
+
         object.__setattr__(self, "_llm_response", response_obj)
         object.__setattr__(self, "guardrail_results", guardrail_results)
 
     @property
     def llm_response(self) -> OpenAIResponseType:
-        """Access the underlying OpenAI response (deprecated).
-
-        This property is provided for backward compatibility but is deprecated.
-        Users should access response attributes directly instead.
+        """Access underlying OpenAI response (deprecated).
 
         Returns:
-            The underlying OpenAI response object.
+            OpenAI response object.
         """
         _warn_llm_response_deprecation(self)
         return self._llm_response
 
     def __getattr__(self, name: str) -> Any:
-        """Delegate attribute access to _llm_response for transparency.
-
-        This method is called when an attribute is not found on GuardrailsResponse.
-        It delegates the access to the underlying _llm_response object, making
-        GuardrailsResponse act as a transparent proxy.
+        """Delegate attribute access to underlying OpenAI response.
 
         Args:
-            name: The attribute name being accessed.
+            name: Attribute name.
 
         Returns:
-            The attribute value from _llm_response.
+            Attribute value from OpenAI response.
 
         Raises:
-            AttributeError: If the attribute doesn't exist on _llm_response either.
+            AttributeError: If attribute doesn't exist.
         """
-        # Access _llm_response directly without triggering deprecation warning
         return getattr(self._llm_response, name)
 
     def __dir__(self) -> list[str]:
-        """Support introspection by including delegated attributes.
-
-        Returns a list of all attributes available on this object, including
-        both GuardrailsResponse's own attributes and all attributes from the
-        underlying _llm_response object. This enables proper IDE autocomplete
-        and interactive exploration.
+        """List all available attributes including delegated ones.
 
         Returns:
-            List of all available attribute names.
+            Sorted list of attribute names.
         """
-        # Get GuardrailsResponse's own attributes
         own_attrs = set(object.__dir__(self))
-
-        # Get attributes from the underlying _llm_response
         delegated_attrs = set(dir(self._llm_response))
-
-        # Combine and return as sorted list
         return sorted(own_attrs | delegated_attrs)
 
 
