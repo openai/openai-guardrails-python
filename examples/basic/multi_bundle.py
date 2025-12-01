@@ -75,15 +75,15 @@ async def process_input(
         try:
             async for chunk in stream:
                 last_chunk = chunk
-                # Access streaming response exactly like native OpenAI API through .llm_response
-                if hasattr(chunk.llm_response, "delta") and chunk.llm_response.delta:
-                    output_text += chunk.llm_response.delta
+                # Access streaming response exactly like native OpenAI API (flattened)
+                if hasattr(chunk, "delta") and chunk.delta:
+                    output_text += chunk.delta
                     live.update(output_text)
 
             # Get the response ID from the final chunk
             response_id_to_return = None
-            if last_chunk and hasattr(last_chunk.llm_response, "response") and hasattr(last_chunk.llm_response.response, "id"):
-                response_id_to_return = last_chunk.llm_response.response.id
+            if last_chunk and hasattr(last_chunk, "response") and hasattr(last_chunk.response, "id"):
+                response_id_to_return = last_chunk.response.id
 
             # Print token usage from guardrail results (unified interface)
             if last_chunk:

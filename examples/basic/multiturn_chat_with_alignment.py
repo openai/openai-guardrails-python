@@ -235,7 +235,7 @@ async def main(malicious: bool = False) -> None:
                     tools=tools,
                 )
                 print_guardrail_results("initial", resp)
-                choice = resp.llm_response.choices[0]
+                choice = resp.choices[0]
                 message = choice.message
                 tool_calls = getattr(message, "tool_calls", []) or []
 
@@ -327,7 +327,7 @@ async def main(malicious: bool = False) -> None:
                     )
 
                     print_guardrail_results("final", resp)
-                    final_message = resp.llm_response.choices[0].message
+                    final_message = resp.choices[0].message
                     console.print(
                         Panel(
                             final_message.content or "(no output)",

@@ -7,9 +7,11 @@ async and sync guardrails clients.
 from __future__ import annotations
 
 import logging
+import warnings
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Final, Union
+from weakref import WeakValueDictionary
 
 from openai.types import Completion
 from openai.types.chat import ChatCompletion, ChatCompletionChunk
@@ -22,6 +24,28 @@ from .utils.context import validate_guardrail_context
 from .utils.conversation import append_assistant_response, normalize_conversation
 
 logger = logging.getLogger(__name__)
+
+# Track instances that have emitted deprecation warnings
+_warned_instance_ids: WeakValueDictionary[int, Any] = WeakValueDictionary()
+
+
+def _warn_llm_response_deprecation(instance: Any) -> None:
+    """Emit deprecation warning for llm_response access.
+
+    Args:
+        instance: The GuardrailsResponse instance.
+    """
+    instance_id = id(instance)
+    if instance_id not in _warned_instance_ids:
+        warnings.warn(
+            "Accessing 'llm_response' is deprecated. "
+            "Access response attributes directly instead (e.g., use 'response.output_text' "
+            "instead of 'response.llm_response.output_text'). "
+            "The 'llm_response' attribute will be removed in future versions.",
+            DeprecationWarning,
+            stacklevel=3,
+        )
+        _warned_instance_ids[instance_id] = instance
 
 # Type alias for OpenAI response types
 OpenAIResponseType = Union[Completion, ChatCompletion, ChatCompletionChunk, Response]  # noqa: UP007
@@ -71,21 +95,90 @@ class GuardrailResults:
         return aggregate_token_usage_from_infos(infos)
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, slots=True, weakref_slot=True)
 class GuardrailsResponse:
-    """Wrapper around any OpenAI response with guardrail results.
+    """OpenAI response with guardrail results.
 
-    This class provides the same interface as OpenAI responses, with additional
-    guardrail results accessible via the guardrail_results attribute.
+    Access OpenAI response attributes directly:
+        response.output_text
+        response.choices[0].message.content
 
-    Users should access content the same way as with OpenAI responses:
-    - For chat completions: response.choices[0].message.content
-    - For responses: response.output_text
-    - For streaming: response.choices[0].delta.content
+    Access guardrail results:
+        response.guardrail_results.preflight
+        response.guardrail_results.input
+        response.guardrail_results.output
     """
 
-    llm_response: OpenAIResponseType  # OpenAI response object (chat completion, response, etc.)
+    _llm_response: OpenAIResponseType
     guardrail_results: GuardrailResults
+
+    def __init__(
+        self,
+        llm_response: OpenAIResponseType | None = None,
+        guardrail_results: GuardrailResults | None = None,
+        *,
+        _llm_response: OpenAIResponseType | None = None,
+    ) -> None:
+        """Initialize GuardrailsResponse.
+
+        Args:
+            llm_response: OpenAI response object.
+            guardrail_results: Guardrail results.
+            _llm_response: OpenAI response object (keyword-only alias).
+
+        Raises:
+            TypeError: If arguments are invalid.
+        """
+        if llm_response is not None and _llm_response is not None:
+            msg = "Cannot specify both 'llm_response' and '_llm_response'"
+            raise TypeError(msg)
+
+        if llm_response is None and _llm_response is None:
+            msg = "Must specify either 'llm_response' or '_llm_response'"
+            raise TypeError(msg)
+
+        if guardrail_results is None:
+            msg = "Missing required argument: 'guardrail_results'"
+            raise TypeError(msg)
+
+        response_obj = llm_response if llm_response is not None else _llm_response
+
+        object.__setattr__(self, "_llm_response", response_obj)
+        object.__setattr__(self, "guardrail_results", guardrail_results)
+
+    @property
+    def llm_response(self) -> OpenAIResponseType:
+        """Access underlying OpenAI response (deprecated).
+
+        Returns:
+            OpenAI response object.
+        """
+        _warn_llm_response_deprecation(self)
+        return self._llm_response
+
+    def __getattr__(self, name: str) -> Any:
+        """Delegate attribute access to underlying OpenAI response.
+
+        Args:
+            name: Attribute name.
+
+        Returns:
+            Attribute value from OpenAI response.
+
+        Raises:
+            AttributeError: If attribute doesn't exist.
+        """
+        return getattr(self._llm_response, name)
+
+    def __dir__(self) -> list[str]:
+        """List all available attributes including delegated ones.
+
+        Returns:
+            Sorted list of attribute names.
+        """
+        own_attrs = set(object.__dir__(self))
+        delegated_attrs = set(dir(self._llm_response))
+        return sorted(own_attrs | delegated_attrs)
 
 
 class GuardrailsBaseClient:
@@ -152,7 +245,7 @@ class GuardrailsBaseClient:
             output=output_results,
         )
         return GuardrailsResponse(
-            llm_response=llm_response,
+            _llm_response=llm_response,
             guardrail_results=guardrail_results,
         )
 

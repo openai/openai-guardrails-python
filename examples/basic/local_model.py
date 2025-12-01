@@ -48,7 +48,7 @@ async def process_input(
         )
 
         # Access response content using standard OpenAI API
-        response_content = response.llm_response.choices[0].message.content
+        response_content = response.choices[0].message.content
         console.print(f"\nAssistant output: {response_content}", end="\n\n")
         console.print(f"Token usage: {total_guardrail_token_usage(response)}")
 

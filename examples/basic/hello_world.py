@@ -55,9 +55,7 @@ async def process_input(
             model="gpt-4.1-mini",
             previous_response_id=response_id,
         )
-
-        console.print(f"\nAssistant output: {response.llm_response.output_text}", end="\n\n")
-
+        console.print(f"\nAssistant output: {response.output_text}", end="\n\n")
         # Show guardrail results if any were run
         if response.guardrail_results.all_results:
             console.print(f"[dim]Guardrails checked: {len(response.guardrail_results.all_results)}[/dim]")
@@ -65,7 +63,7 @@ async def process_input(
             tokens = total_guardrail_token_usage(response)
             console.print(f"[dim]Token usage: {tokens}[/dim]")
 
-        return response.llm_response.id
+        return response.id
 
     except GuardrailTripwireTriggered:
         raise

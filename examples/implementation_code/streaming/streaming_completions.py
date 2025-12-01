@@ -30,8 +30,8 @@ async def process_input(
         # Stream with output guardrail checks and accumulate response
         response_content = ""
         async for chunk in stream:
-            if chunk.llm_response.choices[0].delta.content:
-                delta = chunk.llm_response.choices[0].delta.content
+            if chunk.choices[0].delta.content:
+                delta = chunk.choices[0].delta.content
                 print(delta, end="", flush=True)
                 response_content += delta
 

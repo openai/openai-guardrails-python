@@ -58,7 +58,7 @@ async def main() -> None:
                     model="gpt-4.1-nano",
                     messages=messages + [{"role": "user", "content": user_input}],
                 )
-                response_content = response.llm_response.choices[0].message.content
+                response_content = response.choices[0].message.content
                 print("Assistant:", response_content)
 
                 # Guardrails passed - now safe to add to conversation history
