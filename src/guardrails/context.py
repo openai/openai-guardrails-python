@@ -5,9 +5,8 @@ using Python's built-in ContextVars, which automatically propagate through
 async/await boundaries and execution contexts.
 """
 
-from contextvars import ContextVar, copy_context
+from contextvars import ContextVar
 from dataclasses import dataclass
-from typing import Any
 
 from openai import AsyncOpenAI, OpenAI
 
