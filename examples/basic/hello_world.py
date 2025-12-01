@@ -6,17 +6,24 @@ from contextlib import suppress
 from rich.console import Console
 from rich.panel import Panel
 
-from guardrails import GuardrailsAsyncOpenAI, GuardrailTripwireTriggered
+from guardrails import GuardrailsAsyncOpenAI, GuardrailTripwireTriggered, total_guardrail_token_usage
 
 console = Console()
 
-# Pipeline configuration with pre_flight and input guardrails
+# Define your pipeline configuration
 PIPELINE_CONFIG = {
     "version": 1,
     "pre_flight": {
         "version": 1,
         "guardrails": [
-            {"name": "Contains PII", "config": {"entities": ["US_SSN", "PHONE_NUMBER", "EMAIL_ADDRESS"]}},
+            {"name": "Moderation", "config": {"categories": ["hate", "violence"]}},
+            {
+                "name": "Jailbreak",
+                "config": {
+                    "model": "gpt-4.1-mini",
+                    "confidence_threshold": 0.7,
+                },
+            },
         ],
     },
     "input": {
@@ -54,6 +61,9 @@ async def process_input(
         # Show guardrail results if any were run
         if response.guardrail_results.all_results:
             console.print(f"[dim]Guardrails checked: {len(response.guardrail_results.all_results)}[/dim]")
+            # Use unified function - works with any guardrails response type
+            tokens = total_guardrail_token_usage(response)
+            console.print(f"[dim]Token usage: {tokens}[/dim]")
 
         return response.llm_response.id
 

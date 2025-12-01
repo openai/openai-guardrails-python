@@ -18,6 +18,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from .types import GuardrailResult
 from .utils.conversation import merge_conversation_with_items, normalize_conversation
 
 logger = logging.getLogger(__name__)
@@ -270,7 +271,9 @@ def _create_tool_guardrail(
                 )
 
                 # Check results
+                last_result: GuardrailResult | None = None
                 for result in results:
+                    last_result = result
                     if result.tripwire_triggered:
                         observation = result.info.get("observation", f"{guardrail_name} triggered")
                         message = f"Tool call was violative of policy and was blocked by {guardrail_name}: {observation}."
@@ -280,7 +283,9 @@ def _create_tool_guardrail(
                         else:
                             return ToolGuardrailFunctionOutput.reject_content(message=message, output_info=result.info)
 
-                return ToolGuardrailFunctionOutput(output_info=f"{guardrail_name} check passed")
+                # Include token usage even when guardrail passes
+                output_info = last_result.info if last_result is not None else {"message": f"{guardrail_name} check passed"}
+                return ToolGuardrailFunctionOutput(output_info=output_info)
 
             except Exception as e:
                 if raise_guardrail_errors:
@@ -325,7 +330,9 @@ def _create_tool_guardrail(
                 )
 
                 # Check results
+                last_result: GuardrailResult | None = None
                 for result in results:
+                    last_result = result
                     if result.tripwire_triggered:
                         observation = result.info.get("observation", f"{guardrail_name} triggered")
                         message = f"Tool output was violative of policy and was blocked by {guardrail_name}: {observation}."
@@ -334,7 +341,9 @@ def _create_tool_guardrail(
                         else:
                             return ToolGuardrailFunctionOutput.reject_content(message=message, output_info=result.info)
 
-                return ToolGuardrailFunctionOutput(output_info=f"{guardrail_name} check passed")
+                # Include token usage even when guardrail passes
+                output_info = last_result.info if last_result is not None else {"message": f"{guardrail_name} check passed"}
+                return ToolGuardrailFunctionOutput(output_info=output_info)
 
             except Exception as e:
                 if raise_guardrail_errors:
@@ -387,7 +396,7 @@ def _extract_text_from_input(input_data: Any) -> str:
                             if isinstance(part, dict):
                                 # Check for various text field names (avoid falsy empty string issue)
                                 text = None
-                                for field in ['text', 'input_text', 'output_text']:
+                                for field in ["text", "input_text", "output_text"]:
                                     if field in part:
                                         text = part[field]
                                         break
@@ -465,12 +474,12 @@ def _create_agents_guardrails_from_config(
 
     # Check if any guardrail needs conversation history (optimization to avoid unnecessary loading)
     needs_conversation_history = any(
-        getattr(g.definition, "metadata", None) and g.definition.metadata.uses_conversation_history
-        for g in all_guardrails
+        getattr(g.definition, "metadata", None) and g.definition.metadata.uses_conversation_history for g in all_guardrails
     )
 
     def _create_individual_guardrail(guardrail):
         """Create a function for a single specific guardrail."""
+
         async def single_guardrail(ctx: RunContextWrapper[None], agent: Agent, input_data: str | list) -> GuardrailFunctionOutput:
             """Guardrail function for a specific guardrail check.
 
@@ -504,12 +513,18 @@ def _create_agents_guardrails_from_config(
                 )
 
                 # Check if tripwire was triggered
+                last_result: GuardrailResult | None = None
                 for result in results:
+                    last_result = result
                     if result.tripwire_triggered:
                         # Return full metadata in output_info for consistency with tool guardrails
                         return GuardrailFunctionOutput(output_info=result.info, tripwire_triggered=True)
 
-                return GuardrailFunctionOutput(output_info=None, tripwire_triggered=False)
+                # For non-triggered guardrails, still return the info dict (e.g., token usage)
+                return GuardrailFunctionOutput(
+                    output_info=last_result.info if last_result is not None else None,
+                    tripwire_triggered=False,
+                )
 
             except Exception as e:
                 if raise_guardrail_errors:

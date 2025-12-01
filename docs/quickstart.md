@@ -203,6 +203,87 @@ client = GuardrailsAsyncOpenAI(
 )
 ```
 
+## Token Usage Tracking
+
+LLM-based guardrails (Jailbreak, Custom Prompt Check, etc.) consume tokens. You can track token usage across all guardrail calls using the unified `total_guardrail_token_usage` function:
+
+```python
+from guardrails import GuardrailsAsyncOpenAI, total_guardrail_token_usage
+
+client = GuardrailsAsyncOpenAI(config="config.json")
+response = await client.responses.create(model="gpt-4o", input="Hello")
+
+# Get aggregated token usage from all guardrails
+tokens = total_guardrail_token_usage(response)
+print(f"Guardrail tokens used: {tokens['total_tokens']}")
+# Output: Guardrail tokens used: 425
+```
+
+The function returns a dictionary:
+```python
+{
+    "prompt_tokens": 300,       # Sum of prompt tokens across all LLM guardrails
+    "completion_tokens": 125,   # Sum of completion tokens
+    "total_tokens": 425,        # Total tokens used by guardrails
+}
+```
+
+### Works Across All Surfaces
+
+`total_guardrail_token_usage` works with any guardrails result type:
+
+```python
+# OpenAI client responses
+response = await client.responses.create(...)
+tokens = total_guardrail_token_usage(response)
+
+# Streaming (use the last chunk)
+async for chunk in stream:
+    last_chunk = chunk
+tokens = total_guardrail_token_usage(last_chunk)
+
+# Agents SDK
+result = await Runner.run(agent, input)
+tokens = total_guardrail_token_usage(result)
+```
+
+### Per-Guardrail Token Usage
+
+Each guardrail result includes its own token usage in the `info` dict:
+
+**OpenAI Clients (GuardrailsAsyncOpenAI, etc.)**:
+
+```python
+response = await client.responses.create(model="gpt-4.1", input="Hello")
+
+for gr in response.guardrail_results.all_results:
+    usage = gr.info.get("token_usage")
+    if usage:
+        print(f"{gr.info['guardrail_name']}: {usage['total_tokens']} tokens")
+```
+
+**Agents SDK** - access token usage per stage via `RunResult`:
+
+```python
+result = await Runner.run(agent, "Hello")
+
+# Input guardrails
+for gr in result.input_guardrail_results:
+    usage = gr.output.output_info.get("token_usage") if gr.output.output_info else None
+    if usage:
+        print(f"Input: {usage['total_tokens']} tokens")
+
+# Output guardrails
+for gr in result.output_guardrail_results:
+    usage = gr.output.output_info.get("token_usage") if gr.output.output_info else None
+    if usage:
+        print(f"Output: {usage['total_tokens']} tokens")
+
+# Tool guardrails: result.tool_input_guardrail_results, result.tool_output_guardrail_results
+```
+
+Non-LLM guardrails (URL Filter, Moderation, PII) don't consume tokens and won't have `token_usage` in their info.
+
 ## Next Steps
 
 - Explore [examples](./examples.md) for advanced patterns

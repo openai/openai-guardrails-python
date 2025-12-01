@@ -725,8 +725,7 @@ def _mask_encoded_pii(text: str, config: PIIConfig, original_text: str | None = 
                 or (
                     len(candidate_lower) >= 3
                     and any(  # Any 3-char chunk overlaps
-                        candidate_lower[i : i + 3] in detected_lower
-                        for i in range(len(candidate_lower) - 2)
+                        candidate_lower[i : i + 3] in detected_lower for i in range(len(candidate_lower) - 2)
                     )
                 )
             )

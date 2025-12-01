@@ -40,7 +40,7 @@ from .runtime import (
     run_guardrails,
 )
 from .spec import GuardrailSpecMetadata
-from .types import GuardrailResult
+from .types import GuardrailResult, total_guardrail_token_usage
 
 __all__ = [
     "ConfiguredGuardrail",  # configured, executable object
@@ -64,6 +64,7 @@ __all__ = [
     "load_pipeline_bundles",
     "default_spec_registry",
     "resources",  # resource modules
+    "total_guardrail_token_usage",  # unified token usage aggregation
 ]
 
 __version__: str = _m.version("openai-guardrails")

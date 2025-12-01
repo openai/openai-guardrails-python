@@ -17,7 +17,17 @@ from guardrails.checks.text.llm_base import (
     create_llm_check_fn,
     run_llm,
 )
-from guardrails.types import GuardrailResult
+from guardrails.types import GuardrailResult, TokenUsage
+
+
+def _mock_token_usage() -> TokenUsage:
+    """Return a mock TokenUsage for tests."""
+    return TokenUsage(prompt_tokens=100, completion_tokens=50, total_tokens=150)
+
+
+def _mock_usage_object() -> SimpleNamespace:
+    """Return a mock usage object for fake API responses."""
+    return SimpleNamespace(prompt_tokens=100, completion_tokens=50, total_tokens=150)
 
 
 class _FakeCompletions:
@@ -26,7 +36,10 @@ class _FakeCompletions:
 
     async def create(self, **kwargs: Any) -> Any:
         _ = kwargs
-        return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content=self._content))])
+        return SimpleNamespace(
+            choices=[SimpleNamespace(message=SimpleNamespace(content=self._content))],
+            usage=_mock_usage_object(),
+        )
 
 
 class _FakeAsyncClient:
@@ -40,7 +53,10 @@ class _FakeSyncCompletions:
 
     def create(self, **kwargs: Any) -> Any:
         _ = kwargs
-        return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content=self._content))])
+        return SimpleNamespace(
+            choices=[SimpleNamespace(message=SimpleNamespace(content=self._content))],
+            usage=_mock_usage_object(),
+        )
 
 
 class _FakeSyncClient:
@@ -69,7 +85,7 @@ def test_build_full_prompt_includes_instructions() -> None:
 async def test_run_llm_returns_valid_output() -> None:
     """run_llm should parse the JSON response into the provided output model."""
     client = _FakeAsyncClient('{"flagged": true, "confidence": 0.9}')
-    result = await run_llm(
+    result, token_usage = await run_llm(
         text="Sensitive text",
         system_prompt="Detect problems.",
         client=client,  # type: ignore[arg-type]
@@ -78,6 +94,10 @@ async def test_run_llm_returns_valid_output() -> None:
     )
     assert isinstance(result, LLMOutput)  # noqa: S101
     assert result.flagged is True and result.confidence == 0.9  # noqa: S101
+    # Verify token usage is returned
+    assert token_usage.prompt_tokens == 100  # noqa: S101
+    assert token_usage.completion_tokens == 50  # noqa: S101
+    assert token_usage.total_tokens == 150  # noqa: S101
 
 
 @pytest.mark.asyncio
@@ -85,7 +105,7 @@ async def test_run_llm_supports_sync_clients() -> None:
     """run_llm should invoke synchronous clients without awaiting them."""
     client = _FakeSyncClient('{"flagged": false, "confidence": 0.25}')
 
-    result = await run_llm(
+    result, token_usage = await run_llm(
         text="General text",
         system_prompt="Assess text.",
         client=client,  # type: ignore[arg-type]
@@ -95,6 +115,8 @@ async def test_run_llm_supports_sync_clients() -> None:
 
     assert isinstance(result, LLMOutput)  # noqa: S101
     assert result.flagged is False and result.confidence == 0.25  # noqa: S101
+    # Verify token usage is returned
+    assert isinstance(token_usage, TokenUsage)  # noqa: S101
 
 
 @pytest.mark.asyncio
@@ -111,7 +133,7 @@ async def test_run_llm_handles_content_filter_error(monkeypatch: pytest.MonkeyPa
 
         chat = _Chat()
 
-    result = await run_llm(
+    result, token_usage = await run_llm(
         text="Sensitive",
         system_prompt="Detect.",
         client=_FailingClient(),  # type: ignore[arg-type]
@@ -122,6 +144,8 @@ async def test_run_llm_handles_content_filter_error(monkeypatch: pytest.MonkeyPa
     assert isinstance(result, LLMErrorOutput)  # noqa: S101
     assert result.flagged is True  # noqa: S101
     assert result.info["third_party_filter"] is True  # noqa: S101
+    # Token usage should indicate failure
+    assert token_usage.unavailable_reason is not None  # noqa: S101
 
 
 @pytest.mark.asyncio
@@ -134,9 +158,9 @@ async def test_create_llm_check_fn_triggers_on_confident_flag(monkeypatch: pytes
         client: Any,
         model: str,
         output_model: type[LLMOutput],
-    ) -> LLMOutput:
+    ) -> tuple[LLMOutput, TokenUsage]:
         assert system_prompt == "Check with details"  # noqa: S101
-        return LLMOutput(flagged=True, confidence=0.95)
+        return LLMOutput(flagged=True, confidence=0.95), _mock_token_usage()
 
     monkeypatch.setattr(llm_base, "run_llm", fake_run_llm)
 
@@ -159,11 +183,20 @@ async def test_create_llm_check_fn_triggers_on_confident_flag(monkeypatch: pytes
     assert isinstance(result, GuardrailResult)  # noqa: S101
     assert result.tripwire_triggered is True  # noqa: S101
     assert result.info["threshold"] == 0.9  # noqa: S101
+    # Verify token usage is included in the result
+    assert "token_usage" in result.info  # noqa: S101
+    assert result.info["token_usage"]["total_tokens"] == 150  # noqa: S101
 
 
 @pytest.mark.asyncio
 async def test_create_llm_check_fn_handles_llm_error(monkeypatch: pytest.MonkeyPatch) -> None:
     """LLM error results should mark execution_failed without triggering tripwire."""
+    error_usage = TokenUsage(
+        prompt_tokens=None,
+        completion_tokens=None,
+        total_tokens=None,
+        unavailable_reason="LLM call failed",
+    )
 
     async def fake_run_llm(
         text: str,
@@ -171,8 +204,8 @@ async def test_create_llm_check_fn_handles_llm_error(monkeypatch: pytest.MonkeyP
         client: Any,
         model: str,
         output_model: type[LLMOutput],
-    ) -> LLMErrorOutput:
-        return LLMErrorOutput(flagged=False, confidence=0.0, info={"error_message": "timeout"})
+    ) -> tuple[LLMErrorOutput, TokenUsage]:
+        return LLMErrorOutput(flagged=False, confidence=0.0, info={"error_message": "timeout"}), error_usage
 
     monkeypatch.setattr(llm_base, "run_llm", fake_run_llm)
 
@@ -189,3 +222,5 @@ async def test_create_llm_check_fn_handles_llm_error(monkeypatch: pytest.MonkeyP
     assert result.tripwire_triggered is False  # noqa: S101
     assert result.execution_failed is True  # noqa: S101
     assert "timeout" in str(result.original_exception)  # noqa: S101
+    # Verify token usage is included even in error results
+    assert "token_usage" in result.info  # noqa: S101

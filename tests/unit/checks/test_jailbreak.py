@@ -10,6 +10,12 @@ import pytest
 
 from guardrails.checks.text.jailbreak import MAX_CONTEXT_TURNS, jailbreak
 from guardrails.checks.text.llm_base import LLMConfig, LLMOutput
+from guardrails.types import TokenUsage
+
+
+def _mock_token_usage() -> TokenUsage:
+    """Return a mock TokenUsage for tests."""
+    return TokenUsage(prompt_tokens=100, completion_tokens=50, total_tokens=150)
 
 
 @dataclass(frozen=True, slots=True)
@@ -42,16 +48,14 @@ async def test_jailbreak_uses_conversation_history_when_available(monkeypatch: p
         client: Any,
         model: str,
         output_model: type[LLMOutput],
-    ) -> LLMOutput:
+    ) -> tuple[LLMOutput, TokenUsage]:
         recorded["text"] = text
         recorded["system_prompt"] = system_prompt
-        return output_model(flagged=True, confidence=0.95, reason="Detected jailbreak attempt.")
+        return output_model(flagged=True, confidence=0.95, reason="Detected jailbreak attempt."), _mock_token_usage()
 
     monkeypatch.setattr("guardrails.checks.text.jailbreak.run_llm", fake_run_llm)
 
-    conversation_history = [
-        {"role": "user", "content": f"Turn {index}"} for index in range(1, MAX_CONTEXT_TURNS + 3)
-    ]
+    conversation_history = [{"role": "user", "content": f"Turn {index}"} for index in range(1, MAX_CONTEXT_TURNS + 3)]
     ctx = DummyContext(guardrail_llm=DummyGuardrailLLM(), conversation_history=conversation_history)
     config = LLMConfig(model="gpt-4.1-mini", confidence_threshold=0.5)
 
@@ -77,9 +81,9 @@ async def test_jailbreak_falls_back_to_latest_input_without_history(monkeypatch:
         client: Any,
         model: str,
         output_model: type[LLMOutput],
-    ) -> LLMOutput:
+    ) -> tuple[LLMOutput, TokenUsage]:
         recorded["text"] = text
-        return output_model(flagged=False, confidence=0.1, reason="Benign request.")
+        return output_model(flagged=False, confidence=0.1, reason="Benign request."), _mock_token_usage()
 
     monkeypatch.setattr("guardrails.checks.text.jailbreak.run_llm", fake_run_llm)
 
@@ -107,12 +111,18 @@ async def test_jailbreak_handles_llm_error(monkeypatch: pytest.MonkeyPatch) -> N
         client: Any,
         model: str,
         output_model: type[LLMOutput],
-    ) -> LLMErrorOutput:
+    ) -> tuple[LLMErrorOutput, TokenUsage]:
+        error_usage = TokenUsage(
+            prompt_tokens=None,
+            completion_tokens=None,
+            total_tokens=None,
+            unavailable_reason="LLM call failed",
+        )
         return LLMErrorOutput(
             flagged=False,
             confidence=0.0,
             info={"error_message": "API timeout after 30 seconds"},
-        )
+        ), error_usage
 
     monkeypatch.setattr("guardrails.checks.text.jailbreak.run_llm", fake_run_llm)
 
@@ -130,12 +140,12 @@ async def test_jailbreak_handles_llm_error(monkeypatch: pytest.MonkeyPatch) -> N
 @pytest.mark.parametrize(
     "confidence,threshold,should_trigger",
     [
-        (0.7, 0.7, True),   # Exactly at threshold (flagged=True)
-        (0.69, 0.7, False), # Just below threshold
+        (0.7, 0.7, True),  # Exactly at threshold (flagged=True)
+        (0.69, 0.7, False),  # Just below threshold
         (0.71, 0.7, True),  # Just above threshold
         (0.0, 0.5, False),  # Minimum confidence
-        (1.0, 0.5, True),   # Maximum confidence
-        (0.5, 0.5, True),   # At threshold boundary
+        (1.0, 0.5, True),  # Maximum confidence
+        (0.5, 0.5, True),  # At threshold boundary
     ],
 )
 @pytest.mark.asyncio
@@ -153,12 +163,12 @@ async def test_jailbreak_confidence_threshold_edge_cases(
         client: Any,
         model: str,
         output_model: type[LLMOutput],
-    ) -> LLMOutput:
+    ) -> tuple[LLMOutput, TokenUsage]:
         return output_model(
             flagged=True,  # Always flagged, test threshold logic only
             confidence=confidence,
             reason=f"Test with confidence {confidence}",
-        )
+        ), _mock_token_usage()
 
     monkeypatch.setattr("guardrails.checks.text.jailbreak.run_llm", fake_run_llm)
 
@@ -187,9 +197,9 @@ async def test_jailbreak_respects_max_context_turns(
         client: Any,
         model: str,
         output_model: type[LLMOutput],
-    ) -> LLMOutput:
+    ) -> tuple[LLMOutput, TokenUsage]:
         recorded["text"] = text
-        return output_model(flagged=False, confidence=0.0, reason="test")
+        return output_model(flagged=False, confidence=0.0, reason="test"), _mock_token_usage()
 
     monkeypatch.setattr("guardrails.checks.text.jailbreak.run_llm", fake_run_llm)
 
@@ -222,9 +232,9 @@ async def test_jailbreak_with_empty_conversation_history(monkeypatch: pytest.Mon
         client: Any,
         model: str,
         output_model: type[LLMOutput],
-    ) -> LLMOutput:
+    ) -> tuple[LLMOutput, TokenUsage]:
         recorded["text"] = text
-        return output_model(flagged=False, confidence=0.0, reason="Empty history test")
+        return output_model(flagged=False, confidence=0.0, reason="Empty history test"), _mock_token_usage()
 
     monkeypatch.setattr("guardrails.checks.text.jailbreak.run_llm", fake_run_llm)
 
@@ -250,9 +260,9 @@ async def test_jailbreak_strips_whitespace_from_input(monkeypatch: pytest.Monkey
         client: Any,
         model: str,
         output_model: type[LLMOutput],
-    ) -> LLMOutput:
+    ) -> tuple[LLMOutput, TokenUsage]:
         recorded["text"] = text
-        return output_model(flagged=False, confidence=0.0, reason="Whitespace test")
+        return output_model(flagged=False, confidence=0.0, reason="Whitespace test"), _mock_token_usage()
 
     monkeypatch.setattr("guardrails.checks.text.jailbreak.run_llm", fake_run_llm)
 
@@ -269,18 +279,19 @@ async def test_jailbreak_strips_whitespace_from_input(monkeypatch: pytest.Monkey
 @pytest.mark.asyncio
 async def test_jailbreak_confidence_below_threshold_not_flagged(monkeypatch: pytest.MonkeyPatch) -> None:
     """High confidence but flagged=False should not trigger."""
+
     async def fake_run_llm(
         text: str,
         system_prompt: str,
         client: Any,
         model: str,
         output_model: type[LLMOutput],
-    ) -> LLMOutput:
+    ) -> tuple[LLMOutput, TokenUsage]:
         return output_model(
             flagged=False,  # Not flagged by LLM
             confidence=0.95,  # High confidence in NOT being jailbreak
             reason="Clearly benign educational question",
-        )
+        ), _mock_token_usage()
 
     monkeypatch.setattr("guardrails.checks.text.jailbreak.run_llm", fake_run_llm)
 
@@ -313,9 +324,9 @@ async def test_jailbreak_handles_context_without_get_conversation_history(monkey
         client: Any,
         model: str,
         output_model: type[LLMOutput],
-    ) -> LLMOutput:
+    ) -> tuple[LLMOutput, TokenUsage]:
         recorded["text"] = text
-        return output_model(flagged=False, confidence=0.1, reason="Test")
+        return output_model(flagged=False, confidence=0.1, reason="Test"), _mock_token_usage()
 
     monkeypatch.setattr("guardrails.checks.text.jailbreak.run_llm", fake_run_llm)
 

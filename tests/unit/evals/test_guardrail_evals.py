@@ -19,10 +19,7 @@ def _build_samples(count: int) -> list[Sample]:
     Returns:
         List of Sample instances configured for evaluation.
     """
-    return [
-        Sample(id=f"sample-{idx}", data=f"payload-{idx}", expected_triggers={"g": bool(idx % 2)})
-        for idx in range(count)
-    ]
+    return [Sample(id=f"sample-{idx}", data=f"payload-{idx}", expected_triggers={"g": bool(idx % 2)}) for idx in range(count)]
 
 
 def test_determine_parallel_model_limit_defaults(monkeypatch: pytest.MonkeyPatch) -> None:

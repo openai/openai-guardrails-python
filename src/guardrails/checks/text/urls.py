@@ -394,9 +394,7 @@ def _is_url_allowed(
         if allowed_port_explicit is not None and allowed_port != url_port:
             continue
 
-        host_matches = url_domain == allowed_domain or (
-            allow_subdomains and url_domain.endswith(f".{allowed_domain}")
-        )
+        host_matches = url_domain == allowed_domain or (allow_subdomains and url_domain.endswith(f".{allowed_domain}"))
         if not host_matches:
             continue
 

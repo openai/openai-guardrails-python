@@ -50,7 +50,13 @@ from pydantic import ConfigDict, Field
 
 from guardrails.registry import default_spec_registry
 from guardrails.spec import GuardrailSpecMetadata
-from guardrails.types import GuardrailLLMContextProto, GuardrailResult
+from guardrails.types import (
+    GuardrailLLMContextProto,
+    GuardrailResult,
+    TokenUsage,
+    extract_token_usage,
+    token_usage_to_dict,
+)
 
 from .llm_base import (
     LLMConfig,
@@ -208,6 +214,14 @@ async def hallucination_detection(
     if not config.knowledge_source or not config.knowledge_source.startswith("vs_"):
         raise ValueError("knowledge_source must be a valid vector store ID starting with 'vs_'")
 
+    # Default token usage for error cases (before LLM call)
+    no_usage = TokenUsage(
+        prompt_tokens=None,
+        completion_tokens=None,
+        total_tokens=None,
+        unavailable_reason="LLM call failed before usage could be recorded",
+    )
+
     try:
         # Create the validation query
         validation_query = f"{VALIDATION_PROMPT}\n\nText to validate:\n{candidate}"
@@ -221,6 +235,9 @@ async def hallucination_detection(
             tools=[{"type": "file_search", "vector_store_ids": [config.knowledge_source]}],
         )
 
+        # Extract token usage from the response
+        token_usage = extract_token_usage(response)
+
         # Get the parsed output directly
         analysis = response.output_parsed
 
@@ -233,6 +250,7 @@ async def hallucination_detection(
                 "guardrail_name": "Hallucination Detection",
                 **analysis.model_dump(),
                 "threshold": config.confidence_threshold,
+                "token_usage": token_usage_to_dict(token_usage),
             },
         )
 
@@ -254,6 +272,7 @@ async def hallucination_detection(
                 "hallucinated_statements": None,
                 "verified_statements": None,
             },
+            token_usage=no_usage,
         )
     except Exception as e:
         # Log unexpected errors and use shared error helper
@@ -273,6 +292,7 @@ async def hallucination_detection(
                 "hallucinated_statements": None,
                 "verified_statements": None,
             },
+            token_usage=no_usage,
         )
 
 
