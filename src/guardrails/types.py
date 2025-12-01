@@ -287,8 +287,9 @@ def total_guardrail_token_usage(result: Any) -> dict[str, Any]:
     if guardrail_results is not None and hasattr(guardrail_results, "total_token_usage"):
         return guardrail_results.total_token_usage
 
-    # Check for GuardrailResults directly (has total_token_usage property)
-    if hasattr(result, "total_token_usage") and callable(getattr(type(result), "total_token_usage", None).__get__):
+    # Check for GuardrailResults directly (has total_token_usage property/descriptor)
+    class_attr = getattr(type(result), "total_token_usage", None)
+    if class_attr is not None and hasattr(class_attr, "__get__"):
         return result.total_token_usage
 
     # Check for Agents SDK RunResult (has *_guardrail_results attributes)
