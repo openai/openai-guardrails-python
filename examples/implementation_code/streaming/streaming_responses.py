@@ -26,15 +26,15 @@ async def process_input(guardrails_client: GuardrailsAsyncOpenAI, user_input: st
 
         # Stream with output guardrail checks
         async for chunk in stream:
-            # Access streaming response exactly like native OpenAI API through .llm_response
+            # Access streaming response exactly like native OpenAI API
             # For responses API streaming, check for delta content
-            if hasattr(chunk.llm_response, "delta") and chunk.llm_response.delta:
-                print(chunk.llm_response.delta, end="", flush=True)
+            if hasattr(chunk, "delta") and chunk.delta:
+                print(chunk.delta, end="", flush=True)
 
         # Get the response ID from the final chunk
         response_id_to_return = None
-        if hasattr(chunk.llm_response, "response") and hasattr(chunk.llm_response.response, "id"):
-            response_id_to_return = chunk.llm_response.response.id
+        if hasattr(chunk, "response") and hasattr(chunk.response, "id"):
+            response_id_to_return = chunk.response.id
 
         return response_id_to_return
 

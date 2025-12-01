@@ -66,15 +66,15 @@ async def process_input(
     with Live(output_text, console=console, refresh_per_second=10) as live:
         try:
             async for chunk in stream:
-                # Access streaming response exactly like native OpenAI API through .llm_response
-                if hasattr(chunk.llm_response, "delta") and chunk.llm_response.delta:
-                    output_text += chunk.llm_response.delta
+                # Access streaming response exactly like native OpenAI API (flattened)
+                if hasattr(chunk, "delta") and chunk.delta:
+                    output_text += chunk.delta
                     live.update(output_text)
 
             # Get the response ID from the final chunk
             response_id_to_return = None
-            if hasattr(chunk.llm_response, "response") and hasattr(chunk.llm_response.response, "id"):
-                response_id_to_return = chunk.llm_response.response.id
+            if hasattr(chunk, "response") and hasattr(chunk.response, "id"):
+                response_id_to_return = chunk.response.id
 
             return response_id_to_return
 
