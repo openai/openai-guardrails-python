@@ -3,6 +3,8 @@
 import asyncio
 from collections.abc import AsyncIterator
 from concurrent.futures import ThreadPoolExecutor
+from contextvars import copy_context
+from functools import partial
 from typing import Any
 
 from ..._base_client import GuardrailsBaseClient
@@ -93,10 +95,10 @@ class ChatCompletions:
             if supports_safety_identifier(self._client._resource_client):
                 llm_kwargs["safety_identifier"] = SAFETY_IDENTIFIER
 
-            llm_future = executor.submit(
-                self._client._resource_client.chat.completions.create,
-                **llm_kwargs,
-            )
+            llm_call_fn = partial(self._client._resource_client.chat.completions.create, **llm_kwargs)
+            ctx = copy_context()
+            llm_future = executor.submit(ctx.run, llm_call_fn)
+
             input_results = self._client._run_stage_guardrails(
                 "input",
                 latest_message,
