@@ -19,7 +19,7 @@ from openai.types.responses import Response
 
 from .context import has_context
 from .runtime import load_pipeline_bundles
-from .types import GuardrailLLMContextProto, GuardrailResult
+from .types import GuardrailLLMContextProto, GuardrailResult, aggregate_token_usage_from_infos
 from .utils.context import validate_guardrail_context
 from .utils.conversation import append_assistant_response, normalize_conversation
 
@@ -76,6 +76,23 @@ class GuardrailResults:
     def triggered_results(self) -> list[GuardrailResult]:
         """Get only the guardrail results that triggered tripwires."""
         return [r for r in self.all_results if r.tripwire_triggered]
+
+    @property
+    def total_token_usage(self) -> dict[str, Any]:
+        """Aggregate token usage across all LLM-based guardrails.
+
+        Sums prompt_tokens, completion_tokens, and total_tokens from all
+        guardrail results that include token_usage in their info dict.
+        Non-LLM guardrails (which don't have token_usage) are skipped.
+
+        Returns:
+            Dictionary with:
+            - prompt_tokens: Sum of all prompt tokens (or None if no data)
+            - completion_tokens: Sum of all completion tokens (or None if no data)
+            - total_tokens: Sum of all total tokens (or None if no data)
+        """
+        infos = (result.info for result in self.all_results)
+        return aggregate_token_usage_from_infos(infos)
 
 
 @dataclass(frozen=True, slots=True, weakref_slot=True)
@@ -427,8 +444,7 @@ class GuardrailsBaseClient:
                                 or (
                                     len(candidate_lower) >= 3
                                     and any(  # Any 3-char chunk overlaps
-                                        candidate_lower[i : i + 3] in detected_lower
-                                        for i in range(len(candidate_lower) - 2)
+                                        candidate_lower[i : i + 3] in detected_lower for i in range(len(candidate_lower) - 2)
                                     )
                                 )
                             )
@@ -459,13 +475,7 @@ class GuardrailsBaseClient:
                     modified_content.append(part)
             else:
                 # Handle object-based content parts
-                if (
-                    hasattr(part, "type")
-                    and hasattr(part, "text")
-                    and part.type in _TEXT_CONTENT_TYPES
-                    and isinstance(part.text, str)
-                    and part.text
-                ):
+                if hasattr(part, "type") and hasattr(part, "text") and part.type in _TEXT_CONTENT_TYPES and isinstance(part.text, str) and part.text:
                     try:
                         part.text = _mask_text(part.text)
                     except Exception:

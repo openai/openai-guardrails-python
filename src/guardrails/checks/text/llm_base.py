@@ -45,7 +45,14 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from guardrails.registry import default_spec_registry
 from guardrails.spec import GuardrailSpecMetadata
-from guardrails.types import CheckFn, GuardrailLLMContextProto, GuardrailResult
+from guardrails.types import (
+    CheckFn,
+    GuardrailLLMContextProto,
+    GuardrailResult,
+    TokenUsage,
+    extract_token_usage,
+    token_usage_to_dict,
+)
 from guardrails.utils.output import OutputSchema
 
 from ...utils.safety_identifier import SAFETY_IDENTIFIER, supports_safety_identifier
@@ -127,6 +134,7 @@ def create_error_result(
     guardrail_name: str,
     analysis: LLMErrorOutput,
     additional_info: dict[str, Any] | None = None,
+    token_usage: TokenUsage | None = None,
 ) -> GuardrailResult:
     """Create a standardized GuardrailResult from an LLM error output.
 
@@ -134,6 +142,7 @@ def create_error_result(
         guardrail_name: Name of the guardrail that failed.
         analysis: The LLM error output.
         additional_info: Optional additional fields to include in info dict.
+        token_usage: Optional token usage statistics from the LLM call.
 
     Returns:
         GuardrailResult with execution_failed=True.
@@ -149,6 +158,10 @@ def create_error_result(
 
     if additional_info:
         result_info.update(additional_info)
+
+    # Include token usage if provided
+    if token_usage is not None:
+        result_info["token_usage"] = token_usage_to_dict(token_usage)
 
     return GuardrailResult(
         tripwire_triggered=False,
@@ -210,13 +223,14 @@ def _build_full_prompt(system_prompt: str, output_model: type[LLMOutput]) -> str
 
     Analyze the following text according to the instructions above.
     """
-    field_instructions = "\n".join(
-        _format_field_instruction(name, field.annotation)
-        for name, field in output_model.model_fields.items()
-    )
-    return textwrap.dedent(template).strip().format(
-        system_prompt=system_prompt,
-        field_instructions=field_instructions,
+    field_instructions = "\n".join(_format_field_instruction(name, field.annotation) for name, field in output_model.model_fields.items())
+    return (
+        textwrap.dedent(template)
+        .strip()
+        .format(
+            system_prompt=system_prompt,
+            field_instructions=field_instructions,
+        )
     )
 
 
@@ -297,11 +311,11 @@ async def run_llm(
     client: AsyncOpenAI | OpenAI | AsyncAzureOpenAI | AzureOpenAI,
     model: str,
     output_model: type[LLMOutput],
-) -> LLMOutput:
+) -> tuple[LLMOutput, TokenUsage]:
     """Run an LLM analysis for a given prompt and user input.
 
     Invokes the OpenAI LLM, enforces prompt/response contract, parses the LLM's
-    output, and returns a validated result.
+    output, and returns a validated result along with token usage statistics.
 
     Args:
         text (str): Text to analyze.
@@ -311,9 +325,19 @@ async def run_llm(
         output_model (type[LLMOutput]): Model for parsing and validating the LLM's response.
 
     Returns:
-        LLMOutput: Structured output containing the detection decision and confidence.
+        tuple[LLMOutput, TokenUsage]: A tuple containing:
+            - Structured output with the detection decision and confidence.
+            - Token usage statistics from the LLM call.
     """
     full_prompt = _build_full_prompt(system_prompt, output_model)
+
+    # Default token usage for error cases
+    no_usage = TokenUsage(
+        prompt_tokens=None,
+        completion_tokens=None,
+        total_tokens=None,
+        unavailable_reason="LLM call failed before usage could be recorded",
+    )
 
     try:
         response = await _request_chat_completion(
@@ -325,14 +349,21 @@ async def run_llm(
             model=model,
             response_format=OutputSchema(output_model).get_completions_format(),  # type: ignore[arg-type, unused-ignore]
         )
+
+        # Extract token usage from the response
+        token_usage = extract_token_usage(response)
+
         result = response.choices[0].message.content
         if not result:
-            return output_model(
-                flagged=False,
-                confidence=0.0,
+            return (
+                output_model(
+                    flagged=False,
+                    confidence=0.0,
+                ),
+                token_usage,
             )
         result = _strip_json_code_fence(result)
-        return output_model.model_validate_json(result)
+        return output_model.model_validate_json(result), token_usage
 
     except Exception as exc:
         logger.exception("LLM guardrail failed for prompt: %s", system_prompt)
@@ -340,21 +371,27 @@ async def run_llm(
         # Check if this is a content filter error - Azure OpenAI
         if "content_filter" in str(exc):
             logger.warning("Content filter triggered by provider: %s", exc)
-            return LLMErrorOutput(
-                flagged=True,
-                confidence=1.0,
-                info={
-                    "third_party_filter": True,
-                    "error_message": str(exc),
-                },
+            return (
+                LLMErrorOutput(
+                    flagged=True,
+                    confidence=1.0,
+                    info={
+                        "third_party_filter": True,
+                        "error_message": str(exc),
+                    },
+                ),
+                no_usage,
             )
         # Always return error information for other LLM failures
-        return LLMErrorOutput(
-            flagged=False,
-            confidence=0.0,
-            info={
-                "error_message": str(exc),
-            },
+        return (
+            LLMErrorOutput(
+                flagged=False,
+                confidence=0.0,
+                info={
+                    "error_message": str(exc),
+                },
+            ),
+            no_usage,
         )
 
 
@@ -404,7 +441,7 @@ def create_llm_check_fn(
         else:
             rendered_system_prompt = system_prompt
 
-        analysis = await run_llm(
+        analysis, token_usage = await run_llm(
             data,
             rendered_system_prompt,
             ctx.guardrail_llm,
@@ -417,6 +454,7 @@ def create_llm_check_fn(
             return create_error_result(
                 guardrail_name=name,
                 analysis=analysis,
+                token_usage=token_usage,
             )
 
         # Compare severity levels
@@ -427,6 +465,7 @@ def create_llm_check_fn(
                 "guardrail_name": name,
                 **analysis.model_dump(),
                 "threshold": config.confidence_threshold,
+                "token_usage": token_usage_to_dict(token_usage),
             },
         )
 

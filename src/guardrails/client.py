@@ -774,8 +774,7 @@ if AzureOpenAI is not None:
                 # Only wrap context with conversation history if any guardrail in this stage needs it
                 if conversation_history:
                     needs_conversation = any(
-                        getattr(g.definition, "metadata", None)
-                        and g.definition.metadata.uses_conversation_history
+                        getattr(g.definition, "metadata", None) and g.definition.metadata.uses_conversation_history
                         for g in self.guardrails[stage_name]
                     )
                     if needs_conversation:

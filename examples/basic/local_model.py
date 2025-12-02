@@ -7,7 +7,7 @@ from openai.types.chat import ChatCompletionMessageParam
 from rich.console import Console
 from rich.panel import Panel
 
-from guardrails import GuardrailsAsyncOpenAI, GuardrailTripwireTriggered
+from guardrails import GuardrailsAsyncOpenAI, GuardrailTripwireTriggered, total_guardrail_token_usage
 
 console = Console()
 
@@ -50,6 +50,7 @@ async def process_input(
         # Access response content using standard OpenAI API
         response_content = response.choices[0].message.content
         console.print(f"\nAssistant output: {response_content}", end="\n\n")
+        console.print(f"Token usage: {total_guardrail_token_usage(response)}")
 
         # Add to conversation history
         input_data.append({"role": "user", "content": user_input})

@@ -34,7 +34,13 @@ from pydantic import Field
 
 from guardrails.registry import default_spec_registry
 from guardrails.spec import GuardrailSpecMetadata
-from guardrails.types import GuardrailLLMContextProto, GuardrailResult
+from guardrails.types import (
+    GuardrailLLMContextProto,
+    GuardrailResult,
+    TokenUsage,
+    extract_token_usage,
+    token_usage_to_dict,
+)
 
 from .llm_base import LLMConfig, LLMOutput, _invoke_openai_callable
 
@@ -280,7 +286,7 @@ Previous context:
 """
 
         # Call LLM for analysis
-        analysis = await _call_prompt_injection_detection_llm(ctx, analysis_prompt, config)
+        analysis, token_usage = await _call_prompt_injection_detection_llm(ctx, analysis_prompt, config)
 
         # Determine if tripwire should trigger
         is_misaligned = analysis.flagged and analysis.confidence >= config.confidence_threshold
@@ -296,6 +302,7 @@ Previous context:
                 "evidence": analysis.evidence,
                 "user_goal": user_goal_text,
                 "action": recent_messages,
+                "token_usage": token_usage_to_dict(token_usage),
             },
         )
         return result
@@ -363,8 +370,17 @@ def _create_skip_result(
     user_goal: str = "N/A",
     action: Any = None,
     data: str = "",
+    token_usage: TokenUsage | None = None,
 ) -> GuardrailResult:
     """Create result for skipped prompt injection detection checks (errors, no data, etc.)."""
+    # Default token usage when no LLM call was made
+    if token_usage is None:
+        token_usage = TokenUsage(
+            prompt_tokens=None,
+            completion_tokens=None,
+            total_tokens=None,
+            unavailable_reason="No LLM call made (check was skipped)",
+        )
     return GuardrailResult(
         tripwire_triggered=False,
         info={
@@ -376,19 +392,34 @@ def _create_skip_result(
             "evidence": None,
             "user_goal": user_goal,
             "action": action or [],
+            "token_usage": token_usage_to_dict(token_usage),
         },
     )
 
 
-async def _call_prompt_injection_detection_llm(ctx: GuardrailLLMContextProto, prompt: str, config: LLMConfig) -> PromptInjectionDetectionOutput:
-    """Call LLM for prompt injection detection analysis."""
+async def _call_prompt_injection_detection_llm(
+    ctx: GuardrailLLMContextProto,
+    prompt: str,
+    config: LLMConfig,
+) -> tuple[PromptInjectionDetectionOutput, TokenUsage]:
+    """Call LLM for prompt injection detection analysis.
+
+    Args:
+        ctx: Guardrail context containing the LLM client.
+        prompt: The analysis prompt to send to the LLM.
+        config: Configuration for the LLM call.
+
+    Returns:
+        Tuple of (parsed output, token usage).
+    """
     parsed_response = await _invoke_openai_callable(
         ctx.guardrail_llm.responses.parse,
         input=prompt,
         model=config.model,
         text_format=PromptInjectionDetectionOutput,
     )
-    return parsed_response.output_parsed
+    token_usage = extract_token_usage(parsed_response)
+    return parsed_response.output_parsed, token_usage
 
 
 # Register the guardrail

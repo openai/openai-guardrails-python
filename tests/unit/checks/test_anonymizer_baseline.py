@@ -176,8 +176,7 @@ async def test_baseline_mixed_entities_complex() -> None:
     )
     result = await pii(
         None,
-        "Contact John at john@company.com or call (555) 123-4567. "
-        "SSN: 856-45-6789",
+        "Contact John at john@company.com or call (555) 123-4567. SSN: 856-45-6789",
         config,
     )
 
@@ -188,4 +187,3 @@ async def test_baseline_mixed_entities_complex() -> None:
     assert "<EMAIL_ADDRESS>" in checked_text  # noqa: S101
     assert "<PHONE_NUMBER>" in checked_text or "555" not in checked_text  # noqa: S101
     assert "<US_SSN>" in checked_text  # noqa: S101
-

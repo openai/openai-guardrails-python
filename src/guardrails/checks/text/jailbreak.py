@@ -44,7 +44,7 @@ from pydantic import Field
 
 from guardrails.registry import default_spec_registry
 from guardrails.spec import GuardrailSpecMetadata
-from guardrails.types import GuardrailLLMContextProto, GuardrailResult
+from guardrails.types import GuardrailLLMContextProto, GuardrailResult, token_usage_to_dict
 
 from .llm_base import (
     LLMConfig,
@@ -231,9 +231,7 @@ class JailbreakLLMOutput(LLMOutput):
 
     reason: str = Field(
         ...,
-        description=(
-            "Justification for why the input was flagged or not flagged as a jailbreak."
-        ),
+        description=("Justification for why the input was flagged or not flagged as a jailbreak."),
     )
 
 
@@ -253,7 +251,7 @@ async def jailbreak(ctx: GuardrailLLMContextProto, data: str, config: LLMConfig)
     conversation_history = getattr(ctx, "get_conversation_history", lambda: None)() or []
     analysis_payload = _build_analysis_payload(conversation_history, data)
 
-    analysis = await run_llm(
+    analysis, token_usage = await run_llm(
         analysis_payload,
         SYSTEM_PROMPT,
         ctx.guardrail_llm,
@@ -269,6 +267,7 @@ async def jailbreak(ctx: GuardrailLLMContextProto, data: str, config: LLMConfig)
                 "checked_text": analysis_payload,
                 "used_conversation_history": bool(conversation_history),
             },
+            token_usage=token_usage,
         )
 
     is_trigger = analysis.flagged and analysis.confidence >= config.confidence_threshold
@@ -280,6 +279,7 @@ async def jailbreak(ctx: GuardrailLLMContextProto, data: str, config: LLMConfig)
             "threshold": config.confidence_threshold,
             "checked_text": analysis_payload,
             "used_conversation_history": bool(conversation_history),
+            "token_usage": token_usage_to_dict(token_usage),
         },
     )
 

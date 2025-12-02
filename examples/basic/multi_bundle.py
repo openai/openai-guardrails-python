@@ -7,7 +7,7 @@ from rich.console import Console
 from rich.live import Live
 from rich.panel import Panel
 
-from guardrails import GuardrailsAsyncOpenAI, GuardrailTripwireTriggered
+from guardrails import GuardrailsAsyncOpenAI, GuardrailTripwireTriggered, total_guardrail_token_usage
 
 console = Console()
 
@@ -21,6 +21,13 @@ PIPELINE_CONFIG = {
             {
                 "name": "URL Filter",
                 "config": {"url_allow_list": ["example.com", "baz.com"]},
+            },
+            {
+                "name": "Jailbreak",
+                "config": {
+                    "model": "gpt-4.1-mini",
+                    "confidence_threshold": 0.7,
+                },
             },
         ],
     },
@@ -63,9 +70,11 @@ async def process_input(
 
     # Stream the assistant's output inside a Rich Live panel
     output_text = "Assistant output: "
+    last_chunk = None
     with Live(output_text, console=console, refresh_per_second=10) as live:
         try:
             async for chunk in stream:
+                last_chunk = chunk
                 # Access streaming response exactly like native OpenAI API (flattened)
                 if hasattr(chunk, "delta") and chunk.delta:
                     output_text += chunk.delta
@@ -73,9 +82,14 @@ async def process_input(
 
             # Get the response ID from the final chunk
             response_id_to_return = None
-            if hasattr(chunk, "response") and hasattr(chunk.response, "id"):
-                response_id_to_return = chunk.response.id
+            if last_chunk and hasattr(last_chunk, "response") and hasattr(last_chunk.response, "id"):
+                response_id_to_return = last_chunk.response.id
 
+            # Print token usage from guardrail results (unified interface)
+            if last_chunk:
+                tokens = total_guardrail_token_usage(last_chunk)
+                if tokens["total_tokens"]:
+                    console.print(f"[dim]📊 Guardrail tokens: {tokens['total_tokens']}[/dim]")
             return response_id_to_return
 
         except GuardrailTripwireTriggered:

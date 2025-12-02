@@ -972,6 +972,46 @@ async def test_agent_guardrail_returns_full_metadata_on_trigger(monkeypatch: pyt
 
 
 @pytest.mark.asyncio
+async def test_agent_guardrail_returns_info_on_success(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Successful agent guardrails should still expose info in output_info."""
+    pipeline = SimpleNamespace(pre_flight=None, input=SimpleNamespace(), output=None)
+    monkeypatch.setattr(runtime_module, "load_pipeline_bundles", lambda config: pipeline)
+    monkeypatch.setattr(
+        runtime_module,
+        "instantiate_guardrails",
+        lambda stage, registry=None: [_make_guardrail("Jailbreak")] if stage is pipeline.input else [],
+    )
+
+    expected_metadata = {
+        "guardrail_name": "Jailbreak",
+        "token_usage": {
+            "prompt_tokens": 55,
+            "completion_tokens": 20,
+            "total_tokens": 75,
+        },
+        "flagged": False,
+    }
+
+    async def fake_run_guardrails(**kwargs: Any) -> list[GuardrailResult]:
+        return [GuardrailResult(tripwire_triggered=False, info=expected_metadata)]
+
+    monkeypatch.setattr(runtime_module, "run_guardrails", fake_run_guardrails)
+
+    guardrails = agents._create_agents_guardrails_from_config(
+        config={},
+        stages=["input"],
+        guardrail_type="input",
+        context=SimpleNamespace(guardrail_llm="llm"),
+        raise_guardrail_errors=False,
+    )
+
+    result = await guardrails[0](agents_module.RunContextWrapper(None), Agent("a", "b"), "hello")
+
+    assert result.tripwire_triggered is False  # noqa: S101
+    assert result.output_info == expected_metadata  # noqa: S101
+
+
+@pytest.mark.asyncio
 async def test_agent_guardrail_function_has_descriptive_name(monkeypatch: pytest.MonkeyPatch) -> None:
     """Agent guardrail functions should be named after their guardrail."""
     pipeline = SimpleNamespace(pre_flight=None, input=SimpleNamespace(), output=None)

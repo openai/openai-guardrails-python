@@ -82,7 +82,7 @@ def _resolve_overlaps(results: Sequence[RecognizerResult]) -> list[RecognizerRes
         overlaps = False
         for selected in non_overlapping:
             # Two spans overlap if one starts before the other ends
-            if (result.start < selected.end and result.end > selected.start):
+            if result.start < selected.end and result.end > selected.start:
                 overlaps = True
                 break
 
@@ -138,11 +138,6 @@ def anonymize(
             # Extract the replacement value
             new_value = operator_config.params.get("new_value", f"<{entity_type}>")
             # Replace the text span
-            masked_text = (
-                masked_text[: result.start]
-                + new_value
-                + masked_text[result.end :]
-            )
+            masked_text = masked_text[: result.start] + new_value + masked_text[result.end :]
 
     return AnonymizeResult(text=masked_text)
-

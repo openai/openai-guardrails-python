@@ -81,6 +81,52 @@ from guardrails import JsonString
 agent = GuardrailAgent(config=JsonString('{"version": 1, ...}'), ...)
 ```
 
+## Token Usage Tracking
+
+Track token usage from LLM-based guardrails using the unified `total_guardrail_token_usage` function:
+
+```python
+from guardrails import GuardrailAgent, total_guardrail_token_usage
+from agents import Runner
+
+agent = GuardrailAgent(config="config.json", name="Assistant", instructions="...")
+result = await Runner.run(agent, "Hello")
+
+# Get aggregated token usage from all guardrails
+tokens = total_guardrail_token_usage(result)
+print(f"Guardrail tokens used: {tokens['total_tokens']}")
+```
+
+### Per-Stage Token Usage
+
+For per-stage token usage, access the guardrail results directly on the `RunResult`:
+
+```python
+# Input guardrails (agent-level)
+for gr in result.input_guardrail_results:
+    usage = gr.output.output_info.get("token_usage") if gr.output.output_info else None
+    if usage:
+        print(f"Input guardrail: {usage['total_tokens']} tokens")
+
+# Output guardrails (agent-level)
+for gr in result.output_guardrail_results:
+    usage = gr.output.output_info.get("token_usage") if gr.output.output_info else None
+    if usage:
+        print(f"Output guardrail: {usage['total_tokens']} tokens")
+
+# Tool input guardrails (per-tool)
+for gr in result.tool_input_guardrail_results:
+    usage = gr.output.output_info.get("token_usage") if gr.output.output_info else None
+    if usage:
+        print(f"Tool input guardrail: {usage['total_tokens']} tokens")
+
+# Tool output guardrails (per-tool)
+for gr in result.tool_output_guardrail_results:
+    usage = gr.output.output_info.get("token_usage") if gr.output.output_info else None
+    if usage:
+        print(f"Tool output guardrail: {usage['total_tokens']} tokens")
+```
+
 ## Next Steps
 
 - Use the [Guardrails Wizard](https://guardrails.openai.com/) to generate your configuration

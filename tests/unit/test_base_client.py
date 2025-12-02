@@ -665,3 +665,186 @@ def test_apply_preflight_modifications_no_pii_detected() -> None:
 
     # Should return original since no PII was detected
     assert result == "Clean text"  # noqa: S101
+
+
+# ----- Token Usage Aggregation Tests -----
+
+
+def test_total_token_usage_aggregates_llm_guardrails() -> None:
+    """total_token_usage should sum tokens from all guardrails with usage."""
+    results = GuardrailResults(
+        preflight=[
+            GuardrailResult(
+                tripwire_triggered=False,
+                info={
+                    "guardrail_name": "Jailbreak",
+                    "token_usage": {
+                        "prompt_tokens": 100,
+                        "completion_tokens": 50,
+                        "total_tokens": 150,
+                    },
+                },
+            )
+        ],
+        input=[
+            GuardrailResult(
+                tripwire_triggered=False,
+                info={
+                    "guardrail_name": "NSFW",
+                    "token_usage": {
+                        "prompt_tokens": 200,
+                        "completion_tokens": 75,
+                        "total_tokens": 275,
+                    },
+                },
+            )
+        ],
+        output=[],
+    )
+
+    usage = results.total_token_usage
+
+    assert usage["prompt_tokens"] == 300  # noqa: S101
+    assert usage["completion_tokens"] == 125  # noqa: S101
+    assert usage["total_tokens"] == 425  # noqa: S101
+
+
+def test_total_token_usage_skips_non_llm_guardrails() -> None:
+    """total_token_usage should skip guardrails without token_usage."""
+    results = GuardrailResults(
+        preflight=[
+            GuardrailResult(
+                tripwire_triggered=False,
+                info={
+                    "guardrail_name": "Contains PII",
+                    # No token_usage - not an LLM guardrail
+                },
+            )
+        ],
+        input=[
+            GuardrailResult(
+                tripwire_triggered=False,
+                info={
+                    "guardrail_name": "Jailbreak",
+                    "token_usage": {
+                        "prompt_tokens": 100,
+                        "completion_tokens": 50,
+                        "total_tokens": 150,
+                    },
+                },
+            )
+        ],
+        output=[],
+    )
+
+    usage = results.total_token_usage
+
+    assert usage["prompt_tokens"] == 100  # noqa: S101
+    assert usage["completion_tokens"] == 50  # noqa: S101
+    assert usage["total_tokens"] == 150  # noqa: S101
+
+
+def test_total_token_usage_handles_unavailable_third_party() -> None:
+    """total_token_usage should count guardrails with unavailable token usage."""
+    results = GuardrailResults(
+        preflight=[
+            GuardrailResult(
+                tripwire_triggered=False,
+                info={
+                    "guardrail_name": "Custom LLM",
+                    "token_usage": {
+                        "prompt_tokens": None,
+                        "completion_tokens": None,
+                        "total_tokens": None,
+                        "unavailable_reason": "Third-party model",
+                    },
+                },
+            )
+        ],
+        input=[
+            GuardrailResult(
+                tripwire_triggered=False,
+                info={
+                    "guardrail_name": "Jailbreak",
+                    "token_usage": {
+                        "prompt_tokens": 100,
+                        "completion_tokens": 50,
+                        "total_tokens": 150,
+                    },
+                },
+            )
+        ],
+        output=[],
+    )
+
+    usage = results.total_token_usage
+
+    # Only Jailbreak has data
+    assert usage["prompt_tokens"] == 100  # noqa: S101
+    assert usage["completion_tokens"] == 50  # noqa: S101
+    assert usage["total_tokens"] == 150  # noqa: S101
+
+
+def test_total_token_usage_returns_none_when_no_data() -> None:
+    """total_token_usage should return None values when no guardrails have data."""
+    results = GuardrailResults(
+        preflight=[
+            GuardrailResult(
+                tripwire_triggered=False,
+                info={
+                    "guardrail_name": "Contains PII",
+                },
+            )
+        ],
+        input=[],
+        output=[],
+    )
+
+    usage = results.total_token_usage
+
+    assert usage["prompt_tokens"] is None  # noqa: S101
+    assert usage["completion_tokens"] is None  # noqa: S101
+    assert usage["total_tokens"] is None  # noqa: S101
+
+
+def test_total_token_usage_with_empty_results() -> None:
+    """total_token_usage should handle empty results."""
+    results = GuardrailResults(
+        preflight=[],
+        input=[],
+        output=[],
+    )
+
+    usage = results.total_token_usage
+
+    assert usage["prompt_tokens"] is None  # noqa: S101
+    assert usage["completion_tokens"] is None  # noqa: S101
+    assert usage["total_tokens"] is None  # noqa: S101
+
+
+def test_total_token_usage_partial_data() -> None:
+    """total_token_usage should handle guardrails with partial token data."""
+    results = GuardrailResults(
+        preflight=[
+            GuardrailResult(
+                tripwire_triggered=False,
+                info={
+                    "guardrail_name": "Partial",
+                    "token_usage": {
+                        "prompt_tokens": 100,
+                        "completion_tokens": None,  # Missing
+                        "total_tokens": 100,
+                    },
+                },
+            )
+        ],
+        input=[],
+        output=[],
+    )
+
+    usage = results.total_token_usage
+
+    # Should still count as having data since prompt_tokens is present
+    assert usage["prompt_tokens"] == 100  # noqa: S101
+    assert usage["completion_tokens"] == 0  # None treated as 0 in sum  # noqa: S101
+    assert usage["total_tokens"] == 100  # noqa: S101
