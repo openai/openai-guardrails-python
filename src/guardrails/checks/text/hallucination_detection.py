@@ -94,11 +94,30 @@ class HallucinationDetectionOutput(LLMOutput):
     Extends the base LLM output with hallucination-specific details.
 
     Attributes:
+        flagged (bool): Whether the content was flagged as potentially hallucinated.
+        confidence (float): Confidence score (0.0 to 1.0) that the input is hallucinated.
+        reasoning (str): Detailed explanation of the analysis.
         hallucination_type (str | None): Type of hallucination detected.
-        hallucinated_statements (list[str] | None): Specific statements flagged as potentially hallucinated.
-        verified_statements (list[str] | None): Specific statements that are supported by the documents.
+        hallucinated_statements (list[str] | None): Specific statements flagged as
+            potentially hallucinated.
+        verified_statements (list[str] | None): Specific statements that are supported
+            by the documents.
     """
 
+    flagged: bool = Field(
+        ...,
+        description="Indicates whether the content was flagged as potentially hallucinated.",
+    )
+    confidence: float = Field(
+        ...,
+        description="Confidence score (0.0 to 1.0) that the input is hallucinated.",
+        ge=0.0,
+        le=1.0,
+    )
+    reasoning: str = Field(
+        ...,
+        description="Detailed explanation of the hallucination analysis.",
+    )
     hallucination_type: str | None = Field(
         None,
         description="Type of hallucination detected (e.g., 'factual_error', 'unsupported_claim').",
