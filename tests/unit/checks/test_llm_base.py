@@ -255,7 +255,7 @@ async def test_create_llm_check_fn_uses_reasoning_output_by_default(monkeypatch:
         system_prompt="Test prompt",
     )
 
-    # Test with include_reasoning=True (default)
+    # Test with include_reasoning=True explicitly enabled
     config = LLMConfig(model="gpt-test", confidence_threshold=0.5, include_reasoning=True)
     context = SimpleNamespace(guardrail_llm="fake-client")
     result = await guardrail_fn(context, "test", config)

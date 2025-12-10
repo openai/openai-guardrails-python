@@ -43,7 +43,7 @@ Returns a `GuardrailResult` with the following `info` dictionary:
 }
 ```
 
-- **`flagged`**: Whether the content aligns with your business scope
+- **`flagged`**: Whether the content is off-topic (outside your business scope)
 - **`confidence`**: Confidence score (0.0 to 1.0) for the assessment
 - **`threshold`**: The confidence threshold that was configured
 - **`reason`**: Explanation of why the input was flagged (or not flagged) - *only included when `include_reasoning=true`*
