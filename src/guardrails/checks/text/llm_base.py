@@ -386,8 +386,10 @@ async def run_llm(
 
         result = response.choices[0].message.content
         if not result:
+            # Use base LLMOutput for empty responses to avoid validation errors
+            # with extended models that have required fields (e.g., LLMReasoningOutput)
             return (
-                output_model(
+                LLMOutput(
                     flagged=False,
                     confidence=0.0,
                 ),
