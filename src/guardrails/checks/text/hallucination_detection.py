@@ -174,14 +174,6 @@ VALIDATION_PROMPT = textwrap.dedent(
     3. **Clearly contradicted by the documents** - Claims that directly contradict the documents → FLAG
     4. **Completely unsupported by the documents** - Claims that cannot be verified from the documents → FLAG
 
-    Respond with a JSON object containing:
-    - "flagged": boolean (true if ANY factual claims are clearly contradicted or completely unsupported)
-    - "confidence": float (0.0 to 1.0, your confidence that the input is hallucinated)
-    - "reasoning": string (detailed explanation of your analysis)
-    - "hallucination_type": string (type of issue, if detected: "factual_error", "unsupported_claim", or "none" if supported)
-    - "hallucinated_statements": array of strings (specific factual statements that may be hallucinated)
-    - "verified_statements": array of strings (specific factual statements that are supported by the documents)
-
     **CRITICAL GUIDELINES**:
     - Flag content if ANY factual claims are unsupported or contradicted (even if some claims are supported)
     - Allow conversational, opinion-based, or general content to pass through
@@ -193,6 +185,30 @@ VALIDATION_PROMPT = textwrap.dedent(
         - 0.0 = Certain not hallucinated
         - Use the full range [0.0 - 1.0] to reflect your level of certainty
     """  # noqa: E501
+).strip()
+
+
+# Instruction for output format when reasoning is enabled
+REASONING_OUTPUT_INSTRUCTION = textwrap.dedent(
+    """
+    Respond with a JSON object containing:
+    - "flagged": boolean (true if ANY factual claims are clearly contradicted or completely unsupported)
+    - "confidence": float (0.0 to 1.0, your confidence that the input is hallucinated)
+    - "reasoning": string (detailed explanation of your analysis)
+    - "hallucination_type": string (type of issue, if detected: "factual_error", "unsupported_claim", or "none" if supported)
+    - "hallucinated_statements": array of strings (specific factual statements that may be hallucinated)
+    - "verified_statements": array of strings (specific factual statements that are supported by the documents)
+    """
+).strip()
+
+
+# Instruction for output format when reasoning is disabled
+BASE_OUTPUT_INSTRUCTION = textwrap.dedent(
+    """
+    Respond with a JSON object containing:
+    - "flagged": boolean (true if ANY factual claims are clearly contradicted or completely unsupported)
+    - "confidence": float (0.0 to 1.0, your confidence that the input is hallucinated)
+    """
 ).strip()
 
 
@@ -232,11 +248,16 @@ async def hallucination_detection(
     )
 
     try:
-        # Create the validation query
-        validation_query = f"{VALIDATION_PROMPT}\n\nText to validate:\n{candidate}"
+        # Build the prompt based on whether reasoning is requested
+        if config.include_reasoning:
+            output_instruction = REASONING_OUTPUT_INSTRUCTION
+            output_format = HallucinationDetectionOutput
+        else:
+            output_instruction = BASE_OUTPUT_INSTRUCTION
+            output_format = LLMOutput
 
-        # Use HallucinationDetectionOutput (with reasoning fields) if enabled, otherwise base LLMOutput
-        output_format = HallucinationDetectionOutput if config.include_reasoning else LLMOutput
+        # Create the validation query with appropriate output instructions
+        validation_query = f"{VALIDATION_PROMPT}\n\n{output_instruction}\n\nText to validate:\n{candidate}"
 
         # Use the Responses API with file search and structured output
         response = await _invoke_openai_callable(

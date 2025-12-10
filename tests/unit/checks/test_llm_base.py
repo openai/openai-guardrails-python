@@ -285,7 +285,7 @@ async def test_create_llm_check_fn_uses_base_model_without_reasoning(monkeypatch
 
     monkeypatch.setattr(llm_base, "run_llm", fake_run_llm)
 
-    # Don't provide output_model - should default to LLMReasoningOutput when reasoning enabled
+    # Don't provide output_model - should use base LLMOutput when reasoning disabled
     guardrail_fn = create_llm_check_fn(
         name="TestGuardrailWithoutReasoning",
         description="Test",
