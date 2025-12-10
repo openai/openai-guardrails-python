@@ -43,11 +43,7 @@ from pydantic import ConfigDict, Field
 
 from guardrails.types import CheckFn, GuardrailLLMContextProto
 
-from .llm_base import (
-    LLMConfig,
-    LLMOutput,
-    create_llm_check_fn,
-)
+from .llm_base import LLMConfig, create_llm_check_fn
 
 __all__ = ["topical_alignment"]
 
@@ -88,6 +84,6 @@ topical_alignment: CheckFn[GuardrailLLMContextProto, str, TopicalAlignmentConfig
     name="Off Topic Prompts",
     description="Checks that the content stays within the defined business scope.",
     system_prompt=SYSTEM_PROMPT,  # business_scope supplied at runtime
-    output_model=LLMOutput,
+    # Uses default LLMReasoningOutput for reasoning support
     config_model=TopicalAlignmentConfig,
 )

@@ -65,7 +65,9 @@ class BenchmarkReporter:
         try:
             # Save per-model results
             for model_name, results in results_by_model.items():
-                model_results_file = results_dir / f"eval_results_{guardrail_name}_{model_name}.jsonl"
+                # Sanitize model name for file path (replace / with _)
+                safe_model_name = model_name.replace("/", "_")
+                model_results_file = results_dir / f"eval_results_{guardrail_name}_{safe_model_name}.jsonl"
                 self._save_results_jsonl(results, model_results_file)
                 logger.info("Model %s results saved to %s", model_name, model_results_file)
 

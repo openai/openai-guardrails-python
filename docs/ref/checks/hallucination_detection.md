@@ -14,7 +14,8 @@ Flags model text containing factual claims that are clearly contradicted or not 
     "config": {
         "model": "gpt-4.1-mini",
         "confidence_threshold": 0.7,
-        "knowledge_source": "vs_abc123"
+        "knowledge_source": "vs_abc123",
+        "include_reasoning": false
     }
 }
 ```
@@ -24,6 +25,10 @@ Flags model text containing factual claims that are clearly contradicted or not 
 - **`model`** (required): OpenAI model (required) to use for validation (e.g., "gpt-4.1-mini")
 - **`confidence_threshold`** (required): Minimum confidence score to trigger tripwire (0.0 to 1.0)
 - **`knowledge_source`** (required): OpenAI vector store ID starting with "vs_" containing reference documents
+- **`include_reasoning`** (optional): Whether to include detailed reasoning fields in the output (default: `false`)
+    - When `false`: Returns only `flagged` and `confidence` to save tokens
+    - When `true`: Additionally, returns `reasoning`, `hallucination_type`, `hallucinated_statements`, and `verified_statements`
+    - Recommended: Keep disabled for production (default); enable for development/debugging
 
 ### Tuning guidance
 
@@ -102,7 +107,9 @@ See [`examples/hallucination_detection/`](https://github.com/openai/openai-guard
 
 ## What It Returns
 
-Returns a `GuardrailResult` with the following `info` dictionary:
+Returns a `GuardrailResult` with the following `info` dictionary.
+
+**With `include_reasoning=true`:**
 
 ```json
 {
@@ -117,15 +124,15 @@ Returns a `GuardrailResult` with the following `info` dictionary:
 }
 ```
 
+### Fields
+
 - **`flagged`**: Whether the content was flagged as potentially hallucinated
 - **`confidence`**: Confidence score (0.0 to 1.0) for the detection
-- **`reasoning`**: Explanation of why the content was flagged
-- **`hallucination_type`**: Type of issue detected (e.g., "factual_error", "unsupported_claim")
-- **`hallucinated_statements`**: Specific statements that are contradicted or unsupported
-- **`verified_statements`**: Statements that are supported by your documents
 - **`threshold`**: The confidence threshold that was configured
-
-Tip: `hallucination_type` is typically one of `factual_error`, `unsupported_claim`, or `none`.
+- **`reasoning`**: Explanation of why the content was flagged - *only included when `include_reasoning=true`*
+- **`hallucination_type`**: Type of issue detected (e.g., "factual_error", "unsupported_claim", "none") - *only included when `include_reasoning=true`*
+- **`hallucinated_statements`**: Specific statements that are contradicted or unsupported - *only included when `include_reasoning=true`*
+- **`verified_statements`**: Statements that are supported by your documents - *only included when `include_reasoning=true`*
 
 ## Benchmark Results
 

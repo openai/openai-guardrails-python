@@ -33,7 +33,8 @@ Detects attempts to bypass safety or policy constraints via manipulation (prompt
     "name": "Jailbreak",
     "config": {
         "model": "gpt-4.1-mini",
-        "confidence_threshold": 0.7
+        "confidence_threshold": 0.7,
+        "include_reasoning": false
     }
 }
 ```
@@ -42,6 +43,10 @@ Detects attempts to bypass safety or policy constraints via manipulation (prompt
 
 - **`model`** (required): Model to use for detection (e.g., "gpt-4.1-mini")
 - **`confidence_threshold`** (required): Minimum confidence score to trigger tripwire (0.0 to 1.0)
+- **`include_reasoning`** (optional): Whether to include reasoning/explanation fields in the guardrail output (default: `false`)
+    - When `false`: The LLM only generates the essential fields (`flagged` and `confidence`), reducing token generation costs
+    - When `true`: Additionally, returns detailed reasoning for its decisions
+    - **Use Case**: Keep disabled for production to minimize costs; enable for development and debugging
 
 ### Tuning guidance
 
@@ -70,7 +75,7 @@ Returns a `GuardrailResult` with the following `info` dictionary:
 - **`flagged`**: Whether a jailbreak attempt was detected
 - **`confidence`**: Confidence score (0.0 to 1.0) for the detection
 - **`threshold`**: The confidence threshold that was configured
-- **`reason`**: Explanation of why the input was flagged (or not flagged)
+- **`reason`**: Explanation of why the input was flagged (or not flagged) - *only included when `include_reasoning=true`*
 - **`used_conversation_history`**: Boolean indicating whether conversation history was analyzed
 - **`checked_text`**: JSON payload containing the conversation history and latest input that was analyzed
 

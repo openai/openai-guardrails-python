@@ -39,11 +39,7 @@ from pydantic import ConfigDict, Field
 
 from guardrails.types import CheckFn, GuardrailLLMContextProto
 
-from .llm_base import (
-    LLMConfig,
-    LLMOutput,
-    create_llm_check_fn,
-)
+from .llm_base import LLMConfig, create_llm_check_fn
 
 __all__ = ["user_defined_llm"]
 
@@ -84,6 +80,6 @@ user_defined_llm: CheckFn[GuardrailLLMContextProto, str, UserDefinedConfig] = cr
         "Runs a user-defined guardrail based on a custom system prompt. Allows for flexible content moderation based on specific requirements."
     ),
     system_prompt=SYSTEM_PROMPT,
-    output_model=LLMOutput,
+    # Uses default LLMReasoningOutput for reasoning support
     config_model=UserDefinedConfig,
 )

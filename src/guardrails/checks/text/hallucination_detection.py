@@ -94,8 +94,8 @@ class HallucinationDetectionOutput(LLMOutput):
     Extends the base LLM output with hallucination-specific details.
 
     Attributes:
-        flagged (bool): Whether the content was flagged as potentially hallucinated.
-        confidence (float): Confidence score (0.0 to 1.0) that the input is hallucinated.
+        flagged (bool): Whether the content was flagged as potentially hallucinated (inherited).
+        confidence (float): Confidence score (0.0 to 1.0) that the input is hallucinated (inherited).
         reasoning (str): Detailed explanation of the analysis.
         hallucination_type (str | None): Type of hallucination detected.
         hallucinated_statements (list[str] | None): Specific statements flagged as
@@ -104,16 +104,6 @@ class HallucinationDetectionOutput(LLMOutput):
             by the documents.
     """
 
-    flagged: bool = Field(
-        ...,
-        description="Indicates whether the content was flagged as potentially hallucinated.",
-    )
-    confidence: float = Field(
-        ...,
-        description="Confidence score (0.0 to 1.0) that the input is hallucinated.",
-        ge=0.0,
-        le=1.0,
-    )
     reasoning: str = Field(
         ...,
         description="Detailed explanation of the hallucination analysis.",
@@ -245,12 +235,15 @@ async def hallucination_detection(
         # Create the validation query
         validation_query = f"{VALIDATION_PROMPT}\n\nText to validate:\n{candidate}"
 
+        # Use HallucinationDetectionOutput (with reasoning fields) if enabled, otherwise base LLMOutput
+        output_format = HallucinationDetectionOutput if config.include_reasoning else LLMOutput
+
         # Use the Responses API with file search and structured output
         response = await _invoke_openai_callable(
             ctx.guardrail_llm.responses.parse,
             input=validation_query,
             model=config.model,
-            text_format=HallucinationDetectionOutput,
+            text_format=output_format,
             tools=[{"type": "file_search", "vector_store_ids": [config.knowledge_source]}],
         )
 

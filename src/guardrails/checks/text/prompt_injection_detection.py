@@ -295,11 +295,8 @@ Previous context:
             tripwire_triggered=is_misaligned,
             info={
                 "guardrail_name": "Prompt Injection Detection",
-                "observation": analysis.observation,
-                "flagged": analysis.flagged,
-                "confidence": analysis.confidence,
+                **analysis.model_dump(),
                 "threshold": config.confidence_threshold,
-                "evidence": analysis.evidence,
                 "user_goal": user_goal_text,
                 "action": recent_messages,
                 "token_usage": token_usage_to_dict(token_usage),
@@ -401,7 +398,7 @@ async def _call_prompt_injection_detection_llm(
     ctx: GuardrailLLMContextProto,
     prompt: str,
     config: LLMConfig,
-) -> tuple[PromptInjectionDetectionOutput, TokenUsage]:
+) -> tuple[PromptInjectionDetectionOutput | LLMOutput, TokenUsage]:
     """Call LLM for prompt injection detection analysis.
 
     Args:
@@ -412,11 +409,14 @@ async def _call_prompt_injection_detection_llm(
     Returns:
         Tuple of (parsed output, token usage).
     """
+    # Use PromptInjectionDetectionOutput (with observation/evidence) if reasoning is enabled
+    output_format = PromptInjectionDetectionOutput if config.include_reasoning else LLMOutput
+
     parsed_response = await _invoke_openai_callable(
         ctx.guardrail_llm.responses.parse,
         input=prompt,
         model=config.model,
-        text_format=PromptInjectionDetectionOutput,
+        text_format=output_format,
     )
     token_usage = extract_token_usage(parsed_response)
     return parsed_response.output_parsed, token_usage

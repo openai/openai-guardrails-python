@@ -39,11 +39,7 @@ import textwrap
 
 from guardrails.types import CheckFn, GuardrailLLMContextProto
 
-from .llm_base import (
-    LLMConfig,
-    LLMOutput,
-    create_llm_check_fn,
-)
+from .llm_base import LLMConfig, create_llm_check_fn
 
 __all__ = ["nsfw_content"]
 
@@ -80,6 +76,6 @@ nsfw_content: CheckFn[GuardrailLLMContextProto, str, LLMConfig] = create_llm_che
         "hate speech, violence, profanity, illegal activities, and other inappropriate material."
     ),
     system_prompt=SYSTEM_PROMPT,
-    output_model=LLMOutput,
+    # Uses default LLMReasoningOutput for reasoning support
     config_model=LLMConfig,
 )
