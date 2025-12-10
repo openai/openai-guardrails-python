@@ -228,7 +228,7 @@ async def test_create_llm_check_fn_handles_llm_error(monkeypatch: pytest.MonkeyP
 
 
 @pytest.mark.asyncio
-async def test_create_llm_check_fn_uses_reasoning_output_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_create_llm_check_fn_uses_reasoning_output_when_enabled(monkeypatch: pytest.MonkeyPatch) -> None:
     """When include_reasoning=True and no output_model provided, should use LLMReasoningOutput."""
     recorded_output_model: type[LLMOutput] | None = None
 

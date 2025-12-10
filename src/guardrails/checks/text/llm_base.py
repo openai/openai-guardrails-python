@@ -124,17 +124,24 @@ class LLMOutput(BaseModel):
         confidence (float): LLM's confidence in the flagging decision (0.0 to 1.0).
     """
 
-    flagged: bool
-    confidence: float
+    flagged: bool = Field(..., description="Indicates whether the content was flagged")
+    confidence: float = Field(
+        ...,
+        description="Confidence in the flagging decision (0.0 to 1.0)",
+        ge=0.0,
+        le=1.0,
+    )
 
 
 class LLMReasoningOutput(LLMOutput):
     """Extended LLM output schema with reasoning explanation.
 
     Extends LLMOutput to include a reason field explaining the decision.
-    This is the standard extended output for guardrails that include reasoning.
+    This output model is used when include_reasoning is enabled in the guardrail config.
 
     Attributes:
+        flagged (bool): Indicates whether the content was flagged (inherited).
+        confidence (float): Confidence in the flagging decision, 0.0 to 1.0 (inherited).
         reason (str): Explanation for why the input was flagged or not flagged.
     """
 
