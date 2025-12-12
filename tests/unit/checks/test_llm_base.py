@@ -562,7 +562,6 @@ async def test_run_llm_strips_whitespace_in_multi_turn_mode() -> None:
 
     # Should strip whitespace in multi-turn mode
     user_message = client.captured_messages[1]["content"]
-    import json
     json_start = user_message.find("{")
     payload = json.loads(user_message[json_start:])
     assert payload["latest_input"] == "Test input with whitespace"  # noqa: S101
