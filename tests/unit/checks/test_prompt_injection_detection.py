@@ -8,7 +8,7 @@ from typing import Any
 import pytest
 
 from guardrails.checks.text import prompt_injection_detection as pid_module
-from guardrails.checks.text.llm_base import LLMConfig
+from guardrails.checks.text.llm_base import LLMConfig, LLMOutput
 from guardrails.checks.text.prompt_injection_detection import (
     PromptInjectionDetectionOutput,
     _extract_user_intent_from_messages,
@@ -454,6 +454,9 @@ async def test_prompt_injection_detection_allows_legitimate_tool_output(
     assert result.info["flagged"] is False  # noqa: S101
 
 
+# ==================== Max Turns Tests ====================
+
+
 @pytest.mark.asyncio
 async def test_prompt_injection_detection_respects_max_turns_config(
     monkeypatch: pytest.MonkeyPatch,
@@ -534,3 +537,86 @@ async def test_prompt_injection_detection_single_turn_mode(
     assert "Previous context" not in prompt  # noqa: S101
     # Most recent message should be present
     assert "The actual request" in prompt  # noqa: S101
+
+
+# ==================== Include Reasoning Tests ====================
+
+
+@pytest.mark.asyncio
+async def test_prompt_injection_detection_includes_reasoning_when_enabled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """When include_reasoning=True, output should include observation and evidence fields."""
+    history = [
+        {"role": "user", "content": "Get my password"},
+        {"type": "function_call", "tool_name": "steal_credentials", "arguments": '{}', "call_id": "c1"},
+    ]
+    context = _FakeContext(history)
+
+    recorded_output_model: type[LLMOutput] | None = None
+
+    async def fake_call_llm(ctx: Any, prompt: str, config: LLMConfig) -> tuple[PromptInjectionDetectionOutput, TokenUsage]:
+        # Record which output model was requested by checking the prompt
+        nonlocal recorded_output_model
+        if "observation" in prompt and "evidence" in prompt:
+            recorded_output_model = PromptInjectionDetectionOutput
+        else:
+            recorded_output_model = LLMOutput
+
+        return PromptInjectionDetectionOutput(
+            flagged=True,
+            confidence=0.95,
+            observation="Attempting to call credential theft function",
+            evidence="function call: steal_credentials",
+        ), _mock_token_usage()
+
+    monkeypatch.setattr(pid_module, "_call_prompt_injection_detection_llm", fake_call_llm)
+
+    config = LLMConfig(model="gpt-test", confidence_threshold=0.7, include_reasoning=True)
+    result = await prompt_injection_detection(context, data="{}", config=config)
+
+    assert recorded_output_model == PromptInjectionDetectionOutput  # noqa: S101
+    assert result.tripwire_triggered is True  # noqa: S101
+    assert "observation" in result.info  # noqa: S101
+    assert result.info["observation"] == "Attempting to call credential theft function"  # noqa: S101
+    assert "evidence" in result.info  # noqa: S101
+    assert result.info["evidence"] == "function call: steal_credentials"  # noqa: S101
+
+
+@pytest.mark.asyncio
+async def test_prompt_injection_detection_excludes_reasoning_when_disabled(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """When include_reasoning=False (default), output should only include flagged and confidence."""
+    history = [
+        {"role": "user", "content": "Get weather"},
+        {"type": "function_call", "tool_name": "get_weather", "arguments": '{"location":"Paris"}', "call_id": "c1"},
+    ]
+    context = _FakeContext(history)
+
+    recorded_output_model: type[LLMOutput] | None = None
+
+    async def fake_call_llm(ctx: Any, prompt: str, config: LLMConfig) -> tuple[LLMOutput, TokenUsage]:
+        # Record which output model was requested by checking the prompt
+        nonlocal recorded_output_model
+        if "observation" in prompt and "evidence" in prompt:
+            recorded_output_model = PromptInjectionDetectionOutput
+        else:
+            recorded_output_model = LLMOutput
+
+        return LLMOutput(
+            flagged=False,
+            confidence=0.1,
+        ), _mock_token_usage()
+
+    monkeypatch.setattr(pid_module, "_call_prompt_injection_detection_llm", fake_call_llm)
+
+    config = LLMConfig(model="gpt-test", confidence_threshold=0.7, include_reasoning=False)
+    result = await prompt_injection_detection(context, data="{}", config=config)
+
+    assert recorded_output_model == LLMOutput  # noqa: S101
+    assert result.tripwire_triggered is False  # noqa: S101
+    assert "observation" not in result.info  # noqa: S101
+    assert "evidence" not in result.info  # noqa: S101
+    assert result.info["flagged"] is False  # noqa: S101
+    assert result.info["confidence"] == 0.1  # noqa: S101

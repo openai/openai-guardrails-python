@@ -10,7 +10,8 @@ Base configuration for LLM-based guardrails. Provides common configuration optio
     "config": {
         "model": "gpt-5",
         "confidence_threshold": 0.7,
-        "max_turns": 10
+        "max_turns": 10,
+        "include_reasoning": false
     }
 }
 ```
@@ -20,6 +21,11 @@ Base configuration for LLM-based guardrails. Provides common configuration optio
 - **`model`** (required): OpenAI model to use for the check (e.g., "gpt-5")
 - **`confidence_threshold`** (required): Minimum confidence score to trigger tripwire (0.0 to 1.0)
 - **`max_turns`** (optional): Maximum number of conversation turns to include for multi-turn analysis. Default: 10. Set to 1 for single-turn mode.
+- **`include_reasoning`** (optional): Whether to include reasoning/explanation fields in the guardrail output (default: `false`)
+  - When `true`: The LLM generates and returns detailed reasoning for its decisions (e.g., `reason`, `reasoning`, `observation`, `evidence` fields)
+  - When `false`: The LLM only returns the essential fields (`flagged` and `confidence`), reducing token generation costs
+  - **Performance**: In our evaluations, disabling reasoning reduces median latency by 40% on average (ranging from 18% to 67% depending on model) while maintaining detection performance
+  - **Use Case**: Keep disabled for production to minimize costs and latency; enable for development and debugging
 
 ## What It Does
 

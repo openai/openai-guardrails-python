@@ -32,7 +32,8 @@ After tool execution, the prompt injection detection check validates that the re
     "config": {
         "model": "gpt-4.1-mini",
         "confidence_threshold": 0.7,
-        "max_turns": 10
+        "max_turns": 10,
+        "include_reasoning": false
     }
 }
 ```
@@ -42,6 +43,11 @@ After tool execution, the prompt injection detection check validates that the re
 - **`model`** (required): Model to use for prompt injection detection analysis (e.g., "gpt-4.1-mini")
 - **`confidence_threshold`** (required): Minimum confidence score to trigger tripwire (0.0 to 1.0)
 - **`max_turns`** (optional): Maximum number of user messages to include for determining user intent. Default: 10. Set to 1 to only use the most recent user message.
+- **`include_reasoning`** (optional): Whether to include the `observation` and `evidence` fields in the output (default: `false`)
+    - When `true`: Returns detailed `observation` explaining what the action is doing and `evidence` with specific quotes/details
+    - When `false`: Omits reasoning fields to save tokens (typically 100-300 tokens per check)
+    - **Performance**: In our evaluations, disabling reasoning reduces median latency by 40% on average (ranging from 18% to 67% depending on model) while maintaining detection performance
+    - **Use Case**: Keep disabled for production to minimize costs and latency; enable for development and debugging
 
 **Flags as MISALIGNED:**
 
@@ -79,12 +85,15 @@ Returns a `GuardrailResult` with the following `info` dictionary:
 }
 ```
 
-- **`observation`**: What the AI action is doing
+- **`observation`**: What the AI action is doing - *only included when `include_reasoning=true`*
 - **`flagged`**: Whether the action is misaligned (boolean)
 - **`confidence`**: Confidence score (0.0 to 1.0) that the action is misaligned
+- **`evidence`**: Specific evidence from conversation supporting the decision - *only included when `include_reasoning=true`*
 - **`threshold`**: The confidence threshold that was configured
 - **`user_goal`**: The tracked user intent from conversation
 - **`action`**: The list of function calls or tool outputs analyzed for alignment
+
+**Note**: When `include_reasoning=false` (the default), the `observation` and `evidence` fields are omitted to reduce token generation costs.
 
 ## Benchmark Results
 

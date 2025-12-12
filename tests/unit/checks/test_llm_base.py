@@ -13,6 +13,7 @@ from guardrails.checks.text.llm_base import (
     LLMConfig,
     LLMErrorOutput,
     LLMOutput,
+    LLMReasoningOutput,
     _build_analysis_payload,
     _build_full_prompt,
     _strip_json_code_fence,
@@ -565,3 +566,119 @@ async def test_run_llm_strips_whitespace_in_multi_turn_mode() -> None:
     json_start = user_message.find("{")
     payload = json.loads(user_message[json_start:])
     assert payload["latest_input"] == "Test input with whitespace"  # noqa: S101
+
+
+# ==================== Include Reasoning Tests ====================
+
+
+@pytest.mark.asyncio
+async def test_create_llm_check_fn_uses_reasoning_output_when_enabled(monkeypatch: pytest.MonkeyPatch) -> None:
+    """When include_reasoning=True and no output_model provided, should use LLMReasoningOutput."""
+    recorded_output_model: type[LLMOutput] | None = None
+
+    async def fake_run_llm(
+        text: str,
+        system_prompt: str,
+        client: Any,
+        model: str,
+        output_model: type[LLMOutput],
+        conversation_history: list[dict[str, Any]] | None = None,
+        max_turns: int = 10,
+    ) -> tuple[LLMOutput, TokenUsage]:
+        nonlocal recorded_output_model
+        recorded_output_model = output_model
+        # Return the appropriate type based on what was requested
+        if output_model == LLMReasoningOutput:
+            return LLMReasoningOutput(flagged=True, confidence=0.8, reason="Test reason"), _mock_token_usage()
+        return LLMOutput(flagged=True, confidence=0.8), _mock_token_usage()
+
+    monkeypatch.setattr(llm_base, "run_llm", fake_run_llm)
+
+    # Don't provide output_model - should default to LLMReasoningOutput
+    guardrail_fn = create_llm_check_fn(
+        name="TestGuardrailWithReasoning",
+        description="Test",
+        system_prompt="Test prompt",
+    )
+
+    # Test with include_reasoning=True explicitly enabled
+    config = LLMConfig(model="gpt-test", confidence_threshold=0.5, include_reasoning=True)
+    context = SimpleNamespace(guardrail_llm="fake-client")
+    result = await guardrail_fn(context, "test", config)
+
+    assert recorded_output_model == LLMReasoningOutput  # noqa: S101
+    assert result.info["reason"] == "Test reason"  # noqa: S101
+
+
+@pytest.mark.asyncio
+async def test_create_llm_check_fn_uses_base_model_without_reasoning(monkeypatch: pytest.MonkeyPatch) -> None:
+    """When include_reasoning=False, should use base LLMOutput without reasoning fields."""
+    recorded_output_model: type[LLMOutput] | None = None
+
+    async def fake_run_llm(
+        text: str,
+        system_prompt: str,
+        client: Any,
+        model: str,
+        output_model: type[LLMOutput],
+        conversation_history: list[dict[str, Any]] | None = None,
+        max_turns: int = 10,
+    ) -> tuple[LLMOutput, TokenUsage]:
+        nonlocal recorded_output_model
+        recorded_output_model = output_model
+        # Return the appropriate type based on what was requested
+        if output_model == LLMReasoningOutput:
+            return LLMReasoningOutput(flagged=True, confidence=0.8, reason="Test reason"), _mock_token_usage()
+        return LLMOutput(flagged=True, confidence=0.8), _mock_token_usage()
+
+    monkeypatch.setattr(llm_base, "run_llm", fake_run_llm)
+
+    # Don't provide output_model - should use base LLMOutput when reasoning disabled
+    guardrail_fn = create_llm_check_fn(
+        name="TestGuardrailWithoutReasoning",
+        description="Test",
+        system_prompt="Test prompt",
+    )
+
+    # Test with include_reasoning=False
+    config = LLMConfig(model="gpt-test", confidence_threshold=0.5, include_reasoning=False)
+    context = SimpleNamespace(guardrail_llm="fake-client")
+    result = await guardrail_fn(context, "test", config)
+
+    assert recorded_output_model == LLMOutput  # noqa: S101
+    assert "reason" not in result.info  # noqa: S101
+    assert result.info["flagged"] is True  # noqa: S101
+    assert result.info["confidence"] == 0.8  # noqa: S101
+
+
+@pytest.mark.asyncio
+async def test_run_llm_handles_empty_response_with_reasoning_output(monkeypatch: pytest.MonkeyPatch) -> None:
+    """When response content is empty, should return base LLMOutput even if output_model is LLMReasoningOutput."""
+    # Mock response with empty content
+    mock_response = SimpleNamespace(
+        choices=[SimpleNamespace(message=SimpleNamespace(content=""))],
+        usage=SimpleNamespace(prompt_tokens=10, completion_tokens=0, total_tokens=10),
+    )
+
+    async def fake_request_chat_completion(**kwargs: Any) -> Any:  # noqa: ARG001
+        return mock_response
+
+    monkeypatch.setattr(llm_base, "_request_chat_completion", fake_request_chat_completion)
+
+    # Call run_llm with LLMReasoningOutput (which requires a reason field)
+    result, token_usage = await run_llm(
+        text="test input",
+        system_prompt="test prompt",
+        client=SimpleNamespace(),  # type: ignore[arg-type]
+        model="gpt-test",
+        output_model=LLMReasoningOutput,
+    )
+
+    # Should return LLMOutput (not LLMReasoningOutput) to avoid validation error
+    assert isinstance(result, LLMOutput)  # noqa: S101
+    assert result.flagged is False  # noqa: S101
+    assert result.confidence == 0.0  # noqa: S101
+    # Should NOT have a reason field since we returned base LLMOutput
+    assert not hasattr(result, "reason") or not hasattr(result, "__dict__") or "reason" not in result.__dict__  # noqa: S101
+    assert token_usage.prompt_tokens == 10  # noqa: S101
+    assert token_usage.completion_tokens == 0  # noqa: S101
