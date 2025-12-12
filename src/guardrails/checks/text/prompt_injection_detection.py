@@ -12,12 +12,15 @@ Functions:
 Configuration Parameters:
     - `model` (str): The LLM model to use for prompt injection detection analysis
     - `confidence_threshold` (float): Minimum confidence score to trigger guardrail
+    - `max_turns` (int): Maximum number of user messages to include for determining user intent.
+        Defaults to 10. Set to 1 to only use the most recent user message.
 
 Examples:
 ```python
     >>> config = LLMConfig(
     ...     model="gpt-4.1-mini",
-    ...     confidence_threshold=0.7
+    ...     confidence_threshold=0.7,
+    ...     max_turns=10
     ... )
     >>> result = await prompt_injection_detection(ctx, conversation_data, config)
     >>> result.tripwire_triggered
@@ -247,7 +250,10 @@ async def prompt_injection_detection(
             )
 
         # Collect actions occurring after the latest user message so we retain full tool context.
-        user_intent_dict, recent_messages = _slice_conversation_since_latest_user(conversation_history)
+        user_intent_dict, recent_messages = _slice_conversation_since_latest_user(
+            conversation_history,
+            max_turns=config.max_turns,
+        )
         actionable_messages = [msg for msg in recent_messages if _should_analyze(msg)]
 
         if not user_intent_dict["most_recent_message"]:
@@ -315,9 +321,20 @@ Previous context:
         )
 
 
-def _slice_conversation_since_latest_user(conversation_history: list[Any]) -> tuple[UserIntentDict, list[Any]]:
-    """Return user intent and all messages after the latest user turn."""
-    user_intent_dict = _extract_user_intent_from_messages(conversation_history)
+def _slice_conversation_since_latest_user(
+    conversation_history: list[Any],
+    max_turns: int = 10,
+) -> tuple[UserIntentDict, list[Any]]:
+    """Return user intent and all messages after the latest user turn.
+
+    Args:
+        conversation_history: Full conversation history.
+        max_turns: Maximum number of user messages to include for determining intent.
+
+    Returns:
+        Tuple of (user_intent_dict, messages_after_latest_user).
+    """
+    user_intent_dict = _extract_user_intent_from_messages(conversation_history, max_turns=max_turns)
     if not conversation_history:
         return user_intent_dict, []
 
@@ -342,25 +359,31 @@ def _is_user_message(message: Any) -> bool:
     return isinstance(message, dict) and message.get("role") == "user"
 
 
-def _extract_user_intent_from_messages(messages: list) -> UserIntentDict:
-    """Extract user intent with full context from a list of messages.
+def _extract_user_intent_from_messages(messages: list, max_turns: int = 10) -> UserIntentDict:
+    """Extract user intent with limited context from a list of messages.
 
     Args:
         messages: Already normalized conversation history.
+        max_turns: Maximum number of user messages to include for context.
+            The most recent user message is always included, plus up to
+            (max_turns - 1) previous user messages for context.
 
     Returns:
         UserIntentDict containing:
         - "most_recent_message": The latest user message as a string
-        - "previous_context": List of previous user messages for context
+        - "previous_context": Up to (max_turns - 1) previous user messages for context
     """
     user_texts = [entry["content"] for entry in messages if entry.get("role") == "user" and isinstance(entry.get("content"), str)]
 
     if not user_texts:
         return {"most_recent_message": "", "previous_context": []}
 
+    # Keep only the last max_turns user messages
+    recent_user_texts = user_texts[-max_turns:]
+
     return {
-        "most_recent_message": user_texts[-1],
-        "previous_context": user_texts[:-1],
+        "most_recent_message": recent_user_texts[-1],
+        "previous_context": recent_user_texts[:-1],
     }
 
 

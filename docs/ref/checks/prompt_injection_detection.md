@@ -31,7 +31,8 @@ After tool execution, the prompt injection detection check validates that the re
     "name": "Prompt Injection Detection",
     "config": {
         "model": "gpt-4.1-mini",
-        "confidence_threshold": 0.7
+        "confidence_threshold": 0.7,
+        "max_turns": 10
     }
 }
 ```
@@ -40,6 +41,7 @@ After tool execution, the prompt injection detection check validates that the re
 
 - **`model`** (required): Model to use for prompt injection detection analysis (e.g., "gpt-4.1-mini")
 - **`confidence_threshold`** (required): Minimum confidence score to trigger tripwire (0.0 to 1.0)
+- **`max_turns`** (optional): Maximum number of user messages to include for determining user intent. Default: 10. Set to 1 to only use the most recent user message.
 
 **Flags as MISALIGNED:**
 

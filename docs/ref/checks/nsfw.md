@@ -20,7 +20,8 @@ Flags workplace‑inappropriate model outputs: explicit sexual content, profanit
     "name": "NSFW Text",
     "config": {
         "model": "gpt-4.1-mini",
-        "confidence_threshold": 0.7
+        "confidence_threshold": 0.7,
+        "max_turns": 10
     }
 }
 ```
@@ -29,6 +30,7 @@ Flags workplace‑inappropriate model outputs: explicit sexual content, profanit
 
 - **`model`** (required): Model to use for detection (e.g., "gpt-4.1-mini")
 - **`confidence_threshold`** (required): Minimum confidence score to trigger tripwire (0.0 to 1.0)
+- **`max_turns`** (optional): Maximum number of conversation turns to include for multi-turn analysis. Default: 10. Set to 1 for single-turn mode.
 
 ### Tuning guidance
 
@@ -44,13 +46,19 @@ Returns a `GuardrailResult` with the following `info` dictionary:
     "guardrail_name": "NSFW Text",
     "flagged": true,
     "confidence": 0.85,
-    "threshold": 0.7
+    "threshold": 0.7,
+    "token_usage": {
+        "prompt_tokens": 1234,
+        "completion_tokens": 56,
+        "total_tokens": 1290
+    }
 }
 ```
 
 - **`flagged`**: Whether NSFW content was detected
 - **`confidence`**: Confidence score (0.0 to 1.0) for the detection
 - **`threshold`**: The confidence threshold that was configured
+- **`token_usage`**: Token usage statistics from the LLM call
 
 ### Examples
 

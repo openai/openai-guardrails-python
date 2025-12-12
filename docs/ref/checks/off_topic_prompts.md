@@ -10,7 +10,8 @@ Ensures content stays within defined business scope using LLM analysis. Flags co
     "config": {
         "model": "gpt-5",
         "confidence_threshold": 0.7,
-        "system_prompt_details": "Customer support for our e-commerce platform. Topics include order status, returns, shipping, and product questions."
+        "system_prompt_details": "Customer support for our e-commerce platform. Topics include order status, returns, shipping, and product questions.",
+        "max_turns": 10
     }
 }
 ```
@@ -20,6 +21,7 @@ Ensures content stays within defined business scope using LLM analysis. Flags co
 - **`model`** (required): Model to use for analysis (e.g., "gpt-5")
 - **`confidence_threshold`** (required): Minimum confidence score to trigger tripwire (0.0 to 1.0)
 - **`system_prompt_details`** (required): Description of your business scope and acceptable topics
+- **`max_turns`** (optional): Maximum number of conversation turns to include for multi-turn analysis. Default: 10. Set to 1 for single-turn mode.
 
 ## Implementation Notes
 
@@ -35,10 +37,16 @@ Returns a `GuardrailResult` with the following `info` dictionary:
     "guardrail_name": "Off Topic Prompts",
     "flagged": false,
     "confidence": 0.85,
-    "threshold": 0.7
+    "threshold": 0.7,
+    "token_usage": {
+        "prompt_tokens": 1234,
+        "completion_tokens": 56,
+        "total_tokens": 1290
+    }
 }
 ```
 
-- **`flagged`**: Whether the content aligns with your business scope
-- **`confidence`**: Confidence score (0.0 to 1.0) for the prompt injection detection assessment
+- **`flagged`**: Whether the content is off-topic (true = off-topic, false = on-topic)
+- **`confidence`**: Confidence score (0.0 to 1.0) for the assessment
 - **`threshold`**: The confidence threshold that was configured
+- **`token_usage`**: Token usage statistics from the LLM call
