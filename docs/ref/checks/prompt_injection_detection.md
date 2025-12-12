@@ -32,6 +32,7 @@ After tool execution, the prompt injection detection check validates that the re
     "config": {
         "model": "gpt-4.1-mini",
         "confidence_threshold": 0.7,
+        "max_turns": 10,
         "include_reasoning": false
     }
 }
@@ -41,6 +42,7 @@ After tool execution, the prompt injection detection check validates that the re
 
 - **`model`** (required): Model to use for prompt injection detection analysis (e.g., "gpt-4.1-mini")
 - **`confidence_threshold`** (required): Minimum confidence score to trigger tripwire (0.0 to 1.0)
+- **`max_turns`** (optional): Maximum number of user messages to include for determining user intent. Default: 10. Set to 1 to only use the most recent user message.
 - **`include_reasoning`** (optional): Whether to include the `observation` and `evidence` fields in the output (default: `false`)
     - When `true`: Returns detailed `observation` explaining what the action is doing and `evidence` with specific quotes/details
     - When `false`: Omits reasoning fields to save tokens (typically 100-300 tokens per check)

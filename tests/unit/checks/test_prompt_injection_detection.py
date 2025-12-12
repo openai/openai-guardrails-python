@@ -8,7 +8,7 @@ from typing import Any
 import pytest
 
 from guardrails.checks.text import prompt_injection_detection as pid_module
-from guardrails.checks.text.llm_base import LLMConfig
+from guardrails.checks.text.llm_base import LLMConfig, LLMOutput
 from guardrails.checks.text.prompt_injection_detection import (
     PromptInjectionDetectionOutput,
     _extract_user_intent_from_messages,
@@ -86,6 +86,47 @@ def test_extract_user_intent_from_messages_handles_multiple_user_messages() -> N
 
     assert result["previous_context"] == ["First user message", "Second user message"]  # noqa: S101
     assert result["most_recent_message"] == "Third user message"  # noqa: S101
+
+
+def test_extract_user_intent_respects_max_turns() -> None:
+    """User intent extraction limits context to max_turns user messages."""
+    messages = [
+        {"role": "user", "content": f"User message {i}"} for i in range(10)
+    ]
+
+    # With max_turns=3, should keep only the last 3 user messages
+    result = _extract_user_intent_from_messages(messages, max_turns=3)
+
+    assert result["most_recent_message"] == "User message 9"  # noqa: S101
+    assert result["previous_context"] == ["User message 7", "User message 8"]  # noqa: S101
+
+
+def test_extract_user_intent_max_turns_default_is_ten() -> None:
+    """Default max_turns should be 10."""
+    messages = [
+        {"role": "user", "content": f"User message {i}"} for i in range(15)
+    ]
+
+    result = _extract_user_intent_from_messages(messages)
+
+    # Should keep last 10 user messages
+    assert result["most_recent_message"] == "User message 14"  # noqa: S101
+    assert len(result["previous_context"]) == 9  # noqa: S101
+    assert result["previous_context"][0] == "User message 5"  # noqa: S101
+
+
+def test_extract_user_intent_max_turns_one_no_context() -> None:
+    """max_turns=1 should only keep the most recent message with no context."""
+    messages = [
+        {"role": "user", "content": "First message"},
+        {"role": "user", "content": "Second message"},
+        {"role": "user", "content": "Third message"},
+    ]
+
+    result = _extract_user_intent_from_messages(messages, max_turns=1)
+
+    assert result["most_recent_message"] == "Third message"  # noqa: S101
+    assert result["previous_context"] == []  # noqa: S101
 
 
 @pytest.mark.asyncio
@@ -413,13 +454,99 @@ async def test_prompt_injection_detection_allows_legitimate_tool_output(
     assert result.info["flagged"] is False  # noqa: S101
 
 
+# ==================== Max Turns Tests ====================
+
+
+@pytest.mark.asyncio
+async def test_prompt_injection_detection_respects_max_turns_config(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Guardrail should limit user intent context based on max_turns config."""
+    # Create history with many user messages
+    history = [
+        {"role": "user", "content": "Old message 1"},
+        {"role": "assistant", "content": "Response 1"},
+        {"role": "user", "content": "Old message 2"},
+        {"role": "assistant", "content": "Response 2"},
+        {"role": "user", "content": "Old message 3"},
+        {"role": "assistant", "content": "Response 3"},
+        {"role": "user", "content": "Recent message"},  # This is the most recent
+        {"type": "function_call", "tool_name": "test_func", "arguments": "{}"},
+    ]
+    context = _FakeContext(history)
+
+    captured_prompt: list[str] = []
+
+    async def fake_call_llm(ctx: Any, prompt: str, config: LLMConfig) -> tuple[PromptInjectionDetectionOutput, TokenUsage]:
+        captured_prompt.append(prompt)
+        return PromptInjectionDetectionOutput(
+            flagged=False,
+            confidence=0.0,
+            evidence=None,
+            observation="Test",
+        ), _mock_token_usage()
+
+    monkeypatch.setattr(pid_module, "_call_prompt_injection_detection_llm", fake_call_llm)
+
+    # With max_turns=2, only "Old message 3" and "Recent message" should be in context
+    config = LLMConfig(model="gpt-test", confidence_threshold=0.7, max_turns=2)
+    await prompt_injection_detection(context, data="{}", config=config)
+
+    # Verify old messages are not in the prompt
+    prompt = captured_prompt[0]
+    assert "Old message 1" not in prompt  # noqa: S101
+    assert "Old message 2" not in prompt  # noqa: S101
+    # Recent messages should be present
+    assert "Recent message" in prompt  # noqa: S101
+
+
+@pytest.mark.asyncio
+async def test_prompt_injection_detection_single_turn_mode(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """max_turns=1 should only use the most recent user message for intent."""
+    history = [
+        {"role": "user", "content": "Context message 1"},
+        {"role": "user", "content": "Context message 2"},
+        {"role": "user", "content": "The actual request"},
+        {"type": "function_call", "tool_name": "test_func", "arguments": "{}"},
+    ]
+    context = _FakeContext(history)
+
+    captured_prompt: list[str] = []
+
+    async def fake_call_llm(ctx: Any, prompt: str, config: LLMConfig) -> tuple[PromptInjectionDetectionOutput, TokenUsage]:
+        captured_prompt.append(prompt)
+        return PromptInjectionDetectionOutput(
+            flagged=False,
+            confidence=0.0,
+            evidence=None,
+            observation="Test",
+        ), _mock_token_usage()
+
+    monkeypatch.setattr(pid_module, "_call_prompt_injection_detection_llm", fake_call_llm)
+
+    # With max_turns=1, only "The actual request" should be used
+    config = LLMConfig(model="gpt-test", confidence_threshold=0.7, max_turns=1)
+    await prompt_injection_detection(context, data="{}", config=config)
+
+    prompt = captured_prompt[0]
+    # Previous context should NOT be included
+    assert "Context message 1" not in prompt  # noqa: S101
+    assert "Context message 2" not in prompt  # noqa: S101
+    assert "Previous context" not in prompt  # noqa: S101
+    # Most recent message should be present
+    assert "The actual request" in prompt  # noqa: S101
+
+
+# ==================== Include Reasoning Tests ====================
+
+
 @pytest.mark.asyncio
 async def test_prompt_injection_detection_includes_reasoning_when_enabled(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """When include_reasoning=True, output should include observation and evidence fields."""
-    from guardrails.checks.text.llm_base import LLMOutput
-
     history = [
         {"role": "user", "content": "Get my password"},
         {"type": "function_call", "tool_name": "steal_credentials", "arguments": '{}', "call_id": "c1"},
@@ -461,8 +588,6 @@ async def test_prompt_injection_detection_excludes_reasoning_when_disabled(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """When include_reasoning=False (default), output should only include flagged and confidence."""
-    from guardrails.checks.text.llm_base import LLMOutput
-
     history = [
         {"role": "user", "content": "Get weather"},
         {"type": "function_call", "tool_name": "get_weather", "arguments": '{"location":"Paris"}', "call_id": "c1"},
