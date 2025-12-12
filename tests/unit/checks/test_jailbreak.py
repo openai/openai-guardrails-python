@@ -9,7 +9,7 @@ import pytest
 
 from guardrails.checks.text import llm_base
 from guardrails.checks.text.jailbreak import JailbreakLLMOutput, jailbreak
-from guardrails.checks.text.llm_base import LLMConfig, LLMOutput, LLMReasoningOutput
+from guardrails.checks.text.llm_base import LLMConfig, LLMOutput
 from guardrails.types import TokenUsage
 
 # Default max_turns value in LLMConfig
