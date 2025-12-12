@@ -519,3 +519,50 @@ async def test_create_llm_check_fn_handles_missing_conversation_history(monkeypa
 
     # Should pass empty list when no conversation history
     assert captured_args["conversation_history"] == []  # noqa: S101
+
+
+@pytest.mark.asyncio
+async def test_run_llm_strips_whitespace_in_single_turn_mode() -> None:
+    """run_llm should strip whitespace from input in single-turn mode."""
+    client = _FakeAsyncClientCapture('{"flagged": false, "confidence": 0.1}')
+
+    await run_llm(
+        text="  Test input with whitespace  \n",
+        system_prompt="Analyze.",
+        client=client,  # type: ignore[arg-type]
+        model="gpt-test",
+        output_model=LLMOutput,
+        conversation_history=None,
+        max_turns=10,
+    )
+
+    # Should strip whitespace in single-turn mode
+    user_message = client.captured_messages[1]["content"]
+    assert "# Text\n\nTest input with whitespace" in user_message  # noqa: S101
+    assert "  Test input" not in user_message  # noqa: S101
+
+
+@pytest.mark.asyncio
+async def test_run_llm_strips_whitespace_in_multi_turn_mode() -> None:
+    """run_llm should strip whitespace from input in multi-turn mode."""
+    client = _FakeAsyncClientCapture('{"flagged": false, "confidence": 0.1}')
+    conversation_history = [
+        {"role": "user", "content": "Previous message"},
+    ]
+
+    await run_llm(
+        text="  Test input with whitespace  \n",
+        system_prompt="Analyze.",
+        client=client,  # type: ignore[arg-type]
+        model="gpt-test",
+        output_model=LLMOutput,
+        conversation_history=conversation_history,
+        max_turns=10,
+    )
+
+    # Should strip whitespace in multi-turn mode
+    user_message = client.captured_messages[1]["content"]
+    import json
+    json_start = user_message.find("{")
+    payload = json.loads(user_message[json_start:])
+    assert payload["latest_input"] == "Test input with whitespace"  # noqa: S101

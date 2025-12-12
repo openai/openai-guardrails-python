@@ -391,8 +391,8 @@ async def run_llm(
         analysis_payload = _build_analysis_payload(conversation_history, text, max_turns)
         user_content = f"# Analysis Input\n\n{analysis_payload}"
     else:
-        # Single-turn: use text directly
-        user_content = f"# Text\n\n{text}"
+        # Single-turn: use text directly (strip whitespace for consistency)
+        user_content = f"# Text\n\n{text.strip()}"
 
     try:
         response = await _request_chat_completion(
