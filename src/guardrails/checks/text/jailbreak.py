@@ -40,8 +40,6 @@ import json
 import textwrap
 from typing import Any
 
-from pydantic import Field
-
 from guardrails.registry import default_spec_registry
 from guardrails.spec import GuardrailSpecMetadata
 from guardrails.types import GuardrailLLMContextProto, GuardrailResult, token_usage_to_dict
@@ -50,6 +48,7 @@ from .llm_base import (
     LLMConfig,
     LLMErrorOutput,
     LLMOutput,
+    LLMReasoningOutput,
     create_error_result,
     run_llm,
 )
@@ -226,15 +225,6 @@ Focus on detecting ADVERSARIAL BEHAVIOR and MANIPULATION, not just harmful topic
 MAX_CONTEXT_TURNS = 10
 
 
-class JailbreakLLMOutput(LLMOutput):
-    """LLM output schema including rationale for jailbreak classification."""
-
-    reason: str = Field(
-        ...,
-        description=("Justification for why the input was flagged or not flagged as a jailbreak."),
-    )
-
-
 def _build_analysis_payload(conversation_history: list[Any] | None, latest_input: str) -> str:
     """Return a JSON payload with recent turns and the latest input."""
     trimmed_input = latest_input.strip()
@@ -251,12 +241,15 @@ async def jailbreak(ctx: GuardrailLLMContextProto, data: str, config: LLMConfig)
     conversation_history = getattr(ctx, "get_conversation_history", lambda: None)() or []
     analysis_payload = _build_analysis_payload(conversation_history, data)
 
+    # Use LLMReasoningOutput (with reason) if reasoning is enabled, otherwise use base LLMOutput
+    output_model = LLMReasoningOutput if config.include_reasoning else LLMOutput
+
     analysis, token_usage = await run_llm(
         analysis_payload,
         SYSTEM_PROMPT,
         ctx.guardrail_llm,
         config.model,
-        JailbreakLLMOutput,
+        output_model,
     )
 
     if isinstance(analysis, LLMErrorOutput):

@@ -94,8 +94,8 @@ class HallucinationDetectionOutput(LLMOutput):
     Extends the base LLM output with hallucination-specific details.
 
     Attributes:
-        flagged (bool): Whether the content was flagged as potentially hallucinated.
-        confidence (float): Confidence score (0.0 to 1.0) that the input is hallucinated.
+        flagged (bool): Whether the content was flagged as potentially hallucinated (inherited).
+        confidence (float): Confidence score (0.0 to 1.0) that the input is hallucinated (inherited).
         reasoning (str): Detailed explanation of the analysis.
         hallucination_type (str | None): Type of hallucination detected.
         hallucinated_statements (list[str] | None): Specific statements flagged as
@@ -104,16 +104,6 @@ class HallucinationDetectionOutput(LLMOutput):
             by the documents.
     """
 
-    flagged: bool = Field(
-        ...,
-        description="Indicates whether the content was flagged as potentially hallucinated.",
-    )
-    confidence: float = Field(
-        ...,
-        description="Confidence score (0.0 to 1.0) that the input is hallucinated.",
-        ge=0.0,
-        le=1.0,
-    )
     reasoning: str = Field(
         ...,
         description="Detailed explanation of the hallucination analysis.",
@@ -184,14 +174,6 @@ VALIDATION_PROMPT = textwrap.dedent(
     3. **Clearly contradicted by the documents** - Claims that directly contradict the documents → FLAG
     4. **Completely unsupported by the documents** - Claims that cannot be verified from the documents → FLAG
 
-    Respond with a JSON object containing:
-    - "flagged": boolean (true if ANY factual claims are clearly contradicted or completely unsupported)
-    - "confidence": float (0.0 to 1.0, your confidence that the input is hallucinated)
-    - "reasoning": string (detailed explanation of your analysis)
-    - "hallucination_type": string (type of issue, if detected: "factual_error", "unsupported_claim", or "none" if supported)
-    - "hallucinated_statements": array of strings (specific factual statements that may be hallucinated)
-    - "verified_statements": array of strings (specific factual statements that are supported by the documents)
-
     **CRITICAL GUIDELINES**:
     - Flag content if ANY factual claims are unsupported or contradicted (even if some claims are supported)
     - Allow conversational, opinion-based, or general content to pass through
@@ -203,6 +185,30 @@ VALIDATION_PROMPT = textwrap.dedent(
         - 0.0 = Certain not hallucinated
         - Use the full range [0.0 - 1.0] to reflect your level of certainty
     """  # noqa: E501
+).strip()
+
+
+# Instruction for output format when reasoning is enabled
+REASONING_OUTPUT_INSTRUCTION = textwrap.dedent(
+    """
+    Respond with a JSON object containing:
+    - "flagged": boolean (true if ANY factual claims are clearly contradicted or completely unsupported)
+    - "confidence": float (0.0 to 1.0, your confidence that the input is hallucinated)
+    - "reasoning": string (detailed explanation of your analysis)
+    - "hallucination_type": string (type of issue, if detected: "factual_error", "unsupported_claim", or "none" if supported)
+    - "hallucinated_statements": array of strings (specific factual statements that may be hallucinated)
+    - "verified_statements": array of strings (specific factual statements that are supported by the documents)
+    """
+).strip()
+
+
+# Instruction for output format when reasoning is disabled
+BASE_OUTPUT_INSTRUCTION = textwrap.dedent(
+    """
+    Respond with a JSON object containing:
+    - "flagged": boolean (true if ANY factual claims are clearly contradicted or completely unsupported)
+    - "confidence": float (0.0 to 1.0, your confidence that the input is hallucinated)
+    """
 ).strip()
 
 
@@ -242,15 +248,23 @@ async def hallucination_detection(
     )
 
     try:
-        # Create the validation query
-        validation_query = f"{VALIDATION_PROMPT}\n\nText to validate:\n{candidate}"
+        # Build the prompt based on whether reasoning is requested
+        if config.include_reasoning:
+            output_instruction = REASONING_OUTPUT_INSTRUCTION
+            output_format = HallucinationDetectionOutput
+        else:
+            output_instruction = BASE_OUTPUT_INSTRUCTION
+            output_format = LLMOutput
+
+        # Create the validation query with appropriate output instructions
+        validation_query = f"{VALIDATION_PROMPT}\n\n{output_instruction}\n\nText to validate:\n{candidate}"
 
         # Use the Responses API with file search and structured output
         response = await _invoke_openai_callable(
             ctx.guardrail_llm.responses.parse,
             input=validation_query,
             model=config.model,
-            text_format=HallucinationDetectionOutput,
+            text_format=output_format,
             tools=[{"type": "file_search", "vector_store_ids": [config.knowledge_source]}],
         )
 

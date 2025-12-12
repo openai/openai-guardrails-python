@@ -73,6 +73,7 @@ __all__ = [
     "LLMConfig",
     "LLMErrorOutput",
     "LLMOutput",
+    "LLMReasoningOutput",
     "create_error_result",
     "create_llm_check_fn",
 ]
@@ -87,6 +88,9 @@ class LLMConfig(BaseModel):
         model (str): The LLM model to use for checking the text.
         confidence_threshold (float): Minimum confidence required to trigger the guardrail,
             as a float between 0.0 and 1.0.
+        include_reasoning (bool): Whether to include reasoning/explanation in guardrail
+            output. Useful for development and debugging, but disabled by default in production
+            to save tokens. Defaults to False.
     """
 
     model: str = Field(..., description="LLM model to use for checking the text")
@@ -95,6 +99,13 @@ class LLMConfig(BaseModel):
         description="Minimum confidence threshold to trigger the guardrail (0.0 to 1.0). Defaults to 0.7.",
         ge=0.0,
         le=1.0,
+    )
+    include_reasoning: bool = Field(
+        False,
+        description=(
+            "Include reasoning/explanation fields in output. "
+            "Defaults to False for token efficiency. Enable for development/debugging."
+        ),
     )
 
     model_config = ConfigDict(extra="forbid")
@@ -113,8 +124,28 @@ class LLMOutput(BaseModel):
         confidence (float): LLM's confidence in the flagging decision (0.0 to 1.0).
     """
 
-    flagged: bool
-    confidence: float
+    flagged: bool = Field(..., description="Indicates whether the content was flagged")
+    confidence: float = Field(
+        ...,
+        description="Confidence in the flagging decision (0.0 to 1.0)",
+        ge=0.0,
+        le=1.0,
+    )
+
+
+class LLMReasoningOutput(LLMOutput):
+    """Extended LLM output schema with reasoning explanation.
+
+    Extends LLMOutput to include a reason field explaining the decision.
+    This output model is used when include_reasoning is enabled in the guardrail config.
+
+    Attributes:
+        flagged (bool): Indicates whether the content was flagged (inherited).
+        confidence (float): Confidence in the flagging decision, 0.0 to 1.0 (inherited).
+        reason (str): Explanation for why the input was flagged or not flagged.
+    """
+
+    reason: str = Field(..., description="Explanation for the flagging decision")
 
 
 class LLMErrorOutput(LLMOutput):
@@ -355,8 +386,10 @@ async def run_llm(
 
         result = response.choices[0].message.content
         if not result:
+            # Use base LLMOutput for empty responses to avoid validation errors
+            # with extended models that have required fields (e.g., LLMReasoningOutput)
             return (
-                output_model(
+                LLMOutput(
                     flagged=False,
                     confidence=0.0,
                 ),
@@ -399,7 +432,7 @@ def create_llm_check_fn(
     name: str,
     description: str,
     system_prompt: str,
-    output_model: type[LLMOutput] = LLMOutput,
+    output_model: type[LLMOutput] | None = None,
     config_model: type[TLLMCfg] = LLMConfig,  # type: ignore[assignment]
 ) -> CheckFn[GuardrailLLMContextProto, str, TLLMCfg]:
     """Factory for constructing and registering an LLM-based guardrail check_fn.
@@ -409,17 +442,25 @@ def create_llm_check_fn(
     use the configured LLM to analyze text, validate the result, and trigger if
     confidence exceeds the provided threshold.
 
+    When a custom `output_model` is provided, it will always be used regardless of
+    `include_reasoning`. When no custom model is provided, `include_reasoning` controls
+    whether to use `LLMReasoningOutput` (with reason field) or `LLMOutput` (base model).
+
     Args:
         name (str): Name under which to register the guardrail.
         description (str): Short explanation of the guardrail's logic.
         system_prompt (str): Prompt passed to the LLM to control analysis.
-        output_model (type[LLMOutput]): Schema for parsing the LLM output.
+        output_model (type[LLMOutput] | None): Custom schema for parsing the LLM output.
+            If provided, this model will always be used. If None (default), the model
+            selection is controlled by `include_reasoning` in the config.
         config_model (type[LLMConfig]): Configuration schema for the check_fn.
 
     Returns:
         CheckFn[GuardrailLLMContextProto, str, TLLMCfg]: Async check function
             to be registered as a guardrail.
     """
+    # Store the custom output model if provided
+    custom_output_model = output_model
 
     async def guardrail_func(
         ctx: GuardrailLLMContextProto,
@@ -441,12 +482,21 @@ def create_llm_check_fn(
         else:
             rendered_system_prompt = system_prompt
 
+        # Determine output model: custom model takes precedence, otherwise use include_reasoning
+        if custom_output_model is not None:
+            # Always use the custom model if provided
+            selected_output_model = custom_output_model
+        else:
+            # No custom model: use include_reasoning to decide
+            include_reasoning = getattr(config, "include_reasoning", False)
+            selected_output_model = LLMReasoningOutput if include_reasoning else LLMOutput
+
         analysis, token_usage = await run_llm(
             data,
             rendered_system_prompt,
             ctx.guardrail_llm,
             config.model,
-            output_model,
+            selected_output_model,
         )
 
         # Check if this is an error result
