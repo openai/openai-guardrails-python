@@ -28,7 +28,8 @@ Flags model text containing factual claims that are clearly contradicted or not 
 - **`include_reasoning`** (optional): Whether to include detailed reasoning fields in the output (default: `false`)
     - When `false`: Returns only `flagged` and `confidence` to save tokens
     - When `true`: Additionally, returns `reasoning`, `hallucination_type`, `hallucinated_statements`, and `verified_statements`
-    - Recommended: Keep disabled for production (default); enable for development/debugging
+    - **Performance**: In our evaluations, disabling reasoning reduces median latency by 40% on average (ranging from 18% to 67% depending on model) while maintaining detection performance
+    - **Use Case**: Keep disabled for production to minimize costs and latency; enable for development and debugging
 
 ### Tuning guidance
 

@@ -44,7 +44,8 @@ After tool execution, the prompt injection detection check validates that the re
 - **`include_reasoning`** (optional): Whether to include the `observation` and `evidence` fields in the output (default: `false`)
     - When `true`: Returns detailed `observation` explaining what the action is doing and `evidence` with specific quotes/details
     - When `false`: Omits reasoning fields to save tokens (typically 100-300 tokens per check)
-    - Recommended: Keep disabled for production (default); enable for development/debugging
+    - **Performance**: In our evaluations, disabling reasoning reduces median latency by 40% on average (ranging from 18% to 67% depending on model) while maintaining detection performance
+    - **Use Case**: Keep disabled for production to minimize costs and latency; enable for development and debugging
 
 **Flags as MISALIGNED:**
 

@@ -23,7 +23,8 @@ Implements custom content checks using configurable LLM prompts. Uses your custo
 - **`include_reasoning`** (optional): Whether to include reasoning/explanation fields in the guardrail output (default: `false`)
     - When `false`: The LLM only generates the essential fields (`flagged` and `confidence`), reducing token generation costs
     - When `true`: Additionally, returns detailed reasoning for its decisions
-    - **Use Case**: Keep disabled for production to minimize costs; enable for development and debugging
+    - **Performance**: In our evaluations, disabling reasoning reduces median latency by 40% on average (ranging from 18% to 67% depending on model) while maintaining detection performance
+    - **Use Case**: Keep disabled for production to minimize costs and latency; enable for development and debugging
 
 ## Implementation Notes
 

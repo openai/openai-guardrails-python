@@ -22,7 +22,8 @@ Base configuration for LLM-based guardrails. Provides common configuration optio
 - **`include_reasoning`** (optional): Whether to include reasoning/explanation fields in the guardrail output (default: `false`)
   - When `true`: The LLM generates and returns detailed reasoning for its decisions (e.g., `reason`, `reasoning`, `observation`, `evidence` fields)
   - When `false`: The LLM only returns the essential fields (`flagged` and `confidence`), reducing token generation costs
-  - **Use Case**: Keep disabled for production to minimize costs; enable for development and debugging
+  - **Performance**: In our evaluations, disabling reasoning reduces median latency by 40% on average (ranging from 18% to 67% depending on model) while maintaining detection performance
+  - **Use Case**: Keep disabled for production to minimize costs and latency; enable for development and debugging
 
 ## What It Does
 
