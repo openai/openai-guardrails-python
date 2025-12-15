@@ -82,12 +82,15 @@ __all__ = [
 class LLMConfig(BaseModel):
     """Configuration schema for LLM-based content checks.
 
-    Used to specify the LLM model and confidence threshold for triggering a tripwire.
+    Used to specify the LLM model, confidence threshold, and conversation history
+    settings for triggering a tripwire.
 
     Attributes:
         model (str): The LLM model to use for checking the text.
         confidence_threshold (float): Minimum confidence required to trigger the guardrail,
             as a float between 0.0 and 1.0.
+        max_turns (int): Maximum number of conversation turns to include in analysis.
+            Set to 1 for single-turn behavior. Defaults to 10.
         include_reasoning (bool): Whether to include reasoning/explanation in guardrail
             output. Useful for development and debugging, but disabled by default in production
             to save tokens. Defaults to False.
@@ -99,6 +102,11 @@ class LLMConfig(BaseModel):
         description="Minimum confidence threshold to trigger the guardrail (0.0 to 1.0). Defaults to 0.7.",
         ge=0.0,
         le=1.0,
+    )
+    max_turns: int = Field(
+        10,
+        description="Maximum conversation turns to include in analysis. Set to 1 for single-turn. Defaults to 10.",
+        ge=1,
     )
     include_reasoning: bool = Field(
         False,
@@ -336,17 +344,47 @@ async def _request_chat_completion(
     return await _invoke_openai_callable(client.chat.completions.create, **kwargs)
 
 
+def _build_analysis_payload(
+    conversation_history: list[dict[str, Any]] | None,
+    latest_input: str,
+    max_turns: int,
+) -> str:
+    """Build a JSON payload with conversation history and latest input.
+
+    Args:
+        conversation_history: List of normalized conversation entries.
+        latest_input: The current text being analyzed.
+        max_turns: Maximum number of conversation turns to include.
+
+    Returns:
+        JSON string with conversation context and latest input.
+    """
+    trimmed_input = latest_input.strip()
+    recent_turns = (conversation_history or [])[-max_turns:]
+    payload = {
+        "conversation": recent_turns,
+        "latest_input": trimmed_input,
+    }
+    return json.dumps(payload, ensure_ascii=False)
+
+
 async def run_llm(
     text: str,
     system_prompt: str,
     client: AsyncOpenAI | OpenAI | AsyncAzureOpenAI | AzureOpenAI,
     model: str,
     output_model: type[LLMOutput],
+    conversation_history: list[dict[str, Any]] | None = None,
+    max_turns: int = 10,
 ) -> tuple[LLMOutput, TokenUsage]:
     """Run an LLM analysis for a given prompt and user input.
 
     Invokes the OpenAI LLM, enforces prompt/response contract, parses the LLM's
     output, and returns a validated result along with token usage statistics.
+
+    When conversation_history is provided and max_turns > 1, the analysis
+    includes conversation context formatted as a JSON payload with the
+    structure: {"conversation": [...], "latest_input": "..."}.
 
     Args:
         text (str): Text to analyze.
@@ -354,6 +392,10 @@ async def run_llm(
         client (AsyncOpenAI | OpenAI | AsyncAzureOpenAI | AzureOpenAI): OpenAI client used for guardrails.
         model (str): Identifier for which LLM model to use.
         output_model (type[LLMOutput]): Model for parsing and validating the LLM's response.
+        conversation_history (list[dict[str, Any]] | None): Optional normalized
+            conversation history for multi-turn analysis. Defaults to None.
+        max_turns (int): Maximum number of conversation turns to include.
+            Defaults to 10. Set to 1 for single-turn behavior.
 
     Returns:
         tuple[LLMOutput, TokenUsage]: A tuple containing:
@@ -370,12 +412,25 @@ async def run_llm(
         unavailable_reason="LLM call failed before usage could be recorded",
     )
 
+    # Build user content based on whether conversation history is available
+    # and whether we're in multi-turn mode (max_turns > 1)
+    has_conversation = conversation_history and len(conversation_history) > 0
+    use_multi_turn = has_conversation and max_turns > 1
+
+    if use_multi_turn:
+        # Multi-turn: build JSON payload with conversation context
+        analysis_payload = _build_analysis_payload(conversation_history, text, max_turns)
+        user_content = f"# Analysis Input\n\n{analysis_payload}"
+    else:
+        # Single-turn: use text directly (strip whitespace for consistency)
+        user_content = f"# Text\n\n{text.strip()}"
+
     try:
         response = await _request_chat_completion(
             client=client,
             messages=[
                 {"role": "system", "content": full_prompt},
-                {"role": "user", "content": f"# Text\n\n{text}"},
+                {"role": "user", "content": user_content},
             ],
             model=model,
             response_format=OutputSchema(output_model).get_completions_format(),  # type: ignore[arg-type, unused-ignore]
@@ -442,9 +497,10 @@ def create_llm_check_fn(
     use the configured LLM to analyze text, validate the result, and trigger if
     confidence exceeds the provided threshold.
 
-    When a custom `output_model` is provided, it will always be used regardless of
-    `include_reasoning`. When no custom model is provided, `include_reasoning` controls
-    whether to use `LLMReasoningOutput` (with reason field) or `LLMOutput` (base model).
+    All guardrails created with this factory automatically support multi-turn
+    conversation analysis. Conversation history is extracted from the context
+    and trimmed to the configured max_turns. Set max_turns=1 in config for
+    single-turn behavior.
 
     Args:
         name (str): Name under which to register the guardrail.
@@ -482,6 +538,12 @@ def create_llm_check_fn(
         else:
             rendered_system_prompt = system_prompt
 
+        # Extract conversation history from context if available
+        conversation_history = getattr(ctx, "get_conversation_history", lambda: None)() or []
+
+        # Get max_turns from config (default to 10 if not present for backward compat)
+        max_turns = getattr(config, "max_turns", 10)
+
         # Determine output model: custom model takes precedence, otherwise use include_reasoning
         if custom_output_model is not None:
             # Always use the custom model if provided
@@ -497,6 +559,8 @@ def create_llm_check_fn(
             ctx.guardrail_llm,
             config.model,
             selected_output_model,
+            conversation_history=conversation_history,
+            max_turns=max_turns,
         )
 
         # Check if this is an error result
@@ -526,7 +590,7 @@ def create_llm_check_fn(
         check_fn=guardrail_func,
         description=description,
         media_type="text/plain",
-        metadata=GuardrailSpecMetadata(engine="LLM"),
+        metadata=GuardrailSpecMetadata(engine="LLM", uses_conversation_history=True),
     )
 
     return guardrail_func
