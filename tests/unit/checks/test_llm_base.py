@@ -273,9 +273,7 @@ def test_build_analysis_payload_formats_correctly() -> None:
 
 def test_build_analysis_payload_trims_to_max_turns() -> None:
     """_build_analysis_payload should trim conversation to max_turns."""
-    conversation_history = [
-        {"role": "user", "content": f"Message {i}"} for i in range(15)
-    ]
+    conversation_history = [{"role": "user", "content": f"Message {i}"} for i in range(15)]
 
     payload_str = _build_analysis_payload(conversation_history, "latest", max_turns=5)
     payload = json.loads(payload_str)

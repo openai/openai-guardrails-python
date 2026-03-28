@@ -47,6 +47,7 @@ def _warn_llm_response_deprecation(instance: Any) -> None:
         )
         _warned_instance_ids[instance_id] = instance
 
+
 # Type alias for OpenAI response types
 OpenAIResponseType = Union[Completion, ChatCompletion, ChatCompletionChunk, Response]  # noqa: UP007
 

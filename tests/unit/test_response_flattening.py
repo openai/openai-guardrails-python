@@ -219,6 +219,7 @@ def test_nested_attribute_access_works() -> None:
 
 def test_property_access_works() -> None:
     """Test that property access on delegated objects works correctly."""
+
     # Create a mock with a property
     class MockResponse:
         @property
@@ -412,4 +413,3 @@ def test_dir_includes_delegated_attributes() -> None:
     response_attrs = set(attrs)
     # All llm_response attributes should be in response's dir()
     assert llm_attrs.issubset(response_attrs)  # noqa: S101
-

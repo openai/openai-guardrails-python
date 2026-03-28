@@ -301,9 +301,7 @@ Previous context:
             user_goal_text = user_intent_dict["most_recent_message"]
 
         # Build prompt with appropriate output format based on include_reasoning
-        output_format_instruction = (
-            PROMPT_INJECTION_REASONING_OUTPUT if config.include_reasoning else PROMPT_INJECTION_BASE_OUTPUT
-        )
+        output_format_instruction = PROMPT_INJECTION_REASONING_OUTPUT if config.include_reasoning else PROMPT_INJECTION_BASE_OUTPUT
 
         # Format for LLM analysis
         analysis_prompt = f"""{PROMPT_INJECTION_DETECTION_CHECK_PROMPT}
