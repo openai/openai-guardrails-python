@@ -4,7 +4,7 @@ This is the Python version of OpenAI Guardrails, a package for adding configurab
 
 Most users can simply follow the guided configuration and installation instructions at [guardrails.openai.com](https://guardrails.openai.com/).
 
-[![OpenAI Guardrails configuration screenshot](docs/assets/images/guardrails-python-config-screenshot-100pct-q70.webp)](https://guardrails.openai.com)
+[![OpenAI Guardrails configuration screenshot](https://github.com/openai/openai-guardrails-python/blob/main/docs/assets/images/guardrails-python-config-screenshot-100pct-q70.webp?raw=1)](https://guardrails.openai.com)
 
 ## Installation
 
