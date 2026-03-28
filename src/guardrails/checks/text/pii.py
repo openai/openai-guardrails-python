@@ -81,7 +81,7 @@ import urllib.parse
 from collections import defaultdict
 from collections.abc import Sequence
 from dataclasses import dataclass
-from enum import Enum
+from enum import StrEnum
 from typing import Any, Final
 
 from presidio_analyzer import AnalyzerEngine, Pattern, PatternRecognizer, RecognizerRegistry, RecognizerResult
@@ -230,7 +230,7 @@ def _get_analyzer_engine() -> AnalyzerEngine:
     return engine
 
 
-class PIIEntity(str, Enum):
+class PIIEntity(StrEnum):
     """Supported PII entity types for detection.
 
     Includes global and region-specific types (US, UK, Spain, Italy, etc.).

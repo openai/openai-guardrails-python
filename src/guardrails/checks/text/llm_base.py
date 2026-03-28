@@ -110,10 +110,7 @@ class LLMConfig(BaseModel):
     )
     include_reasoning: bool = Field(
         False,
-        description=(
-            "Include reasoning/explanation fields in output. "
-            "Defaults to False for token efficiency. Enable for development/debugging."
-        ),
+        description=("Include reasoning/explanation fields in output. Defaults to False for token efficiency. Enable for development/debugging."),
     )
 
     model_config = ConfigDict(extra="forbid")
