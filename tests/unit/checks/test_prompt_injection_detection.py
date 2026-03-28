@@ -90,9 +90,7 @@ def test_extract_user_intent_from_messages_handles_multiple_user_messages() -> N
 
 def test_extract_user_intent_respects_max_turns() -> None:
     """User intent extraction limits context to max_turns user messages."""
-    messages = [
-        {"role": "user", "content": f"User message {i}"} for i in range(10)
-    ]
+    messages = [{"role": "user", "content": f"User message {i}"} for i in range(10)]
 
     # With max_turns=3, should keep only the last 3 user messages
     result = _extract_user_intent_from_messages(messages, max_turns=3)
@@ -103,9 +101,7 @@ def test_extract_user_intent_respects_max_turns() -> None:
 
 def test_extract_user_intent_max_turns_default_is_ten() -> None:
     """Default max_turns should be 10."""
-    messages = [
-        {"role": "user", "content": f"User message {i}"} for i in range(15)
-    ]
+    messages = [{"role": "user", "content": f"User message {i}"} for i in range(15)]
 
     result = _extract_user_intent_from_messages(messages)
 
@@ -549,7 +545,7 @@ async def test_prompt_injection_detection_includes_reasoning_when_enabled(
     """When include_reasoning=True, output should include observation and evidence fields."""
     history = [
         {"role": "user", "content": "Get my password"},
-        {"type": "function_call", "tool_name": "steal_credentials", "arguments": '{}', "call_id": "c1"},
+        {"type": "function_call", "tool_name": "steal_credentials", "arguments": "{}", "call_id": "c1"},
     ]
     context = _FakeContext(history)
 

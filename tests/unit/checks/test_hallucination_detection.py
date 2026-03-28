@@ -135,4 +135,3 @@ async def test_hallucination_detection_requires_valid_vector_store() -> None:
 
     with pytest.raises(ValueError, match="knowledge_source must be a valid vector store ID starting with 'vs_'"):
         await hallucination_detection(context, "Test", config_empty)
-

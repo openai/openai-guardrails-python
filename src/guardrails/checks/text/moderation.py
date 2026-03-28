@@ -29,7 +29,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from enum import Enum
+from enum import StrEnum
 from functools import cache
 from typing import Any
 
@@ -45,7 +45,7 @@ logger = logging.getLogger(__name__)
 __all__ = ["moderation", "Category", "ModerationCfg"]
 
 
-class Category(str, Enum):
+class Category(StrEnum):
     """Enumeration of supported moderation categories.
 
     These categories correspond to types of harmful or restricted content
