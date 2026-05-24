@@ -16,7 +16,10 @@ from collections.abc import Callable
 from contextvars import ContextVar
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from openai import AsyncOpenAI
 
 from .types import GuardrailResult
 from .utils.conversation import merge_conversation_with_items, normalize_conversation
@@ -159,15 +162,23 @@ def _attach_guardrail_to_tools(tools: list[Any], guardrail: Callable, guardrail_
         getattr(tool, attr_name).append(guardrail)
 
 
-def _create_default_tool_context() -> Any:
-    """Create a default context for tool guardrails."""
+def _create_default_tool_context(guardrail_llm: AsyncOpenAI | None = None) -> Any:
+    """Create a default context for tool guardrails.
+
+    Args:
+        guardrail_llm: Optional pre-configured AsyncOpenAI client used to run tool-level
+            guardrails. When omitted, a default ``AsyncOpenAI()`` is created (which honors
+            the standard ``OPENAI_*`` environment variables). Pass a client built with a
+            custom ``base_url``/``api_key`` to route guardrail checks through a proxy such
+            as LiteLLM.
+    """
     from openai import AsyncOpenAI
 
     @dataclass
     class DefaultContext:
         guardrail_llm: AsyncOpenAI
 
-    return DefaultContext(guardrail_llm=AsyncOpenAI())
+    return DefaultContext(guardrail_llm=guardrail_llm or AsyncOpenAI())
 
 
 def _create_conversation_context(
@@ -607,6 +618,7 @@ class GuardrailAgent:
         instructions: str | Callable[[Any, Any], Any] | None = None,
         raise_guardrail_errors: bool = False,
         block_on_tool_violations: bool = False,
+        guardrail_llm: AsyncOpenAI | None = None,
         **agent_kwargs: Any,
     ) -> Any:  # Returns agents.Agent
         """Create a new Agent instance with guardrails automatically configured.
@@ -631,6 +643,12 @@ class GuardrailAgent:
             block_on_tool_violations: If True, tool guardrail violations raise exceptions (halt execution).
                 If False (default), violations use reject_content (agent can continue and explain).
                 Note: Agent-level input/output guardrails always block regardless of this setting.
+            guardrail_llm: Optional pre-configured AsyncOpenAI client used to run tool-level
+                guardrails (e.g. Prompt Injection Detection). When omitted, a default
+                ``AsyncOpenAI()`` is used, which honors the standard ``OPENAI_*`` environment
+                variables. Pass a client built with a custom ``base_url``/``api_key`` to route
+                guardrail checks through a proxy such as LiteLLM, mirroring how
+                ``GuardrailsAsyncOpenAI`` forwards client configuration to its guardrail client.
             **agent_kwargs: All other arguments passed to Agent constructor (including tools)
 
         Returns:
@@ -671,6 +689,12 @@ class GuardrailAgent:
         user_input_guardrails = agent_kwargs.pop("input_guardrails", [])
         user_output_guardrails = agent_kwargs.pop("output_guardrails", [])
 
+        # Build a single guardrail-execution context so that every guardrail (agent-level and
+        # tool-level) shares the same AsyncOpenAI client. When the caller supplies a custom
+        # guardrail_llm (e.g. one pointing at a LiteLLM proxy), all guardrail checks honor it;
+        # otherwise this falls back to a default AsyncOpenAI() that reads OPENAI_* env vars.
+        guardrail_context = _create_default_tool_context(guardrail_llm)
+
         # Create agent-level INPUT guardrails from config
         input_guardrails = []
 
@@ -687,6 +711,7 @@ class GuardrailAgent:
                     config=config,
                     stages=agent_input_stages,
                     guardrail_type="input",
+                    context=guardrail_context,
                     raise_guardrail_errors=raise_guardrail_errors,
                 )
             )
@@ -701,6 +726,7 @@ class GuardrailAgent:
                 config=config,
                 stages=["output"],
                 guardrail_type="output",
+                context=guardrail_context,
                 raise_guardrail_errors=raise_guardrail_errors,
             )
 
@@ -714,7 +740,7 @@ class GuardrailAgent:
         # - pre_flight + input stages → tool_input_guardrail (checks BEFORE tool execution)
         # - output stage → tool_output_guardrail (checks AFTER tool execution)
         if tools and (preflight_tool or input_tool or output_tool):
-            context = _create_default_tool_context()
+            context = guardrail_context
 
             # pre_flight + input stages → tool_input_guardrail
             for guardrail in preflight_tool + input_tool:

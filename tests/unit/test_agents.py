@@ -246,6 +246,15 @@ def test_create_default_tool_context_provides_async_client(monkeypatch: pytest.M
     assert isinstance(context.guardrail_llm, StubAsyncOpenAI)  # noqa: S101
 
 
+def test_create_default_tool_context_uses_provided_client() -> None:
+    """A caller-supplied guardrail_llm should be used verbatim, without constructing a new client."""
+    sentinel = SimpleNamespace(base_url="https://proxy.example/v1")
+
+    context = agents._create_default_tool_context(sentinel)
+
+    assert context.guardrail_llm is sentinel  # noqa: S101
+
+
 def test_attach_guardrail_to_tools_initializes_lists() -> None:
     """Attaching guardrails should create input/output lists when missing."""
     tool = SimpleNamespace()
@@ -588,6 +597,44 @@ def test_guardrail_agent_attaches_tool_guardrails(monkeypatch: pytest.MonkeyPatc
     assert len(tool.tool_input_guardrails) == 1  # type: ignore[attr-defined]  # noqa: S101
     # Agent-level guardrails should be attached (one for Sensitive Data Check)
     assert len(agent_instance.input_guardrails or []) >= 1  # noqa: S101
+
+
+def test_guardrail_agent_forwards_custom_guardrail_llm(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A custom guardrail_llm should be threaded into the shared guardrail context."""
+    tool_guard = _make_guardrail("Prompt Injection Detection")
+
+    pipeline = SimpleNamespace(
+        pre_flight=SimpleNamespace(),
+        input=SimpleNamespace(),
+        output=SimpleNamespace(),
+    )
+
+    def fake_instantiate_guardrails(stage: Any, registry: Any | None = None) -> list[Any]:
+        return [tool_guard] if stage is pipeline.pre_flight else []
+
+    monkeypatch.setattr(runtime_module, "load_pipeline_bundles", lambda config: pipeline, raising=False)
+    monkeypatch.setattr(runtime_module, "instantiate_guardrails", fake_instantiate_guardrails, raising=False)
+
+    captured: list[Any] = []
+    real_create = agents._create_default_tool_context
+
+    def spy_create(guardrail_llm: Any = None) -> Any:
+        captured.append(guardrail_llm)
+        return real_create(guardrail_llm)
+
+    monkeypatch.setattr(agents, "_create_default_tool_context", spy_create)
+
+    custom_client = SimpleNamespace(base_url="https://proxy.example/v1")
+    tool = SimpleNamespace()
+    agents.GuardrailAgent(
+        config={"version": 1},
+        name="Proxy Agent",
+        instructions="Help users.",
+        tools=[tool],
+        guardrail_llm=custom_client,
+    )
+
+    assert captured == [custom_client]  # noqa: S101
 
 
 def test_guardrail_agent_without_tools(monkeypatch: pytest.MonkeyPatch) -> None:
