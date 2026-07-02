@@ -12,7 +12,7 @@ dependencies = [
     "openai-agents>=0.3.3",
     "pip>=25.0.1",
     "presidio-analyzer>=2.2.360",
-    "thinc>=8.3.6",
+    "thinc>=8.3.12,<8.4.0",
 ]
 classifiers = [
   "Typing :: Typed",
@@ -21,6 +21,7 @@ classifiers = [
   "Programming Language :: Python :: 3.11",
   "Programming Language :: Python :: 3.12",
   "Programming Language :: Python :: 3.13",
+  "Programming Language :: Python :: 3.14",
   "Intended Audience :: Developers",
   "Operating System :: OS Independent",
   "Topic :: Software Development :: Libraries :: Python Modules",
