@@ -14,6 +14,16 @@ You can download [openai-guardrails package](https://pypi.org/project/openai-gua
 pip install openai-guardrails
 ```
 
+If you enable Contains PII, install its spaCy model while building or deploying the application:
+
+```bash
+# With pip
+python -m spacy download en_core_web_sm
+
+# With uv and spaCy 3.8
+uv pip install https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl
+```
+
 ### Usage
 
 Follow the configuration and installation instructions at [guardrails.openai.com](https://guardrails.openai.com/).
@@ -30,6 +40,7 @@ cd openai-guardrails-python
 # Install the package (editable), plus example extras if desired
 pip install -e .
 pip install -e ".[examples]"
+pip install https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl
 ```
 
 ## Integration Details
@@ -171,6 +182,7 @@ The package includes examples in the [`examples/` directory](./examples):
 ```bash
 pip install -e .
 pip install "openai-guardrails[examples]"
+pip install https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl
 ```
 
 #### Run

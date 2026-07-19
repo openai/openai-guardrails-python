@@ -8,6 +8,16 @@ Get started with Guardrails in minutes. Guardrails provides drop-in replacements
 pip install openai-guardrails
 ```
 
+If you enable Contains PII, install its spaCy model while building or deploying the application:
+
+```bash
+# With pip
+python -m spacy download en_core_web_sm
+
+# With uv and spaCy 3.8
+uv pip install https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl
+```
+
 ## Set API Key
 
 ```bash

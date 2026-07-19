@@ -6,10 +6,41 @@ masking behavior, and blocking behavior for various entity types.
 
 from __future__ import annotations
 
-import pytest
+from pathlib import Path
+from unittest.mock import Mock
 
-from guardrails.checks.text.pii import PIIConfig, PIIEntity, _normalize_unicode, pii
+import pytest
+import spacy
+
+from guardrails.checks.text.pii import PIIConfig, PIIEntity, _get_analyzer_engine, _normalize_unicode, pii
 from guardrails.types import GuardrailResult
+
+
+def test_missing_spacy_model_fails_without_starting_download(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """A missing PII model should fail before Presidio can invoke spaCy or pip."""
+    download = Mock()
+    subprocess_run = Mock()
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(spacy.util, "is_package", lambda _: False)
+    monkeypatch.setattr(spacy.cli, "download", download)
+    monkeypatch.setattr("subprocess.run", subprocess_run)
+    _get_analyzer_engine.cache_clear()
+
+    with pytest.raises(RuntimeError, match="Provision a compatible en_core_web_sm model during deployment"):
+        _get_analyzer_engine()
+
+    download.assert_not_called()
+    subprocess_run.assert_not_called()
+
+
+def test_local_spacy_model_is_supported(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """Presidio accepts a provisioned local model directory as well as a wheel."""
+    spacy.load("en_core_web_sm").to_disk(tmp_path / "en_core_web_sm")
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(spacy.util, "is_package", lambda _: False)
+    _get_analyzer_engine.cache_clear()
+
+    _get_analyzer_engine()
 
 
 @pytest.mark.asyncio

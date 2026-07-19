@@ -40,12 +40,10 @@ Examples:
 
 from __future__ import annotations
 
-import functools
 import math
 import re
 from typing import Any, TypedDict
 
-from presidio_analyzer import AnalyzerEngine, Pattern, PatternRecognizer
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from guardrails.registry import default_spec_registry
@@ -153,28 +151,6 @@ CONFIGS: dict[str, SecretCfg] = {
         "strict_mode": False,
     },
 }
-
-
-@functools.lru_cache(maxsize=1)
-def _get_analyzer_engine() -> AnalyzerEngine:
-    """Return a singleton, configured Presidio AnalyzerEngine for pattern detection.
-
-    Includes a recognizer for file extensions to allow filtering in non-strict mode.
-
-    Returns:
-        AnalyzerEngine: Initialized Presidio analyzer engine.
-    """
-    engine = AnalyzerEngine()
-
-    # Recognise file extensions so we can filter them out in non‑strict mode.
-    pattern = Pattern(
-        name="file_extension",
-        regex=f"\\S+({'|'.join(re.escape(ext) for ext in ALLOWED_EXTENSIONS)})",
-        score=1.0,
-    )
-    engine.registry.add_recognizer(PatternRecognizer(supported_entity="FILE_EXTENSION", patterns=[pattern]))
-
-    return engine
 
 
 class SecretKeysCfg(BaseModel):

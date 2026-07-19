@@ -82,8 +82,10 @@ from collections import defaultdict
 from collections.abc import Sequence
 from dataclasses import dataclass
 from enum import StrEnum
+from pathlib import Path
 from typing import Any, Final
 
+import spacy
 from presidio_analyzer import AnalyzerEngine, Pattern, PatternRecognizer, RecognizerRegistry, RecognizerResult
 from presidio_analyzer.nlp_engine import NlpEngineProvider
 from presidio_analyzer.predefined_recognizers.country_specific.korea.kr_rrn_recognizer import (
@@ -123,6 +125,12 @@ def _get_analyzer_engine() -> AnalyzerEngine:
         AnalyzerEngine: Analyzer configured with English NLP support and
         region-specific recognizers backed by Presidio.
     """
+    if not spacy.util.is_package("en_core_web_sm") and not Path("en_core_web_sm").exists():
+        raise RuntimeError(
+            "The 'en_core_web_sm' spaCy model is required by the Contains PII guardrail. "
+            "Provision a compatible en_core_web_sm model during deployment."
+        )
+
     nlp_config: Final[dict[str, Any]] = {
         "nlp_engine_name": "spacy",
         "models": [
