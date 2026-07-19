@@ -124,6 +124,9 @@ def _get_analyzer_engine() -> AnalyzerEngine:
     Returns:
         AnalyzerEngine: Analyzer configured with English NLP support and
         region-specific recognizers backed by Presidio.
+
+    Raises:
+        RuntimeError: If the en_core_web_sm spaCy model is unavailable.
     """
     if not spacy.util.is_package("en_core_web_sm") and not Path("en_core_web_sm").exists():
         raise RuntimeError(
