@@ -13,21 +13,39 @@ import pytest
 import spacy
 
 from guardrails.checks.text.pii import PIIConfig, PIIEntity, _get_analyzer_engine, _normalize_unicode, pii
+from guardrails.exceptions import ConfigError
+from guardrails.runtime import ConfigBundle, GuardrailConfig, instantiate_guardrails
 from guardrails.types import GuardrailResult
 
 
-def test_missing_spacy_model_fails_without_starting_download(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    """A missing PII model should fail before Presidio can invoke spaCy or pip."""
+@pytest.mark.parametrize(
+    ("corrupt_local_model", "error"),
+    [
+        (False, "Provision a compatible en_core_web_sm model during deployment"),
+        (True, None),
+    ],
+    ids=["missing", "corrupt-local-path"],
+)
+def test_invalid_spacy_model_fails_configuration_without_starting_download(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    corrupt_local_model: bool,
+    error: str | None,
+) -> None:
+    """An unavailable PII model should fail configuration before any request or installer call."""
     download = Mock()
     subprocess_run = Mock()
+    if corrupt_local_model:
+        (tmp_path / "en_core_web_sm").mkdir()
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(spacy.util, "is_package", lambda _: False)
-    monkeypatch.setattr(spacy.cli, "download", download)
+    monkeypatch.setattr("spacy.cli.download", download)
     monkeypatch.setattr("subprocess.run", subprocess_run)
     _get_analyzer_engine.cache_clear()
 
-    with pytest.raises(RuntimeError, match="Provision a compatible en_core_web_sm model during deployment"):
-        _get_analyzer_engine()
+    bundle = ConfigBundle(guardrails=[GuardrailConfig(name="Contains PII", config={"entities": ["EMAIL_ADDRESS"]})])
+    with pytest.raises(ConfigError, match=error):
+        instantiate_guardrails(bundle)
 
     download.assert_not_called()
     subprocess_run.assert_not_called()
@@ -40,7 +58,8 @@ def test_local_spacy_model_is_supported(monkeypatch: pytest.MonkeyPatch, tmp_pat
     monkeypatch.setattr(spacy.util, "is_package", lambda _: False)
     _get_analyzer_engine.cache_clear()
 
-    _get_analyzer_engine()
+    bundle = ConfigBundle(guardrails=[GuardrailConfig(name="Contains PII", config={"entities": ["EMAIL_ADDRESS"]})])
+    instantiate_guardrails(bundle)
 
 
 @pytest.mark.asyncio

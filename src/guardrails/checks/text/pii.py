@@ -348,6 +348,18 @@ class PIIConfig(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
+    def model_post_init(self, __context: Any) -> None:
+        """Initialize the PII analyzer while the guardrail is configured.
+
+        Args:
+            __context (Any): Pydantic initialization context.
+
+        Raises:
+            RuntimeError: If the required spaCy model is unavailable.
+            OSError: If a provisioned spaCy model cannot be loaded.
+        """
+        _get_analyzer_engine()
+
 
 @dataclass(frozen=True, slots=True)
 class PiiDetectionResult:

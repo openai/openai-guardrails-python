@@ -24,6 +24,8 @@ python -m spacy download en_core_web_sm
 uv pip install https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl
 ```
 
+Contains PII validates and loads this model during client initialization, so an absent or unloadable model fails configuration before any request.
+
 ### Usage
 
 Follow the configuration and installation instructions at [guardrails.openai.com](https://guardrails.openai.com/).
