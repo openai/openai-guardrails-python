@@ -2,6 +2,18 @@
 
 Detects personally identifiable information (PII) such as SSNs, phone numbers, credit card numbers, and email addresses using Microsoft's [Presidio library](https://microsoft.github.io/presidio/). Will automatically mask detected PII or block content based on configuration.
 
+Install the required small English spaCy model when building or deploying the application:
+
+```bash
+# With pip
+python -m spacy download en_core_web_sm
+
+# With uv and spaCy 3.8
+uv pip install https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl
+```
+
+Contains PII validates and loads this model during client initialization, so an absent or unloadable model fails configuration before any request.
+
 **Advanced Security Features:**
 
 - **Unicode normalization**: Prevents bypasses using fullwidth characters (＠) or zero-width spaces
