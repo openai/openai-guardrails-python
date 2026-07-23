@@ -3,6 +3,7 @@
 Only names listed in :data:`__all__` form part of the public API.
 """
 
+from .text.atr import atr_threat_rules
 from .text.competitors import competitors
 from .text.hallucination_detection import hallucination_detection
 from .text.jailbreak import jailbreak
@@ -17,6 +18,7 @@ from .text.urls import urls
 from .text.user_defined_llm import user_defined_llm
 
 __all__ = [
+    "atr_threat_rules",
     "competitors",
     "jailbreak",
     "keywords",

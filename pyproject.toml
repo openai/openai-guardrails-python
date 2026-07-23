@@ -32,6 +32,9 @@ Homepage = "https://openai.github.io/openai-guardrails-python/"
 Repository = "https://github.com/openai/openai-guardrails-python"
 
 [project.optional-dependencies]
+atr = [
+    "pyatr>=0.2.6",
+]
 examples = [
     "pillow>=11.2.1",
     "rich>=14.0.0",
