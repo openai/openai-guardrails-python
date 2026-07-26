@@ -16,15 +16,42 @@ def test_supports_safety_identifier_for_openai_client() -> None:
     assert supports_safety_identifier(mock_client) is True  # noqa: S101
 
 
-def test_supports_safety_identifier_for_openai_with_official_url() -> None:
-    """OpenAI client with explicit api.openai.com base_url should support safety_identifier."""
+@pytest.mark.parametrize(
+    "base_url",
+    [
+        "https://api.openai.com/v1",
+        "https://eu.api.openai.com/v1",
+        "https://us.api.openai.com/v1",
+    ],
+)
+def test_supports_safety_identifier_for_openai_with_official_url(base_url: str) -> None:
+    """OpenAI clients with official base URLs should support safety_identifier."""
     from guardrails.utils.safety_identifier import supports_safety_identifier
 
     mock_client = Mock()
-    mock_client.base_url = "https://api.openai.com/v1"
+    mock_client.base_url = base_url
     mock_client.__class__.__name__ = "AsyncOpenAI"
 
     assert supports_safety_identifier(mock_client) is True  # noqa: S101
+
+
+@pytest.mark.parametrize(
+    "base_url",
+    [
+        "https://api.openai.com.evil.example/v1",
+        "https://api.openai.com@evil.example/v1",
+        "https://evilapi.openai.com/v1",
+    ],
+)
+def test_does_not_support_safety_identifier_for_misleading_hostname(base_url: str) -> None:
+    """Lookalike URLs should not be treated as the official endpoint."""
+    from guardrails.utils.safety_identifier import supports_safety_identifier
+
+    mock_client = Mock()
+    mock_client.base_url = base_url
+    mock_client.__class__.__name__ = "AsyncOpenAI"
+
+    assert supports_safety_identifier(mock_client) is False  # noqa: S101
 
 
 def test_does_not_support_safety_identifier_for_azure() -> None:
