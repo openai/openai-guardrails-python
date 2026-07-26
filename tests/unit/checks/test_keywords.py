@@ -58,6 +58,20 @@ def test_keyword_cfg_requires_non_empty_keywords() -> None:
         KeywordCfg(keywords=[])
 
 
+@pytest.mark.parametrize(
+    "configured_keywords",
+    [
+        [""],
+        ["..."],
+        ["valid", "?!;:"],
+    ],
+)
+def test_keyword_cfg_rejects_keywords_empty_after_sanitization(configured_keywords: list[str]) -> None:
+    """Keywords stripped to an empty string should fail validation."""
+    with pytest.raises(ValidationError, match="cannot be empty"):
+        KeywordCfg(keywords=configured_keywords)
+
+
 @pytest.mark.asyncio
 async def test_keywords_does_not_trigger_on_benign_text() -> None:
     """Guardrail should not trigger when no keywords are present."""
