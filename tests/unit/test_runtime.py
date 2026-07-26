@@ -1,6 +1,7 @@
 """Tests for the runtime module."""
 
 import sys
+import threading
 import types
 from collections.abc import Iterator
 from dataclasses import dataclass
@@ -14,6 +15,7 @@ from guardrails.exceptions import ConfigError, ContextValidationError, Guardrail
 from guardrails.registry import GuardrailRegistry
 from guardrails.runtime import (
     ConfigBundle,
+    ConfiguredGuardrail,
     GuardrailConfig,
     PipelineBundles,
     check_plain_text,
@@ -22,6 +24,7 @@ from guardrails.runtime import (
     load_pipeline_bundles,
     run_guardrails,
 )
+from guardrails.spec import GuardrailSpec
 from guardrails.types import GuardrailResult
 
 THRESHOLD = 2
@@ -104,6 +107,38 @@ def build_registry() -> GuardrailRegistry:
         media_type="text/plain",
     )
     return registry
+
+
+@pytest.mark.asyncio
+async def test_configured_guardrail_runs_sync_check_in_worker_thread() -> None:
+    """Synchronous checks should not execute on the event-loop thread."""
+    event_loop_thread_id = threading.get_ident()
+    check_thread_id: int | None = None
+
+    def sync_check(ctx: Any, data: str, config: LenCfg) -> GuardrailResult:
+        _ = ctx, data, config
+        nonlocal check_thread_id
+        check_thread_id = threading.get_ident()
+        return GuardrailResult(tripwire_triggered=False)
+
+    guardrail = ConfiguredGuardrail(
+        definition=GuardrailSpec(
+            name="sync",
+            description="synchronous check",
+            media_type="text/plain",
+            config_schema=LenCfg,
+            check_fn=sync_check,
+            ctx_requirements=BaseModel,
+            metadata=None,
+        ),
+        config=LenCfg(threshold=THRESHOLD),
+    )
+
+    result = await guardrail.run(None, "value")
+
+    assert result.tripwire_triggered is False  # noqa: S101
+    assert check_thread_id is not None  # noqa: S101
+    assert check_thread_id != event_loop_thread_id  # noqa: S101
 
 
 @dataclass

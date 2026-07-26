@@ -67,10 +67,14 @@ class ConfiguredGuardrail(Generic[TContext, TIn, TCfg]):
         Returns:
             GuardrailResult: The result of the check function.
         """
-        result = fn(*a, **kw)
+        if inspect.iscoroutinefunction(fn):
+            async_fn = cast("Callable[P, Coroutine[Any, Any, GuardrailResult]]", fn)
+            return await async_fn(*a, **kw)
+
+        result = await asyncio.to_thread(fn, *a, **kw)
         if inspect.isawaitable(result):
             return await result
-        return cast("GuardrailResult", await asyncio.to_thread(lambda: result))
+        return result
 
     async def run(self, ctx: TContext, data: TIn) -> GuardrailResult:
         """Run the guardrail's check function with the provided context and data.
