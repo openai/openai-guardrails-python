@@ -462,3 +462,58 @@ async def test_urls_guardrail_blocks_subdomains_and_paths_correctly() -> None:
     assert len(result.info["blocked"]) == 2  # noqa: S101
     assert "help-suntropy.es" in result.info["blocked"]  # noqa: S101
     assert "help.suntropy.es" in result.info["blocked"]  # noqa: S101
+
+
+def test_is_url_allowed_rejects_host_with_embedded_www_label() -> None:
+    """A host that only matches after stripping an interior 'www.' must not be allowed."""
+    config = URLConfig(url_allow_list=["example.com"], allow_subdomains=False)
+    parsed, reason, had_scheme = _validate_url_security("https://exwww.ample.com/steal", config)
+
+    assert parsed is not None, reason  # noqa: S101
+    assert _is_url_allowed(parsed, config.url_allow_list, config.allow_subdomains, had_scheme) is False  # noqa: S101
+
+
+def test_is_url_allowed_rejects_allow_list_entry_with_embedded_www_label() -> None:
+    """An allow list entry with an interior 'www.' must not widen to an unrelated host."""
+    config = URLConfig(url_allow_list=["exwww.ample.com"], allow_subdomains=False)
+    parsed, reason, had_scheme = _validate_url_security("https://example.com/", config)
+
+    assert parsed is not None, reason  # noqa: S101
+    assert _is_url_allowed(parsed, config.url_allow_list, config.allow_subdomains, had_scheme) is False  # noqa: S101
+
+
+def test_is_url_allowed_still_normalizes_leading_www_label() -> None:
+    """Normalizing the leading 'www.' label must keep working in both directions."""
+    bare_allow = URLConfig(url_allow_list=["example.com"], allow_subdomains=False)
+    www_allow = URLConfig(url_allow_list=["www.example.com"], allow_subdomains=False)
+    www_url, www_reason, www_scheme = _validate_url_security("https://www.example.com", bare_allow)
+    bare_url, bare_reason, bare_scheme = _validate_url_security("https://example.com", www_allow)
+
+    assert www_url is not None, www_reason  # noqa: S101
+    assert bare_url is not None, bare_reason  # noqa: S101
+    assert _is_url_allowed(www_url, bare_allow.url_allow_list, False, www_scheme) is True  # noqa: S101
+    assert _is_url_allowed(bare_url, www_allow.url_allow_list, False, bare_scheme) is True  # noqa: S101
+
+
+def test_detect_urls_keeps_domain_not_covered_by_embedded_www_host() -> None:
+    """Dedup must not drop a bare domain that merely resembles a www-stripped host."""
+    detected = _detect_urls("see https://exwww.ample.com and also example.com here")
+
+    assert "https://exwww.ample.com" in detected  # noqa: S101
+    assert "example.com" in detected  # noqa: S101
+
+
+@pytest.mark.asyncio
+async def test_urls_guardrail_blocks_embedded_www_lookalike() -> None:
+    """End to end, a lookalike host must trip the guardrail instead of being allowed."""
+    config = URLConfig(
+        url_allow_list=["example.com"],
+        allowed_schemes={"https"},
+        allow_subdomains=False,
+    )
+
+    result = await urls(ctx=None, data="Please visit https://exwww.ample.com/steal", config=config)
+
+    assert result.tripwire_triggered is True  # noqa: S101
+    assert result.info["allowed"] == []  # noqa: S101
+    assert "https://exwww.ample.com/steal" in result.info["blocked"]  # noqa: S101

@@ -42,6 +42,24 @@ DEFAULT_PORTS = {
 
 SCHEME_PREFIX_RE = re.compile(r"^[a-z][a-z0-9+.-]*://")
 
+WWW_PREFIX = "www."
+
+
+def _strip_www_prefix(host: str) -> str:
+    """Remove a single leading ``www.`` label from a host.
+
+    Only the leading label is normalized away. Stripping every occurrence
+    would let unrelated hosts collapse onto one another, so that
+    ``exwww.ample.com`` would compare equal to ``example.com``.
+
+    Args:
+        host: Lowercased host, optionally followed by a path.
+
+    Returns:
+        str: The host without its leading ``www.`` label.
+    """
+    return host.removeprefix(WWW_PREFIX)
+
 
 @dataclass(frozen=True, slots=True)
 class UrlDetectionResult:
@@ -186,7 +204,7 @@ def _detect_urls(text: str) -> list[str]:
                 if parsed.hostname:
                     scheme_url_domains.add(parsed.hostname.lower())
                     # Also add www-stripped version
-                    bare_domain = parsed.hostname.lower().replace("www.", "")
+                    bare_domain = _strip_www_prefix(parsed.hostname.lower())
                     scheme_url_domains.add(bare_domain)
             except (ValueError, UnicodeError):
                 # Skip URLs with parsing errors (malformed URLs, encoding issues)
@@ -198,7 +216,7 @@ def _detect_urls(text: str) -> list[str]:
     for url in detected_urls:
         if "://" not in url:
             # Check if this domain is already covered by a full URL
-            url_lower = url.lower().replace("www.", "")
+            url_lower = _strip_www_prefix(url.lower())
             if url_lower not in scheme_url_domains:
                 final_urls.append(url)
 
@@ -318,7 +336,7 @@ def _is_url_allowed(
         return False
 
     url_host = url_host.lower()
-    url_domain = url_host.replace("www.", "")
+    url_domain = _strip_www_prefix(url_host)
     scheme_lower = parsed_url.scheme.lower() if parsed_url.scheme else ""
     # Safely get port (rejects malformed ports)
     url_port = _safe_get_port(parsed_url, scheme_lower)
@@ -388,7 +406,7 @@ def _is_url_allowed(
         if not allowed_host:
             continue
 
-        allowed_domain = allowed_host.replace("www.", "")
+        allowed_domain = _strip_www_prefix(allowed_host)
 
         # Port matching: enforce if allow list has explicit port
         if allowed_port_explicit is not None and allowed_port != url_port:
