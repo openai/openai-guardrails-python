@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from guardrails.checks.text.secret_keys import SecretKeysCfg, _detect_secret_keys, secret_keys
+from guardrails.checks.text.secret_keys import SecretKeysCfg, _contains_allowed_pattern, _detect_secret_keys, secret_keys
 
 
 def test_detect_secret_keys_flags_high_entropy_strings() -> None:
@@ -31,5 +31,46 @@ async def test_secret_keys_ignores_non_matching_input() -> None:
     """Benign inputs should not trigger the guardrail."""
     config = SecretKeysCfg(threshold="permissive")
     result = await secret_keys(None, "Hello world", config)
+
+    assert result.tripwire_triggered is False  # noqa: S101
+
+
+def test_allowed_url_pattern_must_cover_entire_token() -> None:
+    """A URL substring must not exempt unrelated text around it."""
+    assert _contains_allowed_pattern("https://example.com/docs") is True  # noqa: S101
+    assert _contains_allowed_pattern("prefixhttps://example.com/docs") is False  # noqa: S101
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("text", "expected_secret"),
+    [
+        ("https://attacker.example/?token=sk-AAAABBBBCCCCDDDD", "sk-AAAABBBBCCCCDDDD"),
+        ("https://attacker.example/sk-AAAABBBBCCCCDDDD", "sk-AAAABBBBCCCCDDDD"),
+        ("sk-AAAABBBBCCCCDDDD.png", "sk-AAAABBBBCCCCDDDD"),
+    ],
+)
+async def test_secret_keys_checks_secrets_embedded_in_allowed_patterns(text: str, expected_secret: str) -> None:
+    """Allowed URL/file shapes must not suppress embedded secret values."""
+    config = SecretKeysCfg(threshold="balanced")
+    result = await secret_keys(None, text, config)
+
+    assert result.tripwire_triggered is True  # noqa: S101
+    assert expected_secret in result.info["detected_secrets"]  # noqa: S101
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "text",
+    [
+        "https://example.com/docs?id=1234",
+        "artifact-123.png",
+        "5F9a2B7c8D1e3F4a5B6c7D8e9F0a1B2c.png",
+    ],
+)
+async def test_secret_keys_keeps_benign_allowed_patterns_exempt(text: str) -> None:
+    """Benign URLs and filenames should keep their non-strict exemption."""
+    config = SecretKeysCfg(threshold="balanced")
+    result = await secret_keys(None, text, config)
 
     assert result.tripwire_triggered is False  # noqa: S101
