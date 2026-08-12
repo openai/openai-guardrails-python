@@ -47,7 +47,9 @@ def test_allowed_url_pattern_must_cover_entire_token() -> None:
     [
         ("https://attacker.example/?token=sk-AAAABBBBCCCCDDDD", "sk-AAAABBBBCCCCDDDD"),
         ("https://attacker.example/sk-AAAABBBBCCCCDDDD", "sk-AAAABBBBCCCCDDDD"),
+        ("https://attacker.example/sk%2DAAAABBBBCCCCDDDD", "sk-AAAABBBBCCCCDDDD"),
         ("sk-AAAABBBBCCCCDDDD.png", "sk-AAAABBBBCCCCDDDD"),
+        ("downloads/sk-AAAABBBBCCCCDDDD.png", "sk-AAAABBBBCCCCDDDD"),
     ],
 )
 async def test_secret_keys_checks_secrets_embedded_in_allowed_patterns(text: str, expected_secret: str) -> None:
@@ -65,6 +67,7 @@ async def test_secret_keys_checks_secrets_embedded_in_allowed_patterns(text: str
     [
         "https://example.com/docs?id=1234",
         "artifact-123.png",
+        "downloads/artifact-123.png",
         "5F9a2B7c8D1e3F4a5B6c7D8e9F0a1B2c.png",
     ],
 )
