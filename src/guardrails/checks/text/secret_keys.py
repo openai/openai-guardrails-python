@@ -9,7 +9,7 @@ Classes:
     SecretKeysCfg: Pydantic configuration for specifying secret key detection rules.
 
 Functions:
-    secret_keys: Async guardrail function for secret key detection.
+    secret_keys: Async guardrail function for secret detection.
 
 Configuration Parameters:
     `threshold` (str): Detection sensitivity level. One of:
@@ -43,6 +43,7 @@ from __future__ import annotations
 import math
 import re
 from typing import Any, TypedDict
+from urllib.parse import parse_qsl, urlsplit
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -234,29 +235,70 @@ def _char_diversity(s: str) -> int:
 
 
 def _contains_allowed_pattern(text: str) -> bool:
-    """Return True if text contains allowed URL or file extension patterns.
+    """Return True if text is an allowed URL or file-extension pattern.
 
     Args:
         text (str): Input string.
 
     Returns:
-        bool: True if text matches URL or allowed extension; otherwise False.
+        bool: True if the entire string matches an allowed pattern; otherwise False.
     """
-    # Simple regex for URLs
     url_pattern = re.compile(r"https?://[^\s]+", re.IGNORECASE)
-    if url_pattern.search(text):
+    if url_pattern.fullmatch(text):
         return True
 
-    # Regex for allowed file extensions
-    # Build a pattern like: ".*\\.(py|js|html|...|png)$"
     ext_pattern = re.compile(
         r"[^\s]+(" + "|".join(re.escape(ext) for ext in ALLOWED_EXTENSIONS) + r")$",
         re.IGNORECASE,
     )
-    if ext_pattern.search(text):
+    if ext_pattern.fullmatch(text):
         return True
 
     return False
+
+
+def _embedded_secret_candidates(token: str) -> tuple[str, ...]:
+    """Extract likely secrets embedded in otherwise-allowed tokens.
+
+    URL and filename exemptions reduce false positives in non-strict mode, but
+    they should not suppress clearly credential-like values carried by those
+    shapes. This helper extracts narrowly scoped candidates for independent
+    checking while leaving ordinary URLs and filenames exempt.
+
+    Args:
+        token: Whitespace-delimited token from the input text.
+
+    Returns:
+        Candidate substrings that should be checked independently.
+    """
+    candidates: list[str] = []
+    url_pattern = re.compile(r"https?://[^\s]+", re.IGNORECASE)
+    if url_pattern.fullmatch(token):
+        try:
+            parsed = urlsplit(token)
+        except ValueError:
+            parsed = None
+        if parsed is not None:
+            sensitive_names = {"access_token", "api_key", "apikey", "key", "password", "secret", "token"}
+            for name, value in parse_qsl(parsed.query, keep_blank_values=False):
+                if value and (name.lower() in sensitive_names or any(value.startswith(prefix) for prefix in COMMON_KEY_PREFIXES)):
+                    candidates.append(value)
+            candidates.extend(
+                segment
+                for segment in parsed.path.split("/")
+                if segment and any(segment.startswith(prefix) for prefix in COMMON_KEY_PREFIXES)
+            )
+
+    lowered = token.lower()
+    for extension in ALLOWED_EXTENSIONS:
+        if not lowered.endswith(extension):
+            continue
+        stem = token[: -len(extension)]
+        if stem and any(stem.startswith(prefix) for prefix in COMMON_KEY_PREFIXES):
+            candidates.append(stem)
+        break
+
+    return tuple(candidates)
 
 
 def _is_secret_candidate(s: str, cfg: SecretCfg, custom_regex: list[str] | None = None) -> bool:
@@ -307,7 +349,13 @@ def _detect_secret_keys(text: str, cfg: SecretCfg, custom_regex: list[str] | Non
         GuardrailResult: Result containing flag status and detected secrets.
     """
     words = (w.replace("*", "").replace("#", "") for w in re.findall(r"\S+", text))
-    secrets = [w for w in words if _is_secret_candidate(w, cfg, custom_regex)]
+    candidates: list[str] = []
+    for word in words:
+        candidates.append(word)
+        if not cfg.get("strict_mode", False) and _contains_allowed_pattern(word):
+            candidates.extend(_embedded_secret_candidates(word))
+
+    secrets = [candidate for candidate in candidates if _is_secret_candidate(candidate, cfg, custom_regex)]
 
     return GuardrailResult(
         tripwire_triggered=bool(secrets),
