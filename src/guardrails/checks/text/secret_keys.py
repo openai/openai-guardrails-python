@@ -43,7 +43,7 @@ from __future__ import annotations
 import math
 import re
 from typing import Any, TypedDict
-from urllib.parse import parse_qsl, urlsplit
+from urllib.parse import parse_qsl, unquote, urlsplit
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -283,17 +283,17 @@ def _embedded_secret_candidates(token: str) -> tuple[str, ...]:
             for name, value in parse_qsl(parsed.query, keep_blank_values=False):
                 if value and (name.lower() in sensitive_names or any(value.startswith(prefix) for prefix in COMMON_KEY_PREFIXES)):
                     candidates.append(value)
-            candidates.extend(
-                segment
-                for segment in parsed.path.split("/")
-                if segment and any(segment.startswith(prefix) for prefix in COMMON_KEY_PREFIXES)
-            )
+            for segment in parsed.path.split("/"):
+                decoded_segment = unquote(segment)
+                if decoded_segment and any(decoded_segment.startswith(prefix) for prefix in COMMON_KEY_PREFIXES):
+                    candidates.append(decoded_segment)
 
     lowered = token.lower()
     for extension in ALLOWED_EXTENSIONS:
         if not lowered.endswith(extension):
             continue
-        stem = token[: -len(extension)]
+        filename = re.split(r"[\\/]", token)[-1]
+        stem = filename[: -len(extension)]
         if stem and any(stem.startswith(prefix) for prefix in COMMON_KEY_PREFIXES):
             candidates.append(stem)
         break
