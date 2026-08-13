@@ -167,9 +167,7 @@ class SecretKeysCfg(BaseModel):
             - "balanced": Default setting, balanced between sensitivity and specificity
             - "permissive": Least sensitive, may have more false negatives
 
-        custom_regex (list[str] | None): Optional list of custom regex patterns to check for secrets.
-            If provided, these patterns will be used in addition to the default checks.
-            Each pattern must be a valid regex string.
+        custom_regex (list[str] | None): Optional list[str] of custom regex patterns to check for secrets.
     """
 
     threshold: str = Field(
@@ -243,13 +241,10 @@ def _contains_allowed_pattern(text: str) -> bool:
     Returns:
         bool: True if text matches URL or allowed extension; otherwise False.
     """
-    # Simple regex for URLs
     url_pattern = re.compile(r"https?://[^\s]+", re.IGNORECASE)
     if url_pattern.search(text):
         return True
 
-    # Regex for allowed file extensions
-    # Build a pattern like: ".*\\.(py|js|html|...|png)$"
     ext_pattern = re.compile(
         r"[^\s]+(" + "|".join(re.escape(ext) for ext in ALLOWED_EXTENSIONS) + r")$",
         re.IGNORECASE,
@@ -361,6 +356,24 @@ def _embedded_secret_candidates(token: str, custom_regex: list[str] | None = Non
         if stripped and (_has_known_prefix(stripped) or _matches_custom_pattern(stripped, custom_regex)):
             candidates.append(stripped)
 
+    def add_path_components(value: str) -> None:
+        """Append candidates from a URL path-like value.
+
+        Args:
+            value: Encoded URL path or fragment content.
+
+        Returns:
+            None.
+        """
+        segments = [segment for segment in re.split(r"[\\/]", unquote(value)) if segment]
+        for index, segment in enumerate(segments):
+            add_path_candidate(segment)
+            name, separator, associated_value = segment.partition("=")
+            if separator and _is_sensitive_parameter(name):
+                add_value_candidate(associated_value, force=True)
+            if _is_sensitive_parameter(segment) and index + 1 < len(segments):
+                add_value_candidate(segments[index + 1], force=True)
+
     for match in url_pattern.finditer(token):
         raw_url = match.group(0)
         try:
@@ -404,11 +417,8 @@ def _embedded_secret_candidates(token: str, custom_regex: list[str] | None = Non
             for name, value in parse_qsl(params, keep_blank_values=False):
                 add_value_candidate(value, force=_is_sensitive_parameter(name))
 
-        for segment in re.split(r"[\\/]", unquote(parsed.path)):
-            add_path_candidate(segment)
-
-        for segment in re.split(r"[\\/]", unquote(parsed.fragment)):
-            add_path_candidate(segment)
+        add_path_components(parsed.path)
+        add_path_components(parsed.fragment)
 
     file_token = token.replace("#", "")
     lowered = file_token.lower()
@@ -442,7 +452,6 @@ def _is_secret_candidate(
     Returns:
         bool: True if the string is a secret key; otherwise False.
     """
-    # Check custom patterns first if provided
     if custom_regex:
         for pattern in custom_regex:
             if re.match(pattern, s):
