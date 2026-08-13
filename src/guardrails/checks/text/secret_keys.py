@@ -261,7 +261,14 @@ def _contains_allowed_pattern(text: str) -> bool:
 
 
 def _strip_allowed_extension(value: str) -> str:
-    """Remove one recognized file extension from an extracted candidate."""
+    """Remove one recognized file extension from a value.
+
+    Args:
+        value: Candidate value that may end in an allowed extension.
+
+    Returns:
+        The value without one trailing allowed extension, if present.
+    """
     lowered = value.lower()
     for extension in ALLOWED_EXTENSIONS:
         if lowered.endswith(extension):
@@ -270,17 +277,39 @@ def _strip_allowed_extension(value: str) -> str:
 
 
 def _matches_custom_pattern(value: str, custom_regex: list[str] | None) -> bool:
-    """Return whether a value matches any configured custom secret pattern."""
+    """Check whether a value matches a configured secret pattern.
+
+    Args:
+        value: Candidate value to test.
+        custom_regex: Optional configured regular expressions.
+
+    Returns:
+        True when any configured expression matches the value.
+    """
     return bool(custom_regex and any(re.match(pattern, value) for pattern in custom_regex))
 
 
 def _has_known_prefix(value: str) -> bool:
-    """Return whether a value starts with a known credential prefix."""
+    """Check whether a value starts with a known credential prefix.
+
+    Args:
+        value: Candidate value to inspect.
+
+    Returns:
+        True when the value starts with a known credential prefix.
+    """
     return any(value.startswith(prefix) for prefix in COMMON_KEY_PREFIXES)
 
 
 def _is_sensitive_parameter(name: str) -> bool:
-    """Return whether a URL parameter name conventionally carries credentials."""
+    """Check whether a URL parameter conventionally carries credentials.
+
+    Args:
+        name: URL query or fragment parameter name.
+
+    Returns:
+        True when the normalized name indicates a credential-bearing field.
+    """
     separated = re.sub(r"(?<=[a-z0-9])(?=[A-Z])", "_", name.strip())
     normalized = re.sub(r"[^a-zA-Z0-9]+", "_", separated).strip("_").lower()
     return normalized in {"apikey", "api_key", "key", "password", "passwd", "secret", "token"} or normalized.endswith(
@@ -289,16 +318,41 @@ def _is_sensitive_parameter(name: str) -> bool:
 
 
 def _embedded_secret_candidates(token: str, custom_regex: list[str] | None = None) -> tuple[str, ...]:
-    """Extract credential-like values hidden by URL/file exemptions."""
+    """Extract credential-like values hidden by URL or file exemptions.
+
+    Args:
+        token: Whitespace-delimited token that matched an allowed pattern.
+        custom_regex: Optional configured regular expressions.
+
+    Returns:
+        Unique embedded values that should be checked independently.
+    """
     candidates: list[str] = []
     url_pattern = re.compile(r"https?://[^\s]+", re.IGNORECASE)
 
     def add_value_candidate(value: str, *, force: bool = False) -> None:
+        """Append an eligible decoded non-path value.
+
+        Args:
+            value: Encoded query, fragment, or userinfo value.
+            force: Whether the containing field is credential-bearing.
+
+        Returns:
+            None.
+        """
         decoded = unquote(value)
         if decoded and (force or _has_known_prefix(decoded) or _matches_custom_pattern(decoded, custom_regex)):
             candidates.append(decoded)
 
     def add_path_candidate(value: str) -> None:
+        """Append eligible path-like value variants.
+
+        Args:
+            value: Decoded path or filename segment.
+
+        Returns:
+            None.
+        """
         if not value:
             return
         if _matches_custom_pattern(value, custom_regex):
@@ -321,10 +375,10 @@ def _embedded_secret_candidates(token: str, custom_regex: list[str] | None = Non
             for name, value in parse_qsl(params, keep_blank_values=False):
                 add_value_candidate(value, force=_is_sensitive_parameter(name))
 
-        for segment in unquote(parsed.path).split("/"):
+        for segment in re.split(r"[\\/]", unquote(parsed.path)):
             add_path_candidate(segment)
 
-        for segment in unquote(parsed.fragment).split("/"):
+        for segment in re.split(r"[\\/]", unquote(parsed.fragment)):
             add_path_candidate(segment)
 
     file_token = token.replace("#", "")
