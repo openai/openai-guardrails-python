@@ -43,6 +43,7 @@ from __future__ import annotations
 import math
 import re
 from typing import Any, TypedDict
+from urllib.parse import parse_qsl, unquote, urlsplit
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -259,7 +260,90 @@ def _contains_allowed_pattern(text: str) -> bool:
     return False
 
 
-def _is_secret_candidate(s: str, cfg: SecretCfg, custom_regex: list[str] | None = None) -> bool:
+def _strip_allowed_extension(value: str) -> str:
+    """Remove one recognized file extension from an extracted candidate."""
+    lowered = value.lower()
+    for extension in ALLOWED_EXTENSIONS:
+        if lowered.endswith(extension):
+            return value[: -len(extension)]
+    return value
+
+
+def _matches_custom_pattern(value: str, custom_regex: list[str] | None) -> bool:
+    """Return whether a value matches any configured custom secret pattern."""
+    return bool(custom_regex and any(re.match(pattern, value) for pattern in custom_regex))
+
+
+def _has_known_prefix(value: str) -> bool:
+    """Return whether a value starts with a known credential prefix."""
+    return any(value.startswith(prefix) for prefix in COMMON_KEY_PREFIXES)
+
+
+def _is_sensitive_parameter(name: str) -> bool:
+    """Return whether a URL parameter name conventionally carries credentials."""
+    separated = re.sub(r"(?<=[a-z0-9])(?=[A-Z])", "_", name.strip())
+    normalized = re.sub(r"[^a-zA-Z0-9]+", "_", separated).strip("_").lower()
+    return normalized in {"apikey", "api_key", "key", "password", "passwd", "secret", "token"} or normalized.endswith(
+        ("_key", "_password", "_secret", "_token")
+    )
+
+
+def _embedded_secret_candidates(token: str, custom_regex: list[str] | None = None) -> tuple[str, ...]:
+    """Extract credential-like values hidden by URL/file exemptions."""
+    candidates: list[str] = []
+    url_pattern = re.compile(r"https?://[^\s]+", re.IGNORECASE)
+
+    def add_value_candidate(value: str, *, force: bool = False) -> None:
+        decoded = unquote(value)
+        if decoded and (force or _has_known_prefix(decoded) or _matches_custom_pattern(decoded, custom_regex)):
+            candidates.append(decoded)
+
+    def add_path_candidate(value: str) -> None:
+        if not value:
+            return
+        if _matches_custom_pattern(value, custom_regex):
+            candidates.append(value)
+        stripped = _strip_allowed_extension(value)
+        if stripped and (_has_known_prefix(stripped) or _matches_custom_pattern(stripped, custom_regex)):
+            candidates.append(stripped)
+
+    for match in url_pattern.finditer(token):
+        try:
+            parsed = urlsplit(match.group(0))
+        except ValueError:
+            continue
+
+        for value in (parsed.username, parsed.password):
+            if value:
+                add_value_candidate(value, force=True)
+
+        for params in (parsed.query, parsed.fragment):
+            for name, value in parse_qsl(params, keep_blank_values=False):
+                add_value_candidate(value, force=_is_sensitive_parameter(name))
+
+        for segment in unquote(parsed.path).split("/"):
+            add_path_candidate(segment)
+
+        for segment in unquote(parsed.fragment).split("/"):
+            add_path_candidate(segment)
+
+    file_token = token.replace("#", "")
+    lowered = file_token.lower()
+    is_file_pattern = any(lowered.endswith(extension) for extension in ALLOWED_EXTENSIONS)
+    if is_file_pattern and url_pattern.search(token) is None:
+        for segment in re.split(r"[\\/]", unquote(file_token)):
+            add_path_candidate(segment)
+
+    return tuple(dict.fromkeys(candidates))
+
+
+def _is_secret_candidate(
+    s: str,
+    cfg: SecretCfg,
+    custom_regex: list[str] | None = None,
+    *,
+    allow_pattern_exemption: bool = True,
+) -> bool:
     """Check if a string is a secret key using the specified criteria.
 
     Skips candidates matching allowed patterns (when strict_mode=False),
@@ -270,6 +354,7 @@ def _is_secret_candidate(s: str, cfg: SecretCfg, custom_regex: list[str] | None 
         s (str): String to analyze.
         cfg (SecretCfg): Detection configuration.
         custom_regex (Optional[List[str]]): List of custom regex patterns to check.
+        allow_pattern_exemption: Whether URL/file-pattern exemptions may suppress this candidate.
 
     Returns:
         bool: True if the string is a secret key; otherwise False.
@@ -280,7 +365,7 @@ def _is_secret_candidate(s: str, cfg: SecretCfg, custom_regex: list[str] | None 
             if re.match(pattern, s):
                 return True
 
-    if not cfg.get("strict_mode", False) and _contains_allowed_pattern(s):
+    if allow_pattern_exemption and not cfg.get("strict_mode", False) and _contains_allowed_pattern(s):
         return False
 
     long_enough = len(s) >= cfg.get("min_length", 15)
@@ -289,7 +374,7 @@ def _is_secret_candidate(s: str, cfg: SecretCfg, custom_regex: list[str] | None 
     if not (long_enough and diverse):
         return False
 
-    if any(s.startswith(prefix) for prefix in COMMON_KEY_PREFIXES):
+    if _has_known_prefix(s):
         return True
 
     return _entropy(s) >= cfg.get("min_entropy", 3.7)
@@ -306,9 +391,18 @@ def _detect_secret_keys(text: str, cfg: SecretCfg, custom_regex: list[str] | Non
     Returns:
         GuardrailResult: Result containing flag status and detected secrets.
     """
-    words = (w.replace("*", "").replace("#", "") for w in re.findall(r"\S+", text))
-    secrets = [w for w in words if _is_secret_candidate(w, cfg, custom_regex)]
+    secrets: list[str] = []
+    for raw_word in re.findall(r"\S+", text):
+        word = raw_word.replace("*", "").replace("#", "")
+        if _is_secret_candidate(word, cfg, custom_regex):
+            secrets.append(word)
 
+        if _contains_allowed_pattern(word):
+            for candidate in _embedded_secret_candidates(raw_word.replace("*", ""), custom_regex):
+                if _is_secret_candidate(candidate, cfg, custom_regex, allow_pattern_exemption=False):
+                    secrets.append(candidate)
+
+    secrets = list(dict.fromkeys(secrets))
     return GuardrailResult(
         tripwire_triggered=bool(secrets),
         info={
