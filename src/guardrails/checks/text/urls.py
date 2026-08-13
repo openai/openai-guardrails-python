@@ -41,6 +41,12 @@ DEFAULT_PORTS = {
 }
 
 SCHEME_PREFIX_RE = re.compile(r"^[a-z][a-z0-9+.-]*://")
+WWW_PREFIX = "www."
+
+
+def _strip_www_prefix(host: str) -> str:
+    """Remove a single leading ``www.`` label from a host."""
+    return host.removeprefix(WWW_PREFIX)
 
 
 @dataclass(frozen=True, slots=True)
@@ -92,7 +98,6 @@ class URLConfig(BaseModel):
             cleaned = entry.strip().lower()
             if not cleaned:
                 continue
-            # Support inputs like "https://", "HTTPS:", or " https "
             if cleaned.endswith("://"):
                 cleaned = cleaned[:-3]
             cleaned = cleaned.removesuffix(":")
@@ -106,26 +111,10 @@ class URLConfig(BaseModel):
 
 
 def _detect_urls(text: str) -> list[str]:
-    """Detect URLs using regex patterns with deduplication.
-
-    Detects URLs with explicit schemes (http, https, ftp, data, javascript,
-    vbscript), domain-like patterns without schemes, and IP addresses.
-    Deduplicates to avoid returning both scheme-ful and scheme-less versions
-    of the same URL.
-
-    Args:
-        text: The text to scan for URLs.
-
-    Returns:
-        List of unique URL strings found in the text, with trailing
-        punctuation removed.
-    """
-    # Pattern for cleaning trailing punctuation (] must be escaped)
+    """Detect URLs using regex patterns with deduplication."""
     PUNCTUATION_CLEANUP = r"[.,;:!?)\]]+$"
 
     detected_urls = []
-
-    # Pattern 1: URLs with schemes (highest priority)
     scheme_patterns = [
         r'https?://[^\s<>"{}|\\^`\[\]]+',
         r'ftp://[^\s<>"{}|\\^`\[\]]+',
@@ -138,153 +127,97 @@ def _detect_urls(text: str) -> list[str]:
     for pattern in scheme_patterns:
         matches = re.findall(pattern, text, re.IGNORECASE)
         for match in matches:
-            # Clean trailing punctuation
             cleaned = re.sub(PUNCTUATION_CLEANUP, "", match)
             if cleaned:
                 detected_urls.append(cleaned)
-                # Track the domain part to avoid duplicates
                 if "://" in cleaned:
                     domain_part = cleaned.split("://", 1)[1].split("/")[0].split("?")[0].split("#")[0]
                     scheme_urls.add(domain_part.lower())
 
-    # Pattern 2: Domain-like patterns (scheme-less) - but skip if already found with scheme
     domain_pattern = r"\b(?:www\.)?[a-zA-Z0-9][a-zA-Z0-9.-]*\.[a-zA-Z]{2,}(?:/[^\s]*)?"
     domain_matches = re.findall(domain_pattern, text, re.IGNORECASE)
-
     for match in domain_matches:
-        # Clean trailing punctuation
         cleaned = re.sub(PUNCTUATION_CLEANUP, "", match)
         if cleaned:
-            # Extract just the domain part for comparison
             domain_part = cleaned.split("/")[0].split("?")[0].split("#")[0].lower()
-            # Only add if we haven't already found this domain with a scheme
             if domain_part not in scheme_urls:
                 detected_urls.append(cleaned)
 
-    # Pattern 3: IP addresses - similar deduplication
     ip_pattern = r"\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}(?::[0-9]+)?(?:/[^\s]*)?"
     ip_matches = re.findall(ip_pattern, text, re.IGNORECASE)
-
     for match in ip_matches:
-        # Clean trailing punctuation
         cleaned = re.sub(PUNCTUATION_CLEANUP, "", match)
         if cleaned:
-            # Extract IP part for comparison
             ip_part = cleaned.split("/")[0].split("?")[0].split("#")[0].lower()
             if ip_part not in scheme_urls:
                 detected_urls.append(cleaned)
 
-    # Advanced deduplication: Remove domains that are already part of full URLs
     final_urls = []
     scheme_url_domains = set()
-
-    # First pass: collect all domains from scheme-ful URLs
     for url in detected_urls:
         if "://" in url:
             try:
                 parsed = urlparse(url)
                 if parsed.hostname:
                     scheme_url_domains.add(parsed.hostname.lower())
-                    # Also add www-stripped version
-                    bare_domain = parsed.hostname.lower().replace("www.", "")
+                    bare_domain = _strip_www_prefix(parsed.hostname.lower())
                     scheme_url_domains.add(bare_domain)
             except (ValueError, UnicodeError):
-                # Skip URLs with parsing errors (malformed URLs, encoding issues)
-                # This is expected for edge cases and doesn't require logging
                 pass
             final_urls.append(url)
 
-    # Second pass: only add scheme-less URLs if their domain isn't already covered
     for url in detected_urls:
         if "://" not in url:
-            # Check if this domain is already covered by a full URL
-            url_lower = url.lower().replace("www.", "")
+            url_lower = _strip_www_prefix(url.lower())
             if url_lower not in scheme_url_domains:
                 final_urls.append(url)
 
-    # Remove empty URLs and return unique list
     return list(dict.fromkeys([url for url in final_urls if url]))
 
 
 def _validate_url_security(url_string: str, config: URLConfig) -> tuple[ParseResult | None, str, bool]:
-    """Validate URL security properties using urllib.parse.
-
-    Checks URL structure, validates the scheme is allowed, and ensures no
-    credentials are embedded in userinfo if block_userinfo is enabled.
-
-    Args:
-        url_string: The URL string to validate.
-        config: Configuration specifying allowed schemes and userinfo policy.
-
-    Returns:
-        A tuple of (parsed_url, error_reason, had_explicit_scheme). If validation
-        succeeds, parsed_url is a ParseResult, error_reason is empty, and
-        had_explicit_scheme indicates if the original URL included a scheme.
-        If validation fails, parsed_url is None and error_reason describes the failure.
-    """
+    """Validate URL security properties using urllib.parse."""
     try:
-        # Parse URL - track whether scheme was explicit
         has_explicit_scheme = False
         if "://" in url_string:
-            # Standard URL with double-slash scheme (http://, https://, ftp://, etc.)
             parsed_url = urlparse(url_string)
             original_scheme = parsed_url.scheme
             has_explicit_scheme = True
         elif ":" in url_string and url_string.split(":", 1)[0] in {"data", "javascript", "vbscript", "mailto"}:
-            # Special single-colon schemes
             parsed_url = urlparse(url_string)
             original_scheme = parsed_url.scheme
             has_explicit_scheme = True
         else:
-            # Add http scheme for parsing only (user didn't specify a scheme)
             parsed_url = urlparse(f"http://{url_string}")
-            original_scheme = None  # No explicit scheme
+            original_scheme = None
             has_explicit_scheme = False
 
-        # Basic validation: must have scheme and netloc (except for special schemes)
         if not parsed_url.scheme:
             return None, "Invalid URL format", False
 
-        # Special schemes like data: and javascript: don't need netloc
         special_schemes = {"data", "javascript", "vbscript", "mailto"}
         if parsed_url.scheme not in special_schemes and not parsed_url.netloc:
             return None, "Invalid URL format", False
 
-        # Security validations - only validate scheme if it was explicitly provided
         if has_explicit_scheme and original_scheme not in config.allowed_schemes:
             return None, f"Blocked scheme: {original_scheme}", has_explicit_scheme
 
         if config.block_userinfo and (parsed_url.username or parsed_url.password):
             return None, "Contains userinfo (potential credential injection)", has_explicit_scheme
 
-        # Everything else (IPs, localhost, private IPs) goes through allow list logic
         return parsed_url, "", has_explicit_scheme
 
     except (ValueError, UnicodeError, AttributeError) as e:
-        # Common URL parsing errors:
-        # - ValueError: Invalid URL structure, invalid port, etc.
-        # - UnicodeError: Invalid encoding in URL
-        # - AttributeError: Unexpected URL structure
         return None, f"Invalid URL format: {str(e)}", False
     except Exception as e:
-        # Catch any unexpected errors but provide debugging info
         return None, f"URL parsing error: {type(e).__name__}: {str(e)}", False
 
 
 def _safe_get_port(parsed: ParseResult, scheme: str) -> int | None:
-    """Safely extract port from ParseResult, handling malformed ports.
-
-    Args:
-        parsed: The parsed URL.
-        scheme: The URL scheme (for default port lookup).
-
-    Returns:
-        The port number, the default port for the scheme, or None if invalid.
-    """
+    """Safely extract port from ParseResult, handling malformed ports."""
     try:
         return parsed.port or DEFAULT_PORTS.get(scheme.lower())
     except ValueError:
-        # Port is out of range (0-65535) or malformed
         return None
 
 
@@ -294,22 +227,7 @@ def _is_url_allowed(
     allow_subdomains: bool,
     url_had_explicit_scheme: bool,
 ) -> bool:
-    """Check if parsed URL matches any entry in the allow list.
-
-    Supports domain names, IP addresses, CIDR blocks, and full URLs with
-    paths/ports/query strings. Allow list entries without explicit schemes
-    match any scheme. Entries with schemes must match exactly against URLs
-    with explicit schemes, but match any scheme-less URL.
-
-    Args:
-        parsed_url: The parsed URL to check.
-        allow_list: List of allowed URL patterns (domains, IPs, CIDR, full URLs).
-        allow_subdomains: If True, subdomains of allowed domains are permitted.
-        url_had_explicit_scheme: Whether the original URL included an explicit scheme.
-
-    Returns:
-        True if the URL matches any allow list entry, False otherwise.
-    """
+    """Check if parsed URL matches any entry in the allow list."""
     if not allow_list:
         return False
 
@@ -318,13 +236,11 @@ def _is_url_allowed(
         return False
 
     url_host = url_host.lower()
-    url_domain = url_host.replace("www.", "")
+    url_domain = _strip_www_prefix(url_host)
     scheme_lower = parsed_url.scheme.lower() if parsed_url.scheme else ""
-    # Safely get port (rejects malformed ports)
     url_port = _safe_get_port(parsed_url, scheme_lower)
-    # Early rejection of malformed ports
     try:
-        _ = parsed_url.port  # This will raise ValueError for malformed ports
+        _ = parsed_url.port
     except ValueError:
         return False
     url_path = parsed_url.path or "/"
@@ -346,7 +262,6 @@ def _is_url_allowed(
             parsed_allowed = urlparse(f"//{allowed_entry}")
         allowed_host = (parsed_allowed.hostname or "").lower()
         allowed_scheme = parsed_allowed.scheme.lower() if parsed_allowed.scheme else ""
-        # Check if port was explicitly specified (safely)
         try:
             allowed_port_explicit = parsed_allowed.port
         except ValueError:
@@ -356,7 +271,6 @@ def _is_url_allowed(
         allowed_query = parsed_allowed.query
         allowed_fragment = parsed_allowed.fragment
 
-        # Handle IP addresses and CIDR blocks (including schemes)
         try:
             allowed_ip = ip_address(allowed_host)
         except (AddressValueError, ValueError):
@@ -365,10 +279,8 @@ def _is_url_allowed(
         if allowed_ip is not None:
             if url_ip is None:
                 continue
-            # Scheme matching for IPs: if both allow list and URL have explicit schemes, they must match
             if has_explicit_scheme and url_had_explicit_scheme and allowed_scheme and allowed_scheme != scheme_lower:
                 continue
-            # Port matching: enforce if allow list has explicit port
             if allowed_port_explicit is not None and allowed_port != url_port:
                 continue
             if allowed_ip == url_ip:
@@ -381,16 +293,14 @@ def _is_url_allowed(
                 if network_spec and "/" in network_spec and url_ip in ip_network(network_spec, strict=False):
                     return True
             except (AddressValueError, ValueError):
-                # Path segment might not represent a CIDR mask; ignore.
                 pass
             continue
 
         if not allowed_host:
             continue
 
-        allowed_domain = allowed_host.replace("www.", "")
+        allowed_domain = _strip_www_prefix(allowed_host)
 
-        # Port matching: enforce if allow list has explicit port
         if allowed_port_explicit is not None and allowed_port != url_port:
             continue
 
@@ -398,17 +308,11 @@ def _is_url_allowed(
         if not host_matches:
             continue
 
-        # Scheme matching: if both allow list and URL have explicit schemes, they must match
         if has_explicit_scheme and url_had_explicit_scheme and allowed_scheme and allowed_scheme != scheme_lower:
             continue
 
-        # Path matching with segment boundary respect
         if allowed_path not in ("", "/"):
-            # Normalize trailing slashes to prevent issues with entries like "/api/"
-            # which should match "/api/users" but would fail with double-slash check
             normalized_allowed_path = allowed_path.rstrip("/")
-            # Ensure path matching respects segment boundaries to prevent
-            # "/api" from matching "/api2" or "/api-v2"
             if url_path != allowed_path and url_path != normalized_allowed_path and not url_path.startswith(f"{normalized_allowed_path}/"):
                 continue
 
@@ -424,23 +328,14 @@ def _is_url_allowed(
 
 
 async def urls(ctx: Any, data: str, config: URLConfig) -> GuardrailResult:
-    """Detects URLs using regex patterns, validates them with Pydantic, and checks against the allow list.
-
-    Args:
-        ctx: Context object.
-        data: Text to scan for URLs.
-        config: Configuration object.
-    """
+    """Detects URLs using regex patterns, validates them with Pydantic, and checks against the allow list."""
     _ = ctx
-
-    # Detect URLs using regex patterns
     detected_urls = _detect_urls(data)
 
     allowed, blocked = [], []
     blocked_reasons = []
 
     for url_string in detected_urls:
-        # Validate URL with security checks
         parsed_url, error_reason, url_had_explicit_scheme = _validate_url_security(url_string, config)
 
         if parsed_url is None:
@@ -448,13 +343,8 @@ async def urls(ctx: Any, data: str, config: URLConfig) -> GuardrailResult:
             blocked_reasons.append(f"{url_string}: {error_reason}")
             continue
 
-        # Check against allow list
-        # Special schemes (data:, javascript:, mailto:) don't have meaningful hosts
-        # so they only need scheme validation, not host-based allow list checking
         hostless_schemes = {"data", "javascript", "vbscript", "mailto"}
         if parsed_url.scheme in hostless_schemes:
-            # For hostless schemes, only scheme permission matters (no allow list needed)
-            # They were already validated for scheme permission in _validate_url_security
             allowed.append(url_string)
         elif _is_url_allowed(parsed_url, config.url_allow_list, config.allow_subdomains, url_had_explicit_scheme):
             allowed.append(url_string)
@@ -480,7 +370,6 @@ async def urls(ctx: Any, data: str, config: URLConfig) -> GuardrailResult:
     )
 
 
-# Register the URL filter
 default_spec_registry.register(
     name="URL Filter",
     check_fn=urls,
