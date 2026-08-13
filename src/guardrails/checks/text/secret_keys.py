@@ -361,9 +361,8 @@ def _embedded_secret_candidates(
             None.
         """
         add_value_candidate(value, force=_is_sensitive_parameter(name))
-        decoded = unquote(value)
-        if _depth < 2 and re.match(r"^https?://", decoded, re.IGNORECASE):
-            candidates.extend(_embedded_secret_candidates(decoded, custom_regex, _depth=_depth + 1))
+        if _depth < 2 and re.match(r"^https?://", value, re.IGNORECASE):
+            candidates.extend(_embedded_secret_candidates(value, custom_regex, _depth=_depth + 1))
 
     def add_path_candidate(value: str) -> None:
         """Append eligible path-like value variants.
@@ -401,7 +400,7 @@ def _embedded_secret_candidates(
                 add_value_candidate(segments[index + 1], force=True)
 
     for match in url_pattern.finditer(token):
-        raw_url = match.group(0)
+        raw_url = re.sub(r"[.,;:!?)\]]+$", "", match.group(0))
         try:
             parsed = urlsplit(raw_url)
         except (ValueError, UnicodeError):
@@ -450,8 +449,7 @@ def _embedded_secret_candidates(
     lowered = file_token.lower()
     is_file_pattern = any(lowered.endswith(extension) for extension in ALLOWED_EXTENSIONS)
     if is_file_pattern and url_pattern.search(token) is None:
-        for segment in re.split(r"[\\/]", unquote(file_token)):
-            add_path_candidate(segment)
+        add_path_components(file_token)
 
     return tuple(dict.fromkeys(candidates))
 
