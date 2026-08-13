@@ -3,31 +3,39 @@
 from __future__ import annotations
 
 import pytest
+from hypothesis import given, strategies as st
 
-from guardrails.checks.text.secret_keys import SecretKeysCfg, secret_keys
+from guardrails.checks.text.secret_keys import (
+    SecretKeysCfg,
+    _embedded_secret_candidates,
+    _is_sensitive_parameter,
+    secret_keys,
+)
+
+SECRET = "sk-AAAABBBBCCCCDDDD"
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     ("text", "expected"),
     [
-        ("https://example.com/?token=sk-AAAABBBBCCCCDDDD", "sk-AAAABBBBCCCCDDDD"),
-        ("https://example.com/#access_token=sk-AAAABBBBCCCCDDDD", "sk-AAAABBBBCCCCDDDD"),
+        ("https://example.com/?token=sk-AAAABBBBCCCCDDDD", SECRET),
+        ("https://example.com/#access_token=sk-AAAABBBBCCCCDDDD", SECRET),
         ("https://example.com/?client_secret=Aa0Bb1Cc2Dd3Ee4Ff5", "Aa0Bb1Cc2Dd3Ee4Ff5"),
         ("https://example.com/#refresh_token=Aa0Bb1Cc2Dd3Ee4Ff5", "Aa0Bb1Cc2Dd3Ee4Ff5"),
         ("https://example.com/?clientSecret=Aa0Bb1Cc2Dd3Ee4Ff5", "Aa0Bb1Cc2Dd3Ee4Ff5"),
         ("https://example.com/#refreshToken=Aa0Bb1Cc2Dd3Ee4Ff5", "Aa0Bb1Cc2Dd3Ee4Ff5"),
         ("https://example.com/?token=Aa0Bb1Cc2Dd3.json", "Aa0Bb1Cc2Dd3.json"),
-        ("https://example.com/sk%2DAAAABBBBCCCCDDDD", "sk-AAAABBBBCCCCDDDD"),
-        ("https://example.com/foo%2Fsk-AAAABBBBCCCCDDDD", "sk-AAAABBBBCCCCDDDD"),
-        ("https://example.com/#foo%2Fsk-AAAABBBBCCCCDDDD", "sk-AAAABBBBCCCCDDDD"),
-        ("files/sk-AAAABBBBCCCCDDDD.png", "sk-AAAABBBBCCCCDDDD"),
-        ("files/sk-AAAABBBBCCCCDDDD/image.png", "sk-AAAABBBBCCCCDDDD"),
-        (r"files\sk-AAAABBBBCCCCDDDD\image.png", "sk-AAAABBBBCCCCDDDD"),
-        ("files%2Fsk-AAAABBBBCCCCDDDD%2Fimage.png", "sk-AAAABBBBCCCCDDDD"),
-        ("https://example.com/sk-AAAABBBBCCCCDDDD.png?download=1", "sk-AAAABBBBCCCCDDDD"),
-        ("https://user:sk-AAAABBBBCCCCDDDD@example.com", "sk-AAAABBBBCCCCDDDD"),
-        ("https://sk%2DAAAABBBBCCCCDDDD@example.com", "sk-AAAABBBBCCCCDDDD"),
+        ("https://example.com/sk%2DAAAABBBBCCCCDDDD", SECRET),
+        ("https://example.com/foo%2Fsk-AAAABBBBCCCCDDDD", SECRET),
+        ("https://example.com/#foo%2Fsk-AAAABBBBCCCCDDDD", SECRET),
+        ("files/sk-AAAABBBBCCCCDDDD.png", SECRET),
+        ("files/sk-AAAABBBBCCCCDDDD/image.png", SECRET),
+        (r"files\sk-AAAABBBBCCCCDDDD\image.png", SECRET),
+        ("files%2Fsk-AAAABBBBCCCCDDDD%2Fimage.png", SECRET),
+        ("https://example.com/sk-AAAABBBBCCCCDDDD.png?download=1", SECRET),
+        ("https://user:sk-AAAABBBBCCCCDDDD@example.com", SECRET),
+        ("https://sk%2DAAAABBBBCCCCDDDD@example.com", SECRET),
         ("https://user:Aa0Bb1Cc2Dd3.json@example.com", "Aa0Bb1Cc2Dd3.json"),
     ],
 )
@@ -96,3 +104,41 @@ async def test_secret_keys_keeps_benign_allowed_patterns_exempt(text: str) -> No
     result = await secret_keys(None, text, SecretKeysCfg(threshold="balanced"))
 
     assert result.tripwire_triggered is False  # noqa: S101
+
+
+@given(
+    separator=st.sampled_from(["/", "\\", "%2F", "%2f", "%5C", "%5c"]),
+    location=st.sampled_from(["url_path", "fragment", "file"]),
+)
+def test_embedded_candidate_separator_encodings_are_equivalent(separator: str, location: str) -> None:
+    if location == "url_path":
+        token = f"https://example.com/foo{separator}{SECRET}"
+    elif location == "fragment":
+        token = f"https://example.com/#foo{separator}{SECRET}"
+    else:
+        token = f"files{separator}{SECRET}{separator}image.png"
+
+    assert SECRET in _embedded_secret_candidates(token)  # noqa: S101
+
+
+@given(
+    prefix=st.sampled_from(["client", "refresh", "access", "api"]),
+    kind=st.sampled_from(["token", "secret", "key", "password"]),
+    style=st.sampled_from(["snake", "kebab", "dot", "camel"]),
+)
+def test_sensitive_parameter_normalization_is_style_invariant(prefix: str, kind: str, style: str) -> None:
+    if style == "camel":
+        name = f"{prefix}{kind.title()}"
+    else:
+        separator = {"snake": "_", "kebab": "-", "dot": "."}[style]
+        name = f"{prefix}{separator}{kind}"
+
+    assert _is_sensitive_parameter(name) is True  # noqa: S101
+
+
+@given(extension=st.sampled_from([".json", ".png", ".txt", ".md"]))
+def test_sensitive_parameter_values_preserve_extensions(extension: str) -> None:
+    value = f"Aa0Bb1Cc2Dd3{extension}"
+    candidates = _embedded_secret_candidates(f"https://example.com/?token={value}")
+
+    assert value in candidates  # noqa: S101
