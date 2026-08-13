@@ -387,6 +387,13 @@ def _embedded_secret_candidates(token: str, custom_regex: list[str] | None = Non
             for label in unquote(parsed.hostname).split("."):
                 add_value_candidate(label)
 
+        raw_authority = re.split(r"[/\\?#]", raw_url.split("://", 1)[1], maxsplit=1)[0]
+        raw_host = unquote(raw_authority.rsplit("@", 1)[-1]).strip("[]")
+        host_labels = raw_host.split(".")
+        add_value_candidate(raw_host)
+        for index in range(len(host_labels) - 1):
+            add_value_candidate(f"{host_labels[index]}.{host_labels[index + 1]}")
+
         for value in (parsed.username, parsed.password):
             if value:
                 add_value_candidate(value, force=True)
