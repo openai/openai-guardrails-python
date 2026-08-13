@@ -29,6 +29,7 @@ SECRET = "sk-AAAABBBBCCCCDDDD"
         ("https://example.com/sk%2DAAAABBBBCCCCDDDD", SECRET),
         ("https://example.com/foo%2Fsk-AAAABBBBCCCCDDDD", SECRET),
         ("https://example.com/#foo%2Fsk-AAAABBBBCCCCDDDD", SECRET),
+        ("https://[bad]/sk-AAAABBBBCCCCDDDD", SECRET),
         ("files/sk-AAAABBBBCCCCDDDD.png", SECRET),
         ("files/sk-AAAABBBBCCCCDDDD/image.png", SECRET),
         (r"files\sk-AAAABBBBCCCCDDDD\image.png", SECRET),
@@ -109,12 +110,13 @@ async def test_secret_keys_keeps_benign_allowed_patterns_exempt(text: str) -> No
 @given(
     separator=st.sampled_from(["/", "\\", "%2F", "%2f", "%5C", "%5c"]),
     location=st.sampled_from(["url_path", "fragment", "file"]),
+    authority=st.sampled_from(["example.com", "[bad]"]),
 )
-def test_embedded_candidate_separator_encodings_are_equivalent(separator: str, location: str) -> None:
+def test_embedded_candidate_separator_encodings_are_equivalent(separator: str, location: str, authority: str) -> None:
     if location == "url_path":
-        token = f"https://example.com/foo{separator}{SECRET}"
+        token = f"https://{authority}/foo{separator}{SECRET}"
     elif location == "fragment":
-        token = f"https://example.com/#foo{separator}{SECRET}"
+        token = f"https://{authority}/#foo{separator}{SECRET}"
     else:
         token = f"files{separator}{SECRET}{separator}image.png"
 

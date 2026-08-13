@@ -362,10 +362,24 @@ def _embedded_secret_candidates(token: str, custom_regex: list[str] | None = Non
             candidates.append(stripped)
 
     for match in url_pattern.finditer(token):
+        raw_url = match.group(0)
         try:
-            parsed = urlsplit(match.group(0))
-        except ValueError:
-            continue
+            parsed = urlsplit(raw_url)
+        except (ValueError, UnicodeError):
+            remainder = raw_url.split("://", 1)[1]
+            fallback = re.match(r"([^/\\?#]*)(.*)", remainder)
+            if fallback is None:
+                continue
+            authority, suffix = fallback.groups()
+            if "@" in authority:
+                userinfo = authority.rsplit("@", 1)[0]
+                username, separator, password = userinfo.partition(":")
+                if username:
+                    add_value_candidate(username, force=True)
+                if separator and password:
+                    add_value_candidate(password, force=True)
+            safe_suffix = suffix.replace("\\", "/")
+            parsed = urlsplit(f"https://placeholder.invalid{safe_suffix}")
 
         for value in (parsed.username, parsed.password):
             if value:
