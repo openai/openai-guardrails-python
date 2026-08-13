@@ -112,6 +112,31 @@ async def test_secret_keys_keeps_benign_allowed_patterns_exempt(text: str) -> No
     assert result.tripwire_triggered is False  # noqa: S101
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "text",
+    [
+        "https://example.com/?redirect=https%3A%2F%2Fother.example%2F%3Ftoken%3DAa0Bb1Cc2Dd3Ee4Ff5",
+        "https://example.com/?redirect=https%3A%2F%2Fother.example%2Ftoken%2FAa0Bb1Cc2Dd3Ee4Ff5",
+        "https://example.com/#redirect=https%3A%2F%2Fother.example%2F%3Ftoken%3DAa0Bb1Cc2Dd3Ee4Ff5",
+    ],
+)
+async def test_secret_keys_checks_nested_url_parameter_values(text: str) -> None:
+    expected = "Aa0Bb1Cc2Dd3Ee4Ff5"
+    result = await secret_keys(None, text, SecretKeysCfg(threshold="balanced"))
+
+    assert result.tripwire_triggered is True  # noqa: S101
+    assert expected in result.info["detected_secrets"]  # noqa: S101
+
+
+@pytest.mark.asyncio
+async def test_secret_keys_keeps_benign_nested_url_exempt() -> None:
+    text = "https://example.com/?redirect=https%3A%2F%2Fother.example%2Fdocs"
+    result = await secret_keys(None, text, SecretKeysCfg(threshold="balanced"))
+
+    assert result.tripwire_triggered is False  # noqa: S101
+
+
 @given(
     separator=st.sampled_from(["/", "\\", "%2F", "%2f", "%5C", "%5c"]),
     location=st.sampled_from(["url_path", "fragment", "file"]),
