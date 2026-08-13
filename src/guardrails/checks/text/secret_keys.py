@@ -361,6 +361,24 @@ def _embedded_secret_candidates(token: str, custom_regex: list[str] | None = Non
         if stripped and (_has_known_prefix(stripped) or _matches_custom_pattern(stripped, custom_regex)):
             candidates.append(stripped)
 
+    def add_path_components(value: str) -> None:
+        """Append candidates from a URL path-like value.
+
+        Args:
+            value: Encoded URL path or fragment content.
+
+        Returns:
+            None.
+        """
+        segments = [segment for segment in re.split(r"[\\/]", unquote(value)) if segment]
+        for index, segment in enumerate(segments):
+            add_path_candidate(segment)
+            name, separator, associated_value = segment.partition("=")
+            if separator and _is_sensitive_parameter(name):
+                add_value_candidate(associated_value, force=True)
+            if _is_sensitive_parameter(segment) and index + 1 < len(segments):
+                add_value_candidate(segments[index + 1], force=True)
+
     for match in url_pattern.finditer(token):
         raw_url = match.group(0)
         try:
@@ -404,11 +422,8 @@ def _embedded_secret_candidates(token: str, custom_regex: list[str] | None = Non
             for name, value in parse_qsl(params, keep_blank_values=False):
                 add_value_candidate(value, force=_is_sensitive_parameter(name))
 
-        for segment in re.split(r"[\\/]", unquote(parsed.path)):
-            add_path_candidate(segment)
-
-        for segment in re.split(r"[\\/]", unquote(parsed.fragment)):
-            add_path_candidate(segment)
+        add_path_components(parsed.path)
+        add_path_components(parsed.fragment)
 
     file_token = token.replace("#", "")
     lowered = file_token.lower()
