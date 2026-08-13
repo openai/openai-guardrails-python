@@ -26,6 +26,10 @@ SECRET = "sk-AAAABBBBCCCCDDDD"
         ("https://example.com/?clientSecret=Aa0Bb1Cc2Dd3Ee4Ff5", "Aa0Bb1Cc2Dd3Ee4Ff5"),
         ("https://example.com/#refreshToken=Aa0Bb1Cc2Dd3Ee4Ff5", "Aa0Bb1Cc2Dd3Ee4Ff5"),
         ("https://example.com/?token=Aa0Bb1Cc2Dd3.json", "Aa0Bb1Cc2Dd3.json"),
+        ("https://example.com/token/Aa0Bb1Cc2Dd3Ee4Ff5", "Aa0Bb1Cc2Dd3Ee4Ff5"),
+        ("https://example.com/token=Aa0Bb1Cc2Dd3Ee4Ff5", "Aa0Bb1Cc2Dd3Ee4Ff5"),
+        ("https://example.com/#token/Aa0Bb1Cc2Dd3Ee4Ff5", "Aa0Bb1Cc2Dd3Ee4Ff5"),
+        ("https://example.com/#token=Aa0Bb1Cc2Dd3Ee4Ff5", "Aa0Bb1Cc2Dd3Ee4Ff5"),
         ("https://example.com/sk%2DAAAABBBBCCCCDDDD", SECRET),
         ("https://example.com/foo%2Fsk-AAAABBBBCCCCDDDD", SECRET),
         ("https://example.com/#foo%2Fsk-AAAABBBBCCCCDDDD", SECRET),
@@ -97,6 +101,7 @@ async def test_secret_keys_extracts_embedded_candidates_in_strict_mode() -> None
         "(https://example.com/v1/docs)",
         "https://example.com/?file=Aa0Bb1Cc2Dd3.json",
         "https://example.com/Aa0Bb1Cc2Dd3Ee4F",
+        "https://example.com/value/Aa0Bb1Cc2Dd3Ee4Ff5",
         "files/Aa0Bb1Cc2Dd3Ee4F.png",
         "files/archive/image.png",
     ],
@@ -144,3 +149,16 @@ def test_sensitive_parameter_values_preserve_extensions(extension: str) -> None:
     candidates = _embedded_secret_candidates(f"https://example.com/?token={value}")
 
     assert value in candidates  # noqa: S101
+
+
+@given(
+    name=st.sampled_from(["token", "client_secret", "refresh-token", "apiKey"]),
+    form=st.sampled_from(["pair", "assignment"]),
+    location=st.sampled_from(["path", "fragment"]),
+)
+def test_sensitive_path_labels_emit_associated_values(name: str, form: str, location: str) -> None:
+    value = "Aa0Bb1Cc2Dd3Ee4Ff5"
+    component = f"{name}/{value}" if form == "pair" else f"{name}={value}"
+    token = f"https://example.com/{component}" if location == "path" else f"https://example.com/#{component}"
+
+    assert value in _embedded_secret_candidates(token)  # noqa: S101
