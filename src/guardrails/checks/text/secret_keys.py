@@ -61,6 +61,7 @@ class SecretCfg(TypedDict, total=False):
     min_entropy: float
 
 
+# Define common key prefixes
 COMMON_KEY_PREFIXES = (
     "key-",
     "sk-",
@@ -80,7 +81,9 @@ COMMON_KEY_PREFIXES = (
     "Bearer ",
 )
 
+# Define allowed file extensions
 ALLOWED_EXTENSIONS = (
+    # Common file extensions
     ".py",
     ".js",
     ".html",
@@ -130,14 +133,44 @@ ALLOWED_EXTENSIONS = (
 )
 
 CONFIGS: dict[str, SecretCfg] = {
-    "strict": {"min_length": 10, "min_entropy": 3.5, "min_diversity": 2, "strict_mode": True},
-    "balanced": {"min_length": 15, "min_entropy": 3.8, "min_diversity": 3, "strict_mode": False},
-    "permissive": {"min_length": 20, "min_entropy": 4.0, "min_diversity": 3, "strict_mode": False},
+    "strict": {
+        "min_length": 10,
+        "min_entropy": 3.5,
+        "min_diversity": 2,
+        "strict_mode": True,
+    },
+    "balanced": {
+        "min_length": 15,
+        "min_entropy": 3.8,
+        "min_diversity": 3,
+        "strict_mode": False,
+    },
+    "permissive": {
+        "min_length": 20,
+        "min_entropy": 4.0,
+        "min_diversity": 3,
+        "strict_mode": False,
+    },
 }
 
 
 class SecretKeysCfg(BaseModel):
-    """Configuration for secret key and credential detection."""
+    """Configuration for secret key and credential detection.
+
+    This configuration allows fine-tuning of secret detection sensitivity and
+    adding custom patterns for project-specific secrets.
+
+    Attributes:
+        threshold (str): Detection sensitivity level. One of:
+
+            - "strict": Most sensitive, may have more false positives
+            - "balanced": Default setting, balanced between sensitivity and specificity
+            - "permissive": Least sensitive, may have more false negatives
+
+        custom_regex (list[str] | None): Optional list of custom regex patterns to check for secrets.
+            If provided, these patterns will be used in addition to the default checks.
+            Each pattern must be a valid regex string.
+    """
 
     threshold: str = Field(
         "balanced",
@@ -168,25 +201,28 @@ def _entropy(s: str) -> float:
     """Calculate the Shannon entropy of a string.
 
     Args:
-        s: Input string.
+        s (str): The input string.
 
     Returns:
-        Shannon entropy of the string.
+        float: The Shannon entropy of the string.
     """
     counts: dict[str, int] = {}
     for c in s:
         counts[c] = counts.get(c, 0) + 1
+
     return -sum((n := counts[c]) / len(s) * math.log2(n / len(s)) for c in counts)
 
 
 def _char_diversity(s: str) -> int:
     """Count the number of character types present in a string.
 
+    Returns the sum of booleans for presence of lowercase, uppercase, digits, and specials.
+
     Args:
-        s: Input string.
+        s (str): Input string.
 
     Returns:
-        Number of character categories present.
+        int: Number of unique character types in the string (1-4).
     """
     return sum(
         (
@@ -199,22 +235,29 @@ def _char_diversity(s: str) -> int:
 
 
 def _contains_allowed_pattern(text: str) -> bool:
-    """Return whether text contains an allowed URL or file pattern.
+    """Return True if text contains allowed URL or file extension patterns.
 
     Args:
-        text: Input string.
+        text (str): Input string.
 
     Returns:
-        True if a URL or allowed extension is present.
+        bool: True if text matches URL or allowed extension; otherwise False.
     """
+    # Simple regex for URLs
     url_pattern = re.compile(r"https?://[^\s]+", re.IGNORECASE)
     if url_pattern.search(text):
         return True
+
+    # Regex for allowed file extensions
+    # Build a pattern like: ".*\\.(py|js|html|...|png)$"
     ext_pattern = re.compile(
         r"[^\s]+(" + "|".join(re.escape(ext) for ext in ALLOWED_EXTENSIONS) + r")$",
         re.IGNORECASE,
     )
-    return bool(ext_pattern.search(text))
+    if ext_pattern.search(text):
+        return True
+
+    return False
 
 
 def _strip_allowed_extension(value: str) -> str:
@@ -224,7 +267,7 @@ def _strip_allowed_extension(value: str) -> str:
         value: Candidate value that may end in an allowed extension.
 
     Returns:
-        Value without one trailing allowed extension, if present.
+        The value without one trailing allowed extension, if present.
     """
     lowered = value.lower()
     for extension in ALLOWED_EXTENSIONS:
@@ -377,27 +420,37 @@ def _is_secret_candidate(
 ) -> bool:
     """Check if a string is a secret key using the specified criteria.
 
+    Skips candidates matching allowed patterns (when strict_mode=False),
+    enforces minimum length, character diversity, common prefix, and entropy.
+    Also checks against custom patterns if provided.
+
     Args:
-        s: String to analyze.
-        cfg: Detection configuration.
-        custom_regex: Optional custom regex patterns.
-        allow_pattern_exemption: Whether URL/file exemptions may suppress it.
+        s (str): String to analyze.
+        cfg (SecretCfg): Detection configuration.
+        custom_regex (Optional[List[str]]): List of custom regex patterns to check.
+        allow_pattern_exemption: Whether URL/file-pattern exemptions may suppress this candidate.
 
     Returns:
-        True if the string is a secret key; otherwise False.
+        bool: True if the string is a secret key; otherwise False.
     """
+    # Check custom patterns first if provided
     if custom_regex:
         for pattern in custom_regex:
             if re.match(pattern, s):
                 return True
+
     if allow_pattern_exemption and not cfg.get("strict_mode", False) and _contains_allowed_pattern(s):
         return False
+
     long_enough = len(s) >= cfg.get("min_length", 15)
     diverse = _char_diversity(s) >= cfg.get("min_diversity", 2)
+
     if not (long_enough and diverse):
         return False
+
     if _has_known_prefix(s):
         return True
+
     return _entropy(s) >= cfg.get("min_entropy", 3.7)
 
 
@@ -405,39 +458,51 @@ def _detect_secret_keys(text: str, cfg: SecretCfg, custom_regex: list[str] | Non
     """Detect potential secret keys in text.
 
     Args:
-        text: Input text to scan.
-        cfg: Secret detection criteria.
-        custom_regex: Optional custom regex patterns.
+        text (str): Input text to scan.
+        cfg (SecretCfg): Secret detection criteria.
+        custom_regex (Optional[List[str]]): List of custom regex patterns to check.
 
     Returns:
-        Guardrail result with detected secret candidates.
+        GuardrailResult: Result containing flag status and detected secrets.
     """
     secrets: list[str] = []
     for raw_word in re.findall(r"\S+", text):
         word = raw_word.replace("*", "").replace("#", "")
         if _is_secret_candidate(word, cfg, custom_regex):
             secrets.append(word)
+
         if _contains_allowed_pattern(word):
             for candidate in _embedded_secret_candidates(raw_word.replace("*", ""), custom_regex):
                 if _is_secret_candidate(candidate, cfg, custom_regex, allow_pattern_exemption=False):
                     secrets.append(candidate)
+
     secrets = list(dict.fromkeys(secrets))
     return GuardrailResult(
         tripwire_triggered=bool(secrets),
-        info={"guardrail_name": "Secret Keys", "detected_secrets": secrets},
+        info={
+            "guardrail_name": "Secret Keys",
+            "detected_secrets": secrets,
+        },
     )
 
 
-async def secret_keys(ctx: Any, data: str, config: SecretKeysCfg) -> GuardrailResult:
-    """Detect secret keys and credentials in input text.
+async def secret_keys(
+    ctx: Any,
+    data: str,
+    config: SecretKeysCfg,
+) -> GuardrailResult:
+    """Async guardrail function for secret key and credential detection.
+
+    Scans the input for likely secrets or credentials (e.g., API keys, tokens)
+    using entropy, diversity, and pattern rules.
 
     Args:
-        ctx: Guardrail context (unused).
-        data: Input text to scan.
-        config: Secret Keys configuration.
+        ctx (Any): Guardrail context (unused).
+        data (str): Input text to scan.
+        config (SecretKeysCfg): Configuration for secret detection.
 
     Returns:
-        Guardrail result indicating whether secrets were detected.
+        GuardrailResult: Indicates if secrets were detected, with findings in info.
     """
     _ = ctx
     cfg = CONFIGS[config.threshold]
