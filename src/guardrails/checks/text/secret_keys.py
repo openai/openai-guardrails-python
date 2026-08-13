@@ -317,12 +317,18 @@ def _is_sensitive_parameter(name: str) -> bool:
     )
 
 
-def _embedded_secret_candidates(token: str, custom_regex: list[str] | None = None) -> tuple[str, ...]:
+def _embedded_secret_candidates(
+    token: str,
+    custom_regex: list[str] | None = None,
+    *,
+    _depth: int = 0,
+) -> tuple[str, ...]:
     """Extract credential-like values hidden by URL or file exemptions.
 
     Args:
         token: Whitespace-delimited token that matched an allowed pattern.
         custom_regex: Optional configured regular expressions.
+        _depth: Current bounded recursion depth for nested URL values.
 
     Returns:
         Unique embedded values that should be checked independently.
@@ -343,6 +349,21 @@ def _embedded_secret_candidates(token: str, custom_regex: list[str] | None = Non
         decoded = unquote(value)
         if decoded and (force or _has_known_prefix(decoded) or _matches_custom_pattern(decoded, custom_regex)):
             candidates.append(decoded)
+
+    def add_parameter_candidate(name: str, value: str) -> None:
+        """Append a parameter value and inspect nested URL values.
+
+        Args:
+            name: Query or fragment parameter name.
+            value: Parameter value, possibly containing an encoded URL.
+
+        Returns:
+            None.
+        """
+        add_value_candidate(value, force=_is_sensitive_parameter(name))
+        decoded = unquote(value)
+        if _depth < 2 and re.match(r"^https?://", decoded, re.IGNORECASE):
+            candidates.extend(_embedded_secret_candidates(decoded, custom_regex, _depth=_depth + 1))
 
     def add_path_candidate(value: str) -> None:
         """Append eligible path-like value variants.
@@ -420,7 +441,7 @@ def _embedded_secret_candidates(token: str, custom_regex: list[str] | None = Non
 
         for params in (parsed.query, parsed.fragment):
             for name, value in parse_qsl(params, keep_blank_values=False):
-                add_value_candidate(value, force=_is_sensitive_parameter(name))
+                add_parameter_candidate(name, value)
 
         add_path_components(parsed.path)
         add_path_components(parsed.fragment)
