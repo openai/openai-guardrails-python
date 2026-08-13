@@ -45,7 +45,14 @@ WWW_PREFIX = "www."
 
 
 def _strip_www_prefix(host: str) -> str:
-    """Remove one leading ``www.`` label from a host."""
+    """Remove one leading ``www.`` label from a host.
+
+    Args:
+        host: Lowercased host value to normalize.
+
+    Returns:
+        The host without one leading ``www.`` label, when present.
+    """
     return host.removeprefix(WWW_PREFIX)
 
 
