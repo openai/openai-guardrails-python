@@ -257,6 +257,15 @@ def _contains_allowed_pattern(text: str) -> bool:
     return False
 
 
+def _strip_allowed_extension(value: str) -> str:
+    """Remove one recognized file extension from an extracted candidate."""
+    lowered = value.lower()
+    for extension in ALLOWED_EXTENSIONS:
+        if lowered.endswith(extension):
+            return value[: -len(extension)]
+    return value
+
+
 def _embedded_secret_candidates(token: str) -> tuple[str, ...]:
     """Extract likely secrets embedded in otherwise-allowed tokens.
 
@@ -281,10 +290,11 @@ def _embedded_secret_candidates(token: str) -> tuple[str, ...]:
         if parsed is not None:
             sensitive_names = {"access_token", "api_key", "apikey", "key", "password", "secret", "token"}
             for name, value in parse_qsl(parsed.query, keep_blank_values=False):
-                if value and (name.lower() in sensitive_names or any(value.startswith(prefix) for prefix in COMMON_KEY_PREFIXES)):
-                    candidates.append(value)
+                extracted = _strip_allowed_extension(value)
+                if extracted and (name.lower() in sensitive_names or any(extracted.startswith(prefix) for prefix in COMMON_KEY_PREFIXES)):
+                    candidates.append(extracted)
             for segment in parsed.path.split("/"):
-                decoded_segment = unquote(segment)
+                decoded_segment = _strip_allowed_extension(unquote(segment))
                 if decoded_segment and any(decoded_segment.startswith(prefix) for prefix in COMMON_KEY_PREFIXES):
                     candidates.append(decoded_segment)
 
