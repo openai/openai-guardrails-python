@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import string
+
 import pytest
+from hypothesis import given, strategies as st
 
 from guardrails.checks.text.urls import URLConfig, _detect_urls, _is_url_allowed, _strip_www_prefix, _validate_url_security, urls
 
@@ -11,6 +14,18 @@ def test_strip_www_prefix_removes_only_leading_label() -> None:
     assert _strip_www_prefix("www.example.com") == "example.com"  # noqa: S101
     assert _strip_www_prefix("api.www.example.com") == "api.www.example.com"  # noqa: S101
     assert _strip_www_prefix("example.com") == "example.com"  # noqa: S101
+
+
+@given(label=st.text(alphabet=string.ascii_lowercase + string.digits + "-", min_size=1, max_size=20).filter(lambda value: value != "www"))
+def test_strip_www_prefix_preserves_every_interior_occurrence(label: str) -> None:
+    host = f"{label}.www.example.com"
+
+    assert _strip_www_prefix(host) == host  # noqa: S101
+
+
+@given(host=st.text(alphabet=string.ascii_lowercase + string.digits + ".-", min_size=1, max_size=40))
+def test_strip_www_prefix_removes_exactly_one_leading_label(host: str) -> None:
+    assert _strip_www_prefix(f"www.{host}") == host  # noqa: S101
 
 
 @pytest.mark.parametrize(

@@ -20,7 +20,12 @@ Identifies potential API keys, secrets, and credentials in text using entropy an
     - `"strict"` - Most sensitive, may have more false positives (commonly flag high entropy filenames or code)
     - `"balanced"` - Default setting, balanced between sensitivity and specificity  
     - `"permissive"` - Least sensitive, may have more false negatives
-- **`custom_regex`** (optional): List of custom regex patterns to check for secrets
+- **`custom_regex`** (optional): List of custom regex patterns to check for secrets.
+  Patterns with unsafe repetition or variable-width backreferences are
+  rejected because Python's backtracking regex engine cannot safely evaluate
+  them on untrusted text. At most 16 configured patterns may contain capture
+  groups; patterns without captures can be combined for bounded boolean
+  matching.
 
 ## Implementation Notes
 
@@ -39,3 +44,6 @@ Returns a `GuardrailResult` with the following `info` dictionary:
 ```
 
 - **`detected_secrets`**: List of potential secrets detected in the text
+- **`custom_scan_incomplete`** (optional): `true` when bounded candidate work
+  for `custom_regex` was truncated. A negative result with this flag is not a
+  complete custom-regex scan; built-in secret and structural checks still run.
