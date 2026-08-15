@@ -130,10 +130,10 @@ ALLOWED_EXTENSIONS = (
     ".png",
 )
 
-# Only provider-specific credential forms may lift an existing URL/file exemption.
-# Generic lexical stems such as api-/key-/token-/secret-/xox remain covered by the
-# standalone detector, but are deliberately not sufficient evidence inside an
-# otherwise exempt URL or filename.
+# Only provider-specific token stems may lift URL/file exemptions. Generic lexical
+# prefixes such as api-/token-/key- remain part of standalone detection semantics,
+# but are intentionally excluded here because natural URL slugs can satisfy length,
+# diversity, and even entropy thresholds without containing a credential.
 _EMBEDDED_DIRECT_PREFIXES = (
     "sk-",
     "sk_",
@@ -180,7 +180,15 @@ CONFIGS: dict[str, SecretCfg] = {
 
 
 class SecretKeysCfg(BaseModel):
-    """Configuration for secret key and credential detection."""
+    """Configuration for secret key and credential detection.
+
+    This configuration allows fine-tuning of secret detection sensitivity and
+    adding custom patterns for project-specific secrets.
+
+    Attributes:
+        threshold: Detection sensitivity level.
+        custom_regex: Optional project-specific secret patterns.
+    """
 
     threshold: str = Field(
         "balanced",
@@ -208,7 +216,14 @@ class SecretKeysCfg(BaseModel):
 
 
 def _entropy(s: str) -> float:
-    """Calculate the Shannon entropy of a string."""
+    """Calculate the Shannon entropy of a string.
+
+    Args:
+        s: Input string.
+
+    Returns:
+        Shannon entropy of the string.
+    """
     counts: dict[str, int] = {}
     for c in s:
         counts[c] = counts.get(c, 0) + 1
@@ -216,7 +231,14 @@ def _entropy(s: str) -> float:
 
 
 def _char_diversity(s: str) -> int:
-    """Count the number of character types present in a string."""
+    """Count the number of character types present in a string.
+
+    Args:
+        s: Input string.
+
+    Returns:
+        Number of lowercase, uppercase, digit, and special categories present.
+    """
     return sum(
         (
             any(c.islower() for c in s),
@@ -228,7 +250,14 @@ def _char_diversity(s: str) -> int:
 
 
 def _contains_allowed_pattern(text: str) -> bool:
-    """Return True if text contains allowed URL or file extension patterns."""
+    """Check whether text matches an existing URL or file exemption.
+
+    Args:
+        text: Input token.
+
+    Returns:
+        True when the token matches an allowed URL or file-extension pattern.
+    """
     url_pattern = re.compile(r"https?://[^\s]+", re.IGNORECASE)
     if url_pattern.search(text):
         return True
@@ -313,28 +342,44 @@ def _is_identifier_continuation(char: str) -> bool:
 
 
 def _has_prefix_boundary(text: str, start: int) -> bool:
-    """Check whether a built-in prefix starts at a semantic boundary."""
+    """Check whether a built-in prefix starts at a semantic boundary.
+
+    Args:
+        text: Semantic component being scanned.
+        start: Start offset of the candidate prefix.
+
+    Returns:
+        True when the prefix is not embedded in an identifier-like token.
+    """
     if start == 0:
         return True
     return not _is_identifier_continuation(text[start - 1])
 
 
 def _component_has_detectable_prefixed_candidate(component: str, cfg: SecretCfg) -> bool:
-    """Check one structural component for a detectable provider-specific prefix."""
+    """Check one component for a provider-specific embedded credential.
+
+    Args:
+        component: Raw URL or file component.
+        cfg: Secret-detection thresholds for the active mode.
+
+    Returns:
+        True when a provider-specific prefix begins a sufficiently long and
+        diverse candidate in this component.
+    """
     semantic_component = _decode_percent_once(component)
-    prefix_matches = [
-        match
+    prefix_starts = {
+        match.start()
         for match in _PREFIX_RE.finditer(semantic_component)
         if _has_prefix_boundary(semantic_component, match.start())
-    ]
-    if not prefix_matches:
+    }
+    if not prefix_starts:
         return False
 
     min_length = cfg.get("min_length", 15)
     min_diversity = cfg.get("min_diversity", 2)
     suffix_class_mask = 0
     suffix_length = 0
-    match_starts = {match.start() for match in prefix_matches}
 
     for index in range(len(semantic_component) - 1, -1, -1):
         char = semantic_component[index]
@@ -349,7 +394,7 @@ def _component_has_detectable_prefixed_candidate(component: str, cfg: SecretCfg)
         else:
             suffix_class_mask |= 8
 
-        if index not in match_starts:
+        if index not in prefix_starts:
             continue
 
         if suffix_length >= min_length and suffix_class_mask.bit_count() >= min_diversity:
@@ -359,7 +404,14 @@ def _component_has_detectable_prefixed_candidate(component: str, cfg: SecretCfg)
 
 
 def _iter_query_components(query: str) -> Iterator[str]:
-    """Yield query-style names and values as separate components."""
+    """Yield query-style names and values as separate components.
+
+    Args:
+        query: Raw query or query-shaped fragment text.
+
+    Yields:
+        Non-empty query names and values in source order.
+    """
     for field in query.split("&"):
         if not field:
             continue
@@ -371,7 +423,14 @@ def _iter_query_components(query: str) -> Iterator[str]:
 
 
 def _iter_netloc_components(netloc: str) -> Iterator[str]:
-    """Yield userinfo and host labels from a raw URL authority."""
+    """Yield userinfo and host labels from a raw URL authority.
+
+    Args:
+        netloc: Raw URL authority component.
+
+    Yields:
+        Userinfo fields, port text, host labels, and dotted-prefix host pairs.
+    """
     userinfo, separator, host_port = netloc.rpartition("@")
     if separator:
         username, password_separator, password = userinfo.partition(":")
@@ -410,7 +469,14 @@ def _iter_netloc_components(netloc: str) -> Iterator[str]:
 
 
 def _iter_fragment_components(fragment: str) -> Iterator[str]:
-    """Yield components from an opaque URL fragment."""
+    """Yield component-local views from an opaque URL fragment.
+
+    Args:
+        fragment: Raw fragment text.
+
+    Yields:
+        Query-style fields or slash-delimited fragment components.
+    """
     if "=" in fragment or "&" in fragment:
         yield from _iter_query_components(fragment)
         return
@@ -418,7 +484,14 @@ def _iter_fragment_components(fragment: str) -> Iterator[str]:
 
 
 def _iter_parsed_url_components(parsed: SplitResult) -> Iterator[str]:
-    """Yield component-local views from a parsed URL."""
+    """Yield component-local views from a parsed URL.
+
+    Args:
+        parsed: Result returned by ``urlsplit``.
+
+    Yields:
+        Authority, path, query, and fragment components.
+    """
     yield from _iter_netloc_components(parsed.netloc)
     yield from (component for component in re.split(r"[\\/]", parsed.path) if component)
     yield from _iter_query_components(parsed.query)
@@ -426,12 +499,26 @@ def _iter_parsed_url_components(parsed: SplitResult) -> Iterator[str]:
 
 
 def _iter_fallback_components(text: str) -> Iterator[str]:
-    """Yield conservative components when URL parsing fails."""
+    """Yield conservative components when URL parsing fails.
+
+    Args:
+        text: Raw malformed URL text.
+
+    Yields:
+        Non-empty pieces separated by structural URL delimiters.
+    """
     yield from (component for component in re.split(r"[\\/?#&=@.]", text) if component)
 
 
 def _iter_candidate_components(text: str) -> Iterator[str]:
-    """Yield structural components from an exempt URL or file token."""
+    """Yield structural components from an exempt URL or file token.
+
+    Args:
+        text: Raw whitespace-delimited token.
+
+    Yields:
+        URL or file components eligible for provider-prefix checks.
+    """
     scheme_matches = list(_URL_SCHEME_RE.finditer(text))
     if not scheme_matches:
         yield from (component for component in re.split(r"[\\/]", text) if component)
@@ -453,12 +540,30 @@ def _iter_candidate_components(text: str) -> Iterator[str]:
 
 
 def _contains_detectable_prefixed_candidate(text: str, cfg: SecretCfg) -> bool:
-    """Check an exempt token for a detectable component-local direct prefix."""
+    """Check an exempt token for provider-specific embedded credentials.
+
+    Args:
+        text: Raw token that matched a URL or allowed-file exemption.
+        cfg: Secret-detection thresholds for the active mode.
+
+    Returns:
+        True when any structural component contains a provider-specific
+        prefixed candidate satisfying the existing length/diversity policy.
+    """
     return any(_component_has_detectable_prefixed_candidate(component, cfg) for component in _iter_candidate_components(text))
 
 
 def _is_secret_candidate(s: str, cfg: SecretCfg, custom_regex: list[str] | None = None) -> bool:
-    """Check if a string is a secret key using the specified criteria."""
+    """Check whether a string satisfies the existing secret policy.
+
+    Args:
+        s: Candidate string.
+        cfg: Secret-detection thresholds.
+        custom_regex: Optional project-specific secret patterns.
+
+    Returns:
+        True when the candidate is considered a secret.
+    """
     if custom_regex:
         for pattern in custom_regex:
             if re.match(pattern, s):
@@ -479,7 +584,16 @@ def _is_secret_candidate(s: str, cfg: SecretCfg, custom_regex: list[str] | None 
 
 
 def _detect_secret_keys(text: str, cfg: SecretCfg, custom_regex: list[str] | None = None) -> GuardrailResult:
-    """Detect potential secret keys in text."""
+    """Detect potential secret keys in text.
+
+    Args:
+        text: Input text to scan.
+        cfg: Secret-detection thresholds.
+        custom_regex: Optional project-specific secret patterns.
+
+    Returns:
+        Guardrail result containing any detected secret tokens.
+    """
     secrets: list[str] = []
     for raw_word in re.findall(r"\S+", text):
         structural_word = raw_word.replace("*", "")
@@ -505,7 +619,16 @@ async def secret_keys(
     data: str,
     config: SecretKeysCfg,
 ) -> GuardrailResult:
-    """Async guardrail function for secret key and credential detection."""
+    """Run secret key and credential detection.
+
+    Args:
+        ctx: Guardrail context.
+        data: Input text to scan.
+        config: Secret Keys guardrail configuration.
+
+    Returns:
+        Guardrail result containing any detected secret tokens.
+    """
     _ = ctx
     cfg = CONFIGS[config.threshold]
     return _detect_secret_keys(data, cfg, config.custom_regex)
