@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import string
+
 import pytest
 from hypothesis import given, strategies as st
 
@@ -82,10 +84,10 @@ async def test_url_padding_cannot_change_prefixed_secret_classification(padding_
 
 @given(
     prefix=st.sampled_from(["sk-", "ghp_", "AKIA", "xox", "SG.", "hf_", "SHA:"]),
-    punctuation=st.sampled_from(list("$!/:@;,+%=._~'()?&")),
+    punctuation=st.sampled_from(list("$!/:@;,+%=._~'()?")),
 )
-def test_uri_punctuation_preserves_embedded_prefix_classification(prefix: str, punctuation: str) -> None:
-    """URI punctuation must not truncate a detectable built-in prefix suffix."""
+def test_query_value_punctuation_preserves_embedded_prefix_classification(prefix: str, punctuation: str) -> None:
+    """Non-delimiting query punctuation must not truncate a built-in prefix signal."""
     candidate = f"{prefix}Ab3x{punctuation}K9mQ7zR2wT5vY8nL4pJ6hG1dF0sC"
     wrapped = f"https://attacker.example/?k={candidate}"
 
@@ -95,6 +97,94 @@ def test_uri_punctuation_preserves_embedded_prefix_classification(prefix: str, p
     assert standalone_result.tripwire_triggered is True  # noqa: S101
     assert wrapped_result.tripwire_triggered is standalone_result.tripwire_triggered  # noqa: S101
     assert wrapped_result.info["detected_secrets"] == [wrapped]  # noqa: S101
+
+
+@given(separator=st.sampled_from([f"%{ord(char):02X}" for char in string.punctuation]))
+def test_percent_encoded_separators_establish_prefix_boundaries(separator: str) -> None:
+    """One encoded ASCII separator before a prefix must behave like a literal boundary."""
+    wrapped = f"https://example.com/?next={separator}{SYNTHETIC_SECRET}"
+    result = _detect_secret_keys(wrapped, BALANCED_CFG)
+
+    assert result.tripwire_triggered is True  # noqa: S101
+    assert result.info["detected_secrets"] == [wrapped]  # noqa: S101
+
+
+@given(char=st.sampled_from(string.ascii_letters + string.digits))
+def test_percent_encoded_alphanumerics_do_not_create_prefix_boundaries(char: str) -> None:
+    """Encoded identifier characters must not be treated as separators."""
+    encoded = f"%{ord(char):02X}"
+    wrapped = f"https://example.com/?next={encoded}{SYNTHETIC_SECRET}"
+    result = _detect_secret_keys(wrapped, BALANCED_CFG)
+
+    assert result.tripwire_triggered is False  # noqa: S101
+    assert result.info["detected_secrets"] == []  # noqa: S101
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "text",
+    [
+        f"https://user:%2F{SYNTHETIC_SECRET}@example.com",
+        f"https://%2F{SYNTHETIC_SECRET}.example.com/docs",
+        f"https://example.com/#next=%2F{SYNTHETIC_SECRET}",
+        f"https://[bad]/%2F{SYNTHETIC_SECRET}",
+    ],
+)
+async def test_encoded_prefix_boundaries_work_across_url_components(text: str) -> None:
+    """Encoded left boundaries must work in standard and fallback URL components."""
+    result = await secret_keys(None, text, SecretKeysCfg(threshold="balanced"))
+
+    assert result.tripwire_triggered is True  # noqa: S101
+    assert result.info["detected_secrets"] == [text.replace("#", "")]  # noqa: S101
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "text",
+    [
+        "https://example.com/api-doc/Version2",
+        "https://example.com/?next=api-doc&version=Version2",
+        "files/api-doc/Version2.png",
+    ],
+)
+async def test_later_components_cannot_complete_a_short_prefixed_component(text: str) -> None:
+    """Unrelated later components must not supply length or diversity."""
+    result = await secret_keys(None, text, SecretKeysCfg(threshold="balanced"))
+
+    assert result.tripwire_triggered is False  # noqa: S101
+    assert result.info["detected_secrets"] == []  # noqa: S101
+
+
+@given(
+    later_component=st.text(
+        alphabet=string.ascii_letters + string.digits + "-._~",
+        min_size=1,
+        max_size=40,
+    ),
+)
+def test_later_path_component_does_not_change_prefix_classification(later_component: str) -> None:
+    """Appending a path component cannot change a short prefix component."""
+    wrapped = f"https://example.com/api-doc/{later_component}"
+    result = _detect_secret_keys(wrapped, BALANCED_CFG)
+
+    assert result.tripwire_triggered is False  # noqa: S101
+    assert result.info["detected_secrets"] == []  # noqa: S101
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "text",
+    [
+        "https://example.com/?next=sk-Ab3x%2FCd2Ef3Gh4Ij5Kl6Mn7",
+        "https://example.com/?next=sk-Ab3x/Cd2Ef3Gh4Ij5Kl6Mn7",
+    ],
+)
+async def test_separators_after_a_prefix_remain_candidate_data(text: str) -> None:
+    """Encoded or literal separators inside one query value must not truncate it."""
+    result = await secret_keys(None, text, SecretKeysCfg(threshold="balanced"))
+
+    assert result.tripwire_triggered is True  # noqa: S101
+    assert result.info["detected_secrets"] == [text]  # noqa: S101
 
 
 @pytest.mark.asyncio
