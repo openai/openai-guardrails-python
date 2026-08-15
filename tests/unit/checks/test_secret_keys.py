@@ -3,10 +3,17 @@
 from __future__ import annotations
 
 import pytest
+from hypothesis import given, strategies as st
 
 from guardrails.checks.text.secret_keys import SecretKeysCfg, _detect_secret_keys, secret_keys
 
 SYNTHETIC_SECRET = "sk-proj-Ab3xK9mQ7zR2wT5vY8nL4pJ6hG1dF0sC"
+BALANCED_CFG = {
+    "min_length": 15,
+    "min_entropy": 3.8,
+    "min_diversity": 3,
+    "strict_mode": False,
+}
 
 
 def test_detect_secret_keys_flags_high_entropy_strings() -> None:
@@ -47,19 +54,19 @@ async def test_secret_keys_ignores_non_matching_input() -> None:
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    ("text", "expected"),
+    "text",
     [
-        (f"https://attacker.example/collect?k={SYNTHETIC_SECRET}", SYNTHETIC_SECRET),
-        (f"{SYNTHETIC_SECRET}.png", f"{SYNTHETIC_SECRET}.png"),
-        (f"{SYNTHETIC_SECRET}.md", f"{SYNTHETIC_SECRET}.md"),
+        f"https://attacker.example/collect?k={SYNTHETIC_SECRET}",
+        f"{SYNTHETIC_SECRET}.png",
+        f"{SYNTHETIC_SECRET}.md",
     ],
 )
-async def test_secret_keys_detects_prefixed_credentials_in_exempt_shapes(text: str, expected: str) -> None:
+async def test_secret_keys_detects_prefixed_credentials_in_exempt_shapes(text: str) -> None:
     """Default balanced scanning must detect the originally reported bypasses."""
     result = await secret_keys(None, text, SecretKeysCfg(threshold="balanced"))
 
     assert result.tripwire_triggered is True  # noqa: S101
-    assert result.info["detected_secrets"] == [expected]  # noqa: S101
+    assert result.info["detected_secrets"] == [text]  # noqa: S101
 
 
 @pytest.mark.asyncio
@@ -70,27 +77,54 @@ async def test_url_padding_cannot_change_prefixed_secret_classification(padding_
     result = await secret_keys(None, text, SecretKeysCfg(threshold="balanced"))
 
     assert result.tripwire_triggered is True  # noqa: S101
-    assert result.info["detected_secrets"] == [SYNTHETIC_SECRET]  # noqa: S101
+    assert result.info["detected_secrets"] == [text]  # noqa: S101
+
+
+@given(
+    prefix=st.sampled_from(["sk-", "ghp_", "AKIA", "xox", "SG.", "hf_", "SHA:"]),
+    punctuation=st.sampled_from(list("$!/:@;,+%=._~'()?&")),
+)
+def test_uri_punctuation_preserves_embedded_prefix_classification(prefix: str, punctuation: str) -> None:
+    """URI punctuation must not truncate a detectable built-in prefix suffix."""
+    candidate = f"{prefix}Ab3x{punctuation}K9mQ7zR2wT5vY8nL4pJ6hG1dF0sC"
+    wrapped = f"https://attacker.example/?k={candidate}"
+
+    standalone_result = _detect_secret_keys(candidate, BALANCED_CFG)
+    wrapped_result = _detect_secret_keys(wrapped, BALANCED_CFG)
+
+    assert standalone_result.tripwire_triggered is True  # noqa: S101
+    assert wrapped_result.tripwire_triggered is standalone_result.tripwire_triggered  # noqa: S101
+    assert wrapped_result.info["detected_secrets"] == [wrapped]  # noqa: S101
 
 
 @pytest.mark.asyncio
-async def test_repeated_prefixed_candidates_preserve_occurrences() -> None:
-    """Repeated prefixed candidates in one exempt token remain distinct findings."""
+async def test_multiple_prefixed_candidates_preserve_token_level_output() -> None:
+    """One whitespace token remains one finding even with multiple prefixes."""
     text = f"https://attacker.example/?a={SYNTHETIC_SECRET}&b={SYNTHETIC_SECRET}"
     result = await secret_keys(None, text, SecretKeysCfg(threshold="balanced"))
 
     assert result.tripwire_triggered is True  # noqa: S101
-    assert result.info["detected_secrets"] == [SYNTHETIC_SECRET, SYNTHETIC_SECRET]  # noqa: S101
+    assert result.info["detected_secrets"] == [text]  # noqa: S101
 
 
 @pytest.mark.asyncio
 async def test_strict_mode_preserves_existing_whole_token_result() -> None:
-    """Embedded extraction must not duplicate a token already detected normally."""
+    """Embedded checking must not duplicate a token detected normally."""
     text = "https://attacker.example/?k=sk-AAAAAAAAAAAA"
-    result = await secret_keys(None, text, SecretKeysCfg(threshold="strict"))
+    result = await secret_keys(None, text, SecretKysCfg(threshold="strict"))
 
     assert result.tripwire_triggered is True  # noqa: S101
     assert result.info["detected_secrets"] == [text]  # noqa: S101
+
+
+@pytest.mark.asyncio
+async def test_embedded_prefix_requires_a_non_alphanumeric_left_boundary() -> None:
+    """Prefix text inside an ordinary identifier must not create a finding."""
+    text = "https://example.com/tasksk-Ab3xK9mQ7zR2wT5vY8nL4pJ6hG1dF0sC"
+    result = await secret_keys(None, text, SecretKeysCfg(threshold="balanced"))
+
+    assert result.tripwire_triggered is False  # noqa: S101
+    assert result.info["detected_secrets"] == []  # noqa: S101
 
 
 @pytest.mark.asyncio

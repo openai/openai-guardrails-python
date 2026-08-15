@@ -131,14 +131,14 @@ ALLOWED_EXTENSIONS = (
     ".png",
 )
 
-_PREFIXED_CANDIDATE_RE = re.compile(
+_PREFIX_START_RE = re.compile(
     r"(?<![A-Za-z0-9])(?:"
     + "|".join(
         re.escape(prefix)
         for prefix in sorted(COMMON_KEY_PREFIXES, key=len, reverse=True)
         if not any(char.isspace() for char in prefix)
     )
-    + r")[A-Za-z0-9._~+%=:;-]*"
+    + r")"
 )
 
 CONFIGS: dict[str, SecretCfg] = {
@@ -269,25 +269,54 @@ def _contains_allowed_pattern(text: str) -> bool:
     return False
 
 
-def _prefixed_secret_candidates(text: str) -> list[str]:
-    """Extract built-in prefixed credential candidates from a token.
+def _contains_detectable_prefixed_candidate(text: str, cfg: SecretCfg) -> bool:
+    """Check an exempt token for a detectable built-in prefix suffix.
+
+    A built-in-prefixed candidate is evaluated from its prefix start through the
+    end of the existing whitespace token. This preserves punctuation accepted by
+    URL/file exemptions without introducing a second candidate alphabet. The
+    reverse suffix scan makes the check linear even when a token contains many
+    prefix occurrences.
 
     Args:
-        text: Whitespace-delimited token to inspect.
+        text: Whitespace-delimited token that matched an allowed pattern.
+        cfg: Secret detection criteria.
 
     Returns:
-        Built-in prefixed substrings in source order.
+        True when a prefix-start suffix satisfies the existing built-in length
+        and diversity requirements.
     """
-    return [match.group(0) for match in _PREFIXED_CANDIDATE_RE.finditer(text)]
+    prefix_starts = {match.start() for match in _PREFIX_START_RE.finditer(text)}
+    if not prefix_starts:
+        return False
+
+    min_length = cfg.get("min_length", 15)
+    min_diversity = cfg.get("min_diversity", 2)
+    suffix_class_mask = 0
+    text_length = len(text)
+
+    for index in range(text_length - 1, -1, -1):
+        char = text[index]
+        if char.islower():
+            suffix_class_mask |= 1
+        elif char.isupper():
+            suffix_class_mask |= 2
+        elif char.isdigit():
+            suffix_class_mask |= 4
+        else:
+            suffix_class_mask |= 8
+
+        if (
+            index in prefix_starts
+            and text_length - index >= min_length
+            and suffix_class_mask.bit_count() >= min_diversity
+        ):
+            return True
+
+    return False
 
 
-def _is_secret_candidate(
-    s: str,
-    cfg: SecretCfg,
-    custom_regex: list[str] | None = None,
-    *,
-    allow_pattern_exemption: bool = True,
-) -> bool:
+def _is_secret_candidate(s: str, cfg: SecretCfg, custom_regex: list[str] | None = None) -> bool:
     """Check if a string is a secret key using the specified criteria.
 
     Skips candidates matching allowed patterns (when strict_mode=False),
@@ -298,7 +327,6 @@ def _is_secret_candidate(
         s (str): String to analyze.
         cfg (SecretCfg): Detection configuration.
         custom_regex (Optional[List[str]]): List of custom regex patterns to check.
-        allow_pattern_exemption: Whether URL/file exemptions may suppress the candidate.
 
     Returns:
         bool: True if the string is a secret key; otherwise False.
@@ -309,7 +337,7 @@ def _is_secret_candidate(
             if re.match(pattern, s):
                 return True
 
-    if allow_pattern_exemption and not cfg.get("strict_mode", False) and _contains_allowed_pattern(s):
+    if not cfg.get("strict_mode", False) and _contains_allowed_pattern(s):
         return False
 
     long_enough = len(s) >= cfg.get("min_length", 15)
@@ -338,22 +366,12 @@ def _detect_secret_keys(text: str, cfg: SecretCfg, custom_regex: list[str] | Non
     secrets: list[str] = []
     for raw_word in re.findall(r"\S+", text):
         word = raw_word.replace("*", "").replace("#", "")
-        word_is_secret = _is_secret_candidate(word, cfg, custom_regex)
-        if word_is_secret:
+        if _is_secret_candidate(word, cfg, custom_regex):
             secrets.append(word)
             continue
 
-        if not _contains_allowed_pattern(word):
-            continue
-
-        for candidate in _prefixed_secret_candidates(word):
-            if _is_secret_candidate(
-                candidate,
-                cfg,
-                custom_regex=None,
-                allow_pattern_exemption=False,
-            ):
-                secrets.append(candidate)
+        if _contains_allowed_pattern(word) and _contains_detectable_prefixed_candidate(word, cfg):
+            secrets.append(word)
 
     return GuardrailResult(
         tripwire_triggered=bool(secrets),
