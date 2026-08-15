@@ -414,6 +414,32 @@ def test_encoded_allowed_extension_matches_literal_extension_classification(enco
     assert transformed_result.info["detected_secrets"] == []  # noqa: S101
 
 
+@given(
+    wrapper=st.sampled_from([("", ""), ("(", ")"), ("[", "]"), ("{", "}"), ("<", ">"), ('"', '"'), ("'", "'")]),
+    punctuation=st.sampled_from(list(".,;:!")),
+)
+def test_url_presentation_wrapping_cannot_complete_short_candidate(
+    wrapper: tuple[str, str], punctuation: str
+) -> None:
+    """Presentation wrapping must not change a clean URL's classification."""
+    opener, closer = wrapper
+    base = "https://example.com/sk-ABCDEFGHIJ1"
+    text = f"{opener}{base}{closer}{punctuation}"
+    result = _detect_secret_keys(text, BALANCED_CFG)
+
+    assert result.tripwire_triggered is False  # noqa: S101
+    assert result.info["detected_secrets"] == []  # noqa: S101
+
+
+@pytest.mark.asyncio
+async def test_url_presentation_wrapping_preserves_strong_secret_detection() -> None:
+    """Presentation trimming must not hide a genuine embedded credential."""
+    text = f"({f'https://example.com/{SYNTHETIC_SECRET}'})."
+    result = await secret_keys(None, text, SecretKeysCfg(threshold="balanced"))
+
+    assert result.tripwire_triggered is True  # noqa: S101
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     "text",
