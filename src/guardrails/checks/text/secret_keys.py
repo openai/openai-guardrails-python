@@ -278,9 +278,9 @@ def _contains_allowed_pattern(text: str) -> bool:
 def _decode_percent_once(text: str) -> str:
     """Decode valid percent escapes exactly once without replacement characters.
 
-    Percent-encoded bytes are collected into contiguous runs and decoded as
-    strict UTF-8. Invalid byte sequences remain in their original ``%XX`` form,
-    while literal characters are preserved as-is. The decoded result is never
+    Each valid UTF-8 sequence is decoded independently. Invalid escapes or byte
+    sequences remain in their original ``%XX`` form, but do not prevent later
+    independently valid escapes from being decoded. The result is never
     recursively decoded.
 
     Args:
@@ -304,27 +304,88 @@ def _decode_percent_once(text: str) -> str:
             index += 1
             continue
 
-        encoded_chunks: list[str] = []
-        encoded_bytes = bytearray()
-        while (
-            index + 2 < text_length
-            and text[index] == "%"
-            and text[index + 1] in _HEX_DIGITS
-            and text[index + 2] in _HEX_DIGITS
-        ):
-            encoded_chunks.append(text[index : index + 3])
-            encoded_bytes.append(int(text[index + 1 : index + 3], 16))
+        first_byte = int(text[index + 1 : index + 3], 16)
+        if first_byte < 0x80:
+            output.append(chr(first_byte))
             index += 3
+            continue
+
+        if 0xC2 <= first_byte <= 0xDF:
+            width = 2
+        elif 0xE0 <= first_byte <= 0xEF:
+            width = 3
+        elif 0xF0 <= first_byte <= 0xF4:
+            width = 4
+        else:
+            output.append(text[index : index + 3])
+            index += 3
+            continue
+
+        encoded_bytes = bytearray([first_byte])
+        cursor = index + 3
+        for _ in range(width - 1):
+            if (
+                cursor + 2 >= text_length
+                or text[cursor] != "%"
+                or text[cursor + 1] not in _HEX_DIGITS
+                or text[cursor + 2] not in _HEX_DIGITS
+            ):
+                break
+            encoded_bytes.append(int(text[cursor + 1 : cursor + 3], 16))
+            cursor += 3
+
+        if len(encoded_bytes) != width:
+            output.append(text[index : index + 3])
+            index += 3
+            continue
 
         try:
             decoded = bytes(encoded_bytes).decode("utf-8", errors="strict")
         except UnicodeDecodeError:
-            output.extend(encoded_chunks)
+            output.append(text[index : index + 3])
+            index += 3
             continue
 
         output.append(decoded)
+        index = cursor
 
     return "".join(output)
+
+
+def _strip_allowed_extension(component: str) -> str:
+    """Remove one allowed file extension before embedded-secret scoring.
+
+    Args:
+        component: Final path or filename component.
+
+    Returns:
+        The filename stem when an allowed extension is present, otherwise the
+        original component.
+    """
+    lowered = component.lower()
+    for extension in ALLOWED_EXTENSIONS:
+        if lowered.endswith(extension):
+            return component[: -len(extension)]
+    return component
+
+
+def _iter_path_components(path: str, *, strip_final_extension: bool) -> Iterator[str]:
+    """Yield literal path components with optional final-extension removal.
+
+    Args:
+        path: Raw URL or local-file path.
+        strip_final_extension: Whether an allowed extension on the final path
+            component should be excluded from secret scoring.
+
+    Yields:
+        Non-empty path components in source order.
+    """
+    components = [component for component in re.split(r"[\\/]", path) if component]
+    for index, component in enumerate(components):
+        if strip_final_extension and index == len(components) - 1:
+            component = _strip_allowed_extension(component)
+        if component:
+            yield component
 
 
 def _is_identifier_continuation(char: str) -> bool:
@@ -518,7 +579,7 @@ def _iter_fragment_components(fragment: str) -> Iterator[str]:
     if "=" in fragment or "&" in fragment:
         yield from _iter_query_components(fragment)
         return
-    yield from (component for component in re.split(r"[\\/]", fragment) if component)
+    yield from _iter_path_components(fragment, strip_final_extension=False)
 
 
 def _iter_parsed_url_components(parsed: SplitResult) -> Iterator[str]:
@@ -531,7 +592,7 @@ def _iter_parsed_url_components(parsed: SplitResult) -> Iterator[str]:
         Authority, path, query, and fragment components.
     """
     yield from _iter_netloc_components(parsed.netloc)
-    yield from (component for component in re.split(r"[\\/]", parsed.path) if component)
+    yield from _iter_path_components(parsed.path, strip_final_extension=True)
     yield from _iter_query_components(parsed.query)
     yield from _iter_fragment_components(parsed.fragment)
 
@@ -559,7 +620,7 @@ def _iter_candidate_components(text: str) -> Iterator[str]:
     """
     scheme_matches = list(_URL_SCHEME_RE.finditer(text))
     if not scheme_matches:
-        yield from (component for component in re.split(r"[\\/]", text) if component)
+        yield from _iter_path_components(text, strip_final_extension=True)
         return
 
     first_start = scheme_matches[0].start()
