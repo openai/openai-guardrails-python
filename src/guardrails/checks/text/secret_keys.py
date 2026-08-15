@@ -130,9 +130,10 @@ ALLOWED_EXTENSIONS = (
     ".png",
 )
 
-# Prefixes that are sufficiently provider-specific to lift a URL/file exemption
-# after the existing length and diversity checks pass. Slack's recognized bot/user
-# token forms are narrowed to xoxb-/xoxp- rather than the ambiguous bare xox stem.
+# Only provider-specific credential forms may lift an existing URL/file exemption.
+# Generic lexical stems such as api-/key-/token-/secret-/xox remain covered by the
+# standalone detector, but are deliberately not sufficient evidence inside an
+# otherwise exempt URL or filename.
 _EMBEDDED_DIRECT_PREFIXES = (
     "sk-",
     "sk_",
@@ -144,33 +145,17 @@ _EMBEDDED_DIRECT_PREFIXES = (
     "hf_",
 )
 
-# These lexical prefixes also occur naturally in documentation and route names.
-# They may lift an exemption only when the component independently satisfies the
-# configured entropy threshold. Public-key/hash prefixes are intentionally absent.
-# The broad xox stem remains here so legacy/ambiguous forms require entropy instead
-# of treating ordinary words such as xoxo-* as direct credential evidence.
-_EMBEDDED_ENTROPY_PREFIXES = (
-    "key-",
-    "api-",
-    "apikey-",
-    "token-",
-    "secret-",
-    "xox",
-)
-_EMBEDDED_PREFIXES = _EMBEDDED_DIRECT_PREFIXES + _EMBEDDED_ENTROPY_PREFIXES
-_EMBEDDED_ENTROPY_PREFIX_SET = frozenset(_EMBEDDED_ENTROPY_PREFIXES)
-
 _PREFIX_RE = re.compile(
     r"(?:"
     + "|".join(
         re.escape(prefix)
-        for prefix in sorted(_EMBEDDED_PREFIXES, key=len, reverse=True)
+        for prefix in sorted(_EMBEDDED_DIRECT_PREFIXES, key=len, reverse=True)
     )
     + r")"
 )
 _URL_SCHEME_RE = re.compile(r"https?://", re.IGNORECASE)
 _HEX_DIGITS = frozenset("0123456789abcdefABCDEF")
-_DOTTED_PREFIXES = tuple(prefix for prefix in _EMBEDDED_PREFIXES if prefix.endswith("."))
+_DOTTED_PREFIXES = tuple(prefix for prefix in _EMBEDDED_DIRECT_PREFIXES if prefix.endswith("."))
 
 CONFIGS: dict[str, SecretCfg] = {
     "strict": {
@@ -335,7 +320,7 @@ def _has_prefix_boundary(text: str, start: int) -> bool:
 
 
 def _component_has_detectable_prefixed_candidate(component: str, cfg: SecretCfg) -> bool:
-    """Check one structural component for a detectable built-in prefix."""
+    """Check one structural component for a detectable provider-specific prefix."""
     semantic_component = _decode_percent_once(component)
     prefix_matches = [
         match
@@ -347,23 +332,13 @@ def _component_has_detectable_prefixed_candidate(component: str, cfg: SecretCfg)
 
     min_length = cfg.get("min_length", 15)
     min_diversity = cfg.get("min_diversity", 2)
-    min_entropy = cfg.get("min_entropy", 3.7)
     suffix_class_mask = 0
-    suffix_counts: dict[str, int] = {}
-    suffix_count_log_sum = 0.0
     suffix_length = 0
-    matches_by_start = {match.start(): match.group(0) for match in prefix_matches}
+    match_starts = {match.start() for match in prefix_matches}
 
     for index in range(len(semantic_component) - 1, -1, -1):
         char = semantic_component[index]
         suffix_length += 1
-
-        previous_count = suffix_counts.get(char, 0)
-        current_count = previous_count + 1
-        suffix_counts[char] = current_count
-        if previous_count:
-            suffix_count_log_sum -= previous_count * math.log2(previous_count)
-        suffix_count_log_sum += current_count * math.log2(current_count)
 
         if char.islower():
             suffix_class_mask |= 1
@@ -374,19 +349,11 @@ def _component_has_detectable_prefixed_candidate(component: str, cfg: SecretCfg)
         else:
             suffix_class_mask |= 8
 
-        matched_prefix = matches_by_start.get(index)
-        if matched_prefix is None:
+        if index not in match_starts:
             continue
 
-        if suffix_length < min_length or suffix_class_mask.bit_count() < min_diversity:
-            continue
-
-        if matched_prefix in _EMBEDDED_ENTROPY_PREFIX_SET:
-            suffix_entropy = math.log2(suffix_length) - suffix_count_log_sum / suffix_length
-            if suffix_entropy < min_entropy:
-                continue
-
-        return True
+        if suffix_length >= min_length and suffix_class_mask.bit_count() >= min_diversity:
+            return True
 
     return False
 
@@ -486,7 +453,7 @@ def _iter_candidate_components(text: str) -> Iterator[str]:
 
 
 def _contains_detectable_prefixed_candidate(text: str, cfg: SecretCfg) -> bool:
-    """Check an exempt token for a detectable component-local prefix."""
+    """Check an exempt token for a detectable component-local direct prefix."""
     return any(_component_has_detectable_prefixed_candidate(component, cfg) for component in _iter_candidate_components(text))
 
 
