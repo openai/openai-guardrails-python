@@ -131,13 +131,15 @@ ALLOWED_EXTENSIONS = (
 )
 
 # Prefixes that are sufficiently provider-specific to lift a URL/file exemption
-# after the existing length and diversity checks pass.
+# after the existing length and diversity checks pass. Slack's recognized bot/user
+# token forms are narrowed to xoxb-/xoxp- rather than the ambiguous bare xox stem.
 _EMBEDDED_DIRECT_PREFIXES = (
     "sk-",
     "sk_",
     "ghp_",
     "AKIA",
-    "xox",
+    "xoxb-",
+    "xoxp-",
     "SG.",
     "hf_",
 )
@@ -145,12 +147,15 @@ _EMBEDDED_DIRECT_PREFIXES = (
 # These lexical prefixes also occur naturally in documentation and route names.
 # They may lift an exemption only when the component independently satisfies the
 # configured entropy threshold. Public-key/hash prefixes are intentionally absent.
+# The broad xox stem remains here so legacy/ambiguous forms require entropy instead
+# of treating ordinary words such as xoxo-* as direct credential evidence.
 _EMBEDDED_ENTROPY_PREFIXES = (
     "key-",
     "api-",
     "apikey-",
     "token-",
     "secret-",
+    "xox",
 )
 _EMBEDDED_PREFIXES = _EMBEDDED_DIRECT_PREFIXES + _EMBEDDED_ENTROPY_PREFIXES
 _EMBEDDED_ENTROPY_PREFIX_SET = frozenset(_EMBEDDED_ENTROPY_PREFIXES)

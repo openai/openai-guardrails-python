@@ -10,8 +10,8 @@ from hypothesis import given, strategies as st
 from guardrails.checks.text.secret_keys import SecretKeysCfg, _detect_secret_keys, secret_keys
 
 SYNTHETIC_SECRET = "sk-proj-Ab3xK9mQ7zR2wT5vY8nL4pJ6hG1dF0sC"
-DIRECT_PREFIXES = ["sk-", "sk_", "ghp_", "AKIA", "xox", "SG.", "hf_"]
-ENTROPY_PREFIXES = ["key-", "api-", "apikey-", "token-", "secret-"]
+DIRECT_PREFIXES = ["sk-", "sk_", "ghp_", "AKIA", "xoxb-", "xoxp-", "SG.", "hf_"]
+ENTROPY_PREFIXES = ["key-", "api-", "apikey-", "token-", "secret-", "xox"]
 BALANCED_CFG = {
     "min_length": 15,
     "min_entropy": 3.8,
@@ -115,6 +115,7 @@ async def test_url_padding_cannot_change_prefixed_secret_classification(padding_
         "https://example.com/key-release-v2-2026",
         "https://example.com/apikey-reference-v2",
         "https://example.com/secret-management-v2",
+        "https://example.com/xoxo-valentine-2026",
         "https://example.com/pk_documentation_v2",
         "https://example.com/SHA:deadbeef-v2",
     ],
