@@ -353,19 +353,39 @@ def _decode_percent_once(text: str) -> str:
 
 
 def _strip_allowed_extension(component: str) -> str:
-    """Remove one allowed file extension before embedded-secret scoring.
+    """Remove one literal or once-percent-encoded allowed file extension.
+
+    The returned value stays in its raw representation so the component can
+    still receive exactly one normal percent-decoding pass during scoring.
 
     Args:
-        component: Final path or filename component.
+        component: Final raw path or filename component.
 
     Returns:
-        The filename stem when an allowed extension is present, otherwise the
-        original component.
+        The raw filename stem when its semantic one-pass suffix is an allowed
+        extension, otherwise the original component.
     """
-    lowered = component.lower()
     for extension in ALLOWED_EXTENSIONS:
-        if lowered.endswith(extension):
-            return component[: -len(extension)]
+        raw_index = len(component)
+        for expected in reversed(extension):
+            if (
+                raw_index >= 3
+                and component[raw_index - 3] == "%"
+                and component[raw_index - 2] in _HEX_DIGITS
+                and component[raw_index - 1] in _HEX_DIGITS
+                and chr(int(component[raw_index - 2 : raw_index], 16)).lower() == expected.lower()
+            ):
+                raw_index -= 3
+                continue
+
+            if raw_index >= 1 and component[raw_index - 1].lower() == expected.lower():
+                raw_index -= 1
+                continue
+
+            break
+        else:
+            return component[:raw_index]
+
     return component
 
 
