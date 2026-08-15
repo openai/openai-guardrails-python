@@ -399,7 +399,12 @@ def _strip_allowed_extension(component: str) -> str:
 
 
 def _trim_url_presentation_suffix(url_text: str, leading_context: str) -> str:
-    """Remove sentence or matching wrapper punctuation outside a URL.
+    """Remove only confirmed presentation punctuation outside a URL.
+
+    Terminal URI punctuation is valid credential data, so it is preserved unless
+    the URL is immediately preceded by a known presentation opener and the span
+    contains that opener's matching closer. Sentence punctuation may be removed
+    only after such a confirmed closer.
 
     Args:
         url_text: Raw URL span extending to the whitespace-token boundary or
@@ -407,16 +412,21 @@ def _trim_url_presentation_suffix(url_text: str, leading_context: str) -> str:
         leading_context: Raw text immediately preceding this URL span.
 
     Returns:
-        A URL span with trailing sentence punctuation and, when the URL is
-        immediately preceded by a presentation opener, its matching closer
-        removed before structural parsing.
+        The URL span with a confirmed outer presentation closer and any sentence
+        punctuation after that closer removed; otherwise the original span.
     """
-    trimmed = url_text.rstrip(_SENTENCE_TRAILING_PUNCTUATION)
-    if leading_context:
-        closer = _PRESENTATION_CLOSERS.get(leading_context[-1])
-        if closer is not None and trimmed.endswith(closer):
-            trimmed = trimmed[: -len(closer)].rstrip(_SENTENCE_TRAILING_PUNCTUATION)
-    return trimmed
+    if not leading_context:
+        return url_text
+
+    closer = _PRESENTATION_CLOSERS.get(leading_context[-1])
+    if closer is None:
+        return url_text
+
+    without_sentence_punctuation = url_text.rstrip(_SENTENCE_TRAILING_PUNCTUATION)
+    if not without_sentence_punctuation.endswith(closer):
+        return url_text
+
+    return without_sentence_punctuation[: -len(closer)]
 
 
 def _iter_path_components(path: str, *, strip_final_extension: bool) -> Iterator[str]:
