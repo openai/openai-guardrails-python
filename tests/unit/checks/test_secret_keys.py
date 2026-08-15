@@ -49,6 +49,23 @@ def _encoded_prefixes(draw) -> tuple[str, str]:
     return prefix, "".join(encoded_parts)
 
 
+@st.composite
+def _encoded_allowed_extensions(draw) -> tuple[str, str]:
+    """Generate once-encoded variants of allowed ASCII file extensions."""
+    extension = draw(st.sampled_from(ALLOWED_EXTENSIONS))
+    encoded_parts: list[str] = []
+    for index, char in enumerate(extension):
+        encode_char = index == 0 or draw(st.booleans())
+        if encode_char:
+            hex_value = f"{ord(char):02X}"
+            if draw(st.booleans()):
+                hex_value = hex_value.lower()
+            encoded_parts.append(f"%{hex_value}")
+        else:
+            encoded_parts.append(char)
+    return extension, "".join(encoded_parts)
+
+
 def test_detect_secret_keys_flags_high_entropy_strings() -> None:
     """High entropy tokens should be detected as potential secrets."""
     text = "API key sk-AAAABBBBCCCCDDDD"
@@ -379,6 +396,22 @@ def test_allowed_extension_cannot_complete_short_prefixed_candidate(extension: s
 
     assert result.tripwire_triggered is False  # noqa: S101
     assert result.info["detected_secrets"] == []  # noqa: S101
+
+
+@given(encoded_extension=_encoded_allowed_extensions())
+def test_encoded_allowed_extension_matches_literal_extension_classification(encoded_extension: tuple[str, str]) -> None:
+    """Once-encoding an allowed URL-path extension must not change classification."""
+    extension, encoded = encoded_extension
+    candidate = "sk-ABCDEFGHIJ1"
+    literal = f"https://example.com/{candidate}{extension}"
+    transformed = f"https://example.com/{candidate}{encoded}"
+
+    literal_result = _detect_secret_keys(literal, BALANCED_CFG)
+    transformed_result = _detect_secret_keys(transformed, BALANCED_CFG)
+
+    assert literal_result.tripwire_triggered is False  # noqa: S101
+    assert transformed_result.tripwire_triggered is literal_result.tripwire_triggered  # noqa: S101
+    assert transformed_result.info["detected_secrets"] == []  # noqa: S101
 
 
 @pytest.mark.asyncio
