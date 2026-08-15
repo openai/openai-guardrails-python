@@ -42,6 +42,7 @@ from __future__ import annotations
 
 import math
 import re
+import unicodedata
 from typing import Any, Iterator, TypedDict
 from urllib.parse import SplitResult, urlsplit
 
@@ -247,381 +248,39 @@ def _char_diversity(s: str) -> int:
     )
 
 
-def _contains_allowed_pattern(text: str) -> bool:
-    """Return True if text contains allowed URL or file extension patterns.
+def _decode_percent_once(text: str) -> str:
+    """Decode valid percent escapes exactly once without replacement characters.
+
+    ASCII bytes are decoded individually. Valid multi-byte UTF-8 escape runs are
+    decoded strictly; malformed or non-canonical bytes remain in their original
+    ``%XX`` form so they cannot manufacture semantic boundaries.
 
     Args:
-        text (str): Input string.
+        text: Raw URL or file component.
 
     Returns:
-        bool: True if text matches URL or allowed extension; otherwise False.
+        A one-pass semantic view of the component.
     """
-    # Simple regex for URLs
-    url_pattern = re.compile(r"https?://[^\s]+", re.IGNORECASE)
-    if url_pattern.search(text):
-        return True
+    output: list[str] = []
+    index = 0
 
-    # Regex for allowed file extensions
-    # Build a pattern like: ".*\\.(py|js|html|...|png)$"
-    ext_pattern = re.compile(
-        r"[^\s]+(" + "|".join(re.escape(ext) for ext in ALLOWED_EXTENSIONS) + r")$",
-        re.IGNORECASE,
-    )
-    if ext_pattern.search(text):
-        return True
-
-    return False
-
-
-def _is_ascii_alphanumeric(char: str) -> bool:
-    """Check whether a character is an ASCII letter or digit.
-
-    Args:
-        char: Character to inspect.
-
-    Returns:
-        True for ASCII letters and digits.
-    """
-    return char.isascii() and char.isalnum()
-
-
-def _is_percent_encoded_boundary(text: str, start: int) -> bool:
-    """Check whether a prefix follows one encoded ASCII separator.
-
-    Args:
-        text: Raw component containing the prefix.
-        start: Prefix start offset.
-
-    Returns:
-        True when the preceding ``%XX`` byte decodes to a non-alphanumeric
-        ASCII character.
-    """
-    if start < 3 or text[start - 3] != "%":
-        return False
-
-    encoded = text[start - 2 : start]
-    if any(char not in _HEX_DIGITS for char in encoded):
-        return False
-
-    decoded = chr(int(encoded, 16))
-    return decoded.isascii() and not decoded.isalnum()
-
-
-def _has_prefix_boundary(text: str, start: int) -> bool:
-    """Check whether a built-in prefix starts at a component boundary.
-
-    Args:
-        text: Raw structural component containing the prefix.
-        start: Prefix start offset.
-
-    Returns:
-        True when the prefix starts the component, follows a literal
-        non-alphanumeric character, or follows one encoded ASCII separator.
-    """
-    if start == 0:
-        return True
-    if not _is_ascii_alphanumeric(text[start - 1]):
-        return True
-    return _is_percent_encoded_boundary(text, start)
-
-
-def _component_has_detectable_prefixed_candidate(component: str, cfg: SecretCfg) -> bool:
-    """Check one structural component for a detectable built-in prefix.
-
-    Each candidate is bounded by the containing URL/path component. Encoded
-    separators can establish a left boundary but remain candidate data when
-    they occur after the prefix.
-
-    Args:
-        component: Raw authority, path, query, fragment, or file component.
-        cfg: Secret detection criteria.
-
-    Returns:
-        True when a component-local prefixed suffix satisfies the existing
-        built-in length and diversity requirements.
-    """
-    prefix_starts = {
-        match.start()
-        for match in _PREFIX_RE.finditer(component)
-        if _has_prefix_boundary(component, match.start())
-    }
-    if not prefix_starts:
-        return False
-
-    min_length = cfg.get("min_length", 15)
-    min_diversity = cfg.get("min_diversity", 2)
-    suffix_class_mask = 0
-    component_length = len(component)
-
-    for index in range(component_length - 1, -1, -1):
-        char = component[index]
-        if char.islower():
-            suffix_class_mask |= 1
-        elif char.isupper():
-            suffix_class_mask |= 2
-        elif char.isdigit():
-            suffix_class_mask |= 4
-        else:
-            suffix_class_mask |= 8
-
+    while index < len(text):
         if (
-            index in prefix_starts
-            and component_length - index >= min_length
-            and suffix_class_mask.bit_count() >= min_diversity
+            text[index] != "%"
+            or index + 2 >= len(text)
+            or text[index + 1] not in _HEX_DIGITS
+            or text[index + 2] not in _HEX_DIGITS
         ):
-            return True
-
-    return False
-
-
-def _iter_query_components(query: str) -> Iterator[str]:
-    """Yield query-style names and values as separate components.
-
-    Args:
-        query: Raw query or query-style fragment text.
-
-    Yields:
-        Raw parameter names and values without percent decoding.
-    """
-    for field in query.split("&"):
-        if not field:
-            continue
-        name, separator, value = field.partition("=")
-        if name:
-            yield name
-        if separator and value:
-            yield value
-
-
-def _iter_netloc_components(netloc: str) -> Iterator[str]:
-    """Yield userinfo and host labels from a raw URL authority.
-
-    Args:
-        netloc: Raw ``urlsplit`` netloc value.
-
-    Yields:
-        Raw username, password, host-label, and dotted-prefix components.
-    """
-    userinfo, separator, host_port = netloc.rpartition("@")
-    if separator:
-        username, password_separator, password = userinfo.partition(":")
-        if username:
-            yield username
-        if password_separator and password:
-            yield password
-    else:
-        host_port = netloc
-
-    host = host_port
-    if host.startswith("["):
-        bracket_end = host.find("]")
-        if bracket_end >= 0:
-            if bracket_end > 1:
-                yield host[1:bracket_end]
-            port = host[bracket_end + 1 :]
-            if port.startswith(":") and len(port) > 1:
-                yield port[1:]
-            return
-    else:
-        possible_host, port_separator, possible_port = host.rpartition(":")
-        if port_separator and possible_port.isdigit():
-            host = possible_host
-            if possible_port:
-                yield possible_port
-
-    labels = [label for label in host.strip("[]").split(".") if label]
-    for index, label in enumerate(labels):
-        yield label
-        if index + 1 >= len(labels):
-            continue
-        for prefix in _DOTTED_PREFIXES:
-            if label == prefix[:-1]:
-                yield f"{label}.{labels[index + 1]}"
-
-
-def _iter_fragment_components(fragment: str) -> Iterator[str]:
-    """Yield components from an opaque URL fragment.
-
-    Query-shaped fragments retain query-value punctuation, while path-shaped
-    fragments are separated on literal path boundaries.
-
-    Args:
-        fragment: Raw fragment text.
-
-    Yields:
-        Raw fragment components without percent decoding.
-    """
-    if "=" in fragment or "&" in fragment:
-        yield from _iter_query_components(fragment)
-        return
-
-    yield from (component for component in re.split(r"[\\/]", fragment) if component)
-
-
-def _iter_parsed_url_components(parsed: SplitResult) -> Iterator[str]:
-    """Yield component-local views from a parsed URL.
-
-    Args:
-        parsed: Result from ``urllib.parse.urlsplit``.
-
-    Yields:
-        Raw authority, path, query, and fragment components.
-    """
-    yield from _iter_netloc_components(parsed.netloc)
-    yield from (component for component in re.split(r"[\\/]", parsed.path) if component)
-    yield from _iter_query_components(parsed.query)
-    yield from _iter_fragment_components(parsed.fragment)
-
-
-def _iter_fallback_components(text: str) -> Iterator[str]:
-    """Yield conservative components when URL parsing fails.
-
-    Args:
-        text: Raw URL-like or file-like text.
-
-    Yields:
-        Substrings split only at literal structural separators.
-    """
-    yield from (component for component in re.split(r"[\\/?#&=@.]", text) if component)
-
-
-def _iter_candidate_components(text: str) -> Iterator[str]:
-    """Yield structural components from an exempt URL or file token.
-
-    Args:
-        text: Raw whitespace-delimited token.
-
-    Yields:
-        Non-overlapping raw components suitable for built-in prefix scoring.
-    """
-    scheme_matches = list(_URL_SCHEME_RE.finditer(text))
-    if not scheme_matches:
-        yield from (component for component in re.split(r"[\\/]", text) if component)
-        return
-
-    first_start = scheme_matches[0].start()
-    if first_start:
-        yield from _iter_fallback_components(text[:first_start])
-
-    for index, match in enumerate(scheme_matches):
-        end = scheme_matches[index + 1].start() if index + 1 < len(scheme_matches) else len(text)
-        url_text = text[match.start() : end]
-        try:
-            parsed = urlsplit(url_text)
-        except (ValueError, UnicodeError):
-            yield from _iter_fallback_components(url_text)
-        else:
-            yield from _iter_parsed_url_components(parsed)
-
-
-def _contains_detectable_prefixed_candidate(text: str, cfg: SecretCfg) -> bool:
-    """Check an exempt token for a detectable component-local prefix.
-
-    Args:
-        text: Raw whitespace-delimited token that matched an allowed pattern.
-        cfg: Secret detection criteria.
-
-    Returns:
-        True when any structural component contains a detectable built-in
-        prefixed candidate.
-    """
-    return any(_component_has_detectable_prefixed_candidate(component, cfg) for component in _iter_candidate_components(text))
-
-
-def _is_secret_candidate(s: str, cfg: SecretCfg, custom_regex: list[str] | None = None) -> bool:
-    """Check if a string is a secret key using the specified criteria.
-
-    Skips candidates matching allowed patterns (when strict_mode=False),
-    enforces minimum length, character diversity, common prefix, and entropy.
-    Also checks against custom patterns if provided.
-
-    Args:
-        s (str): String to analyze.
-        cfg (SecretCfg): Detection configuration.
-        custom_regex (Optional[List[str]]): List of custom regex patterns to check.
-
-    Returns:
-        bool: True if the string is a secret key; otherwise False.
-    """
-    # Check custom patterns first if provided
-    if custom_regex:
-        for pattern in custom_regex:
-            if re.match(pattern, s):
-                return True
-
-    if not cfg.get("strict_mode", False) and _contains_allowed_pattern(s):
-        return False
-
-    long_enough = len(s) >= cfg.get("min_length", 15)
-    diverse = _char_diversity(s) >= cfg.get("min_diversity", 2)
-
-    if not (long_enough and diverse):
-        return False
-
-    if any(s.startswith(prefix) for prefix in COMMON_KEY_PREFIXES):
-        return True
-
-    return _entropy(s) >= cfg.get("min_entropy", 3.7)
-
-
-def _detect_secret_keys(text: str, cfg: SecretCfg, custom_regex: list[str] | None = None) -> GuardrailResult:
-    """Detect potential secret keys in text.
-
-    Args:
-        text (str): Input text to scan.
-        cfg (SecretCfg): Secret detection criteria.
-        custom_regex (Optional[List[str]]): List of custom regex patterns to check.
-
-    Returns:
-        GuardrailResult: Result containing flag status and detected secrets.
-    """
-    secrets: list[str] = []
-    for raw_word in re.findall(r"\S+", text):
-        structural_word = raw_word.replace("*", "")
-        word = structural_word.replace("#", "")
-        if _is_secret_candidate(word, cfg, custom_regex):
-            secrets.append(word)
+            output.append(text[index])
+            index += 1
             continue
 
-        if _contains_allowed_pattern(word) and _contains_detectable_prefixed_candidate(structural_word, cfg):
-            secrets.append(word)
+        first_byte = int(text[index + 1 : index + 3], 16)
+        if first_byte < 0x80:
+            output.append(chr(first_byte))
+            index += 3
+            continue
 
-    return GuardrailResult(
-        tripwire_triggered=bool(secrets),
-        info={
-            "guardrail_name": "Secret Keys",
-            "detected_secrets": secrets,
-        },
-    )
-
-
-async def secret_keys(
-    ctx: Any,
-    data: str,
-    config: SecretKeysCfg,
-) -> GuardrailResult:
-    """Async guardrail function for secret key and credential detection.
-
-    Scans the input for likely secrets or credentials (e.g., API keys, tokens)
-    using entropy, diversity, and pattern rules.
-
-    Args:
-        ctx (Any): Guardrail context (unused).
-        data (str): Input text to scan.
-        config (SecretKeysCfg): Configuration for secret detection.
-
-    Returns:
-        GuardrailResult: Indicates if secrets were detected, with findings in info.
-    """
-    _ = ctx
-    cfg = CONFIGS[config.threshold]
-    return _detect_secret_keys(data, cfg, config.custom_regex)
-
-
-default_spec_registry.register(
-    name="Secret Keys",
-    check_fn=secret_keys,
-    description=("Checks that the text does not contain potential API keys, secrets, or other credentials."),
-    media_type="text/plain",
-    metadata=GuardrailSpecMetadata(engine="RegEx"),
-)
+        if 0xC2 <= first_byte <= 0xDF:
+            width = 2
+        elif 0xE0$ÑPÐ€L@

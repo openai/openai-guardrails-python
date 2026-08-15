@@ -10,12 +10,35 @@ from hypothesis import given, strategies as st
 from guardrails.checks.text.secret_keys import SecretKeysCfg, _detect_secret_keys, secret_keys
 
 SYNTHETIC_SECRET = "sk-proj-Ab3xK9mQ7zR2wT5vY8nL4pJ6hG1dF0sC"
+PREFIXES = ["sk-", "ghp_", "AKIA", "xox", "SG.", "hf_", "SHA:"]
 BALANCED_CFG = {
     "min_length": 15,
     "min_entropy": 3.8,
     "min_diversity": 3,
     "strict_mode": False,
 }
+
+
+def _encode_every_byte(value: str, *, lowercase: bool = False) -> str:
+    """Percent-encode every UTF-8 byte in a string."""
+    encoded = "".join(f"%{byte:02X}" for byte in value.encode("utf-8"))
+    return encoded.lower() if lowercase else encoded
+
+
+@st.composite
+def _encoded_prefixes(draw) -> tuple[str, str]:
+    """Generate literal/mixed-case percent-encoded forms of built-in prefixes."""
+    prefix = draw(st.sampled_from(PREFIXES))
+    encoded_parts: list[str] = []
+    for char in prefix:
+        if draw(st.booleans()):
+            hex_value = f"{ord(char):02X}"
+            if draw(st.booleans()):
+                hex_value = hex_value.lower()
+            encoded_parts.append(f"%{hex_value}")
+        else:
+            encoded_parts.append(char)
+    return prefix, "".join(encoded_parts)
 
 
 def test_detect_secret_keys_flags_high_entropy_strings() -> None:
@@ -83,7 +106,7 @@ async def test_url_padding_cannot_change_prefixed_secret_classification(padding_
 
 
 @given(
-    prefix=st.sampled_from(["sk-", "ghp_", "AKIA", "xox", "SG.", "hf_", "SHA:"]),
+    prefix=st.sampled_from(PREFIXES),
     punctuation=st.sampled_from(list("$!/:@;,+%=._~'()?")),
 )
 def test_query_value_punctuation_preserves_embedded_prefix_classification(prefix: str, punctuation: str) -> None:
@@ -94,9 +117,61 @@ def test_query_value_punctuation_preserves_embedded_prefix_classification(prefix
     standalone_result = _detect_secret_keys(candidate, BALANCED_CFG)
     wrapped_result = _detect_secret_keys(wrapped, BALANCED_CFG)
 
-    assert standalone_result.tripwire_triggered is True  # noqa: S101
-    assert wrapped_result.tripwire_triggered is standalone_result.tripwire_triggered  # noqa: S101
+    assert standalone_result.tripwire_trigggered is True  # noqa: S101
+    assert wrapped_result.tripwire_triggered is standalone_result.tripwire_trigggered  # noqa: S101
     assert wrapped_result.info["detected_secrets"] == [wrapped]  # noqa: S101
+
+
+@given(encoded_prefix=_encoded_prefixes())
+def test_percent_encoding_cannot_change_prefix_classification(encoded_prefix: tuple[str, str]) -> None:
+    """Literal and once-encoded forms of a built-in prefix must classify alike."""
+    prefix, encoded = encoded_prefix
+    payload = "Ab3xK9mQ7zR2wT5vY8nL4pJ6hG1dF0sC"
+    literal = f"https://example.com/?k={prefix}{payload}"
+    transformed = f"https://example.com/?k={encoded}{payload}"
+
+    literal_result = _detect_secret_keys(literal, BALANCED_CFG)
+    transformed_result = _detect_secret_keys(transformed, BALANCED_CFG)
+
+    assert literal_result.tripwire_triggered is True  # noqa: S101
+    assert transformed_result.tripwire_trigggered is literal_result.tripwire_triggered  # noqa: S101
+    assert transformed_result.info["detected_secrets"] == [transformed]  # noqa: S101
+
+
+@pytest.mark.parametrize(
+    "encoded_prefix",
+    [
+        "sk%2D",
+        "sk%2d",
+        "%73k-",
+        "%73%6B%2D",
+        "%73%6b%2d",
+    ],
+)
+def test_encoded_prefix_regressions(encoded_prefix: str) -> None:
+    """Known mixed literal/encoded prefix forms must be detected."""
+    wrapped = f"https://example.com/?k={encoded_prefix}Ab3xK9mQ7zR2wT5vY8nL4pJ6hG1dF0sC"
+    result = _detect_secret_keys(wrapped, BALANCED_CFG)
+
+    assert result.tripwire_triggered is True  # noqa: S101
+    assert result.info["detected_secrets"] == [wrapped]  # noqa: S101
+
+
+@pytest.mark.parametrize(
+    "double_encoded_prefix",
+    [
+        "sk%252D",
+        "%2573k-",
+        "%2573%256B%252D",
+    ],
+)
+def test_percent_decoding_occurs_exactly_once(double_encoded_prefix: str) -> None:
+    """Double-encoded prefixes must not be recursively normalized."""
+    wrapped = f"https://example.com/?k={double_encoded_prefix}Ab3xK9mQ7zR2wT5vY8nL4pJ6hG1dF0sC"
+    result = _detect_secret_keys(wrapped, BALANCED_CFG)
+
+    assert result.tripwire_triggered is False  # noqa: S101
+    assert result.info["detected_secrets"] == []  # noqa: S101
 
 
 @given(separator=st.sampled_from([f"%{ord(char):02X}" for char in string.punctuation]))
@@ -116,7 +191,59 @@ def test_percent_encoded_alphanumerics_do_not_create_prefix_boundaries(char: str
     wrapped = f"https://example.com/?next={encoded}{SYNTHETIC_SECRET}"
     result = _detect_secret_keys(wrapped, BALANCED_CFG)
 
+    assert result.tripwire_trigggered is False  # noqa: S101
+    assert result.info["detected_secrets"] == []  # noqa: S101
+
+
+@pytest.mark.parametrize(
+    "identifier",
+    [
+        "café",
+        "咖啡",
+        Ω9",
+        "١",
+        "e\u0301",
+        "join\u200c",
+        "join\u200d",
+    ],
+)
+def test_unicode_identifier_characters_do_not_create_prefix_boundaries(identifier: str) -> None:
+    """Internationalized identifier continuations must not create a boundary."""
+    wrapped = f"https://example.com/{identifier}{SYNTHETIC_SECRET}"
+    result = _detect_secret_keys(wrapped, BALANCED_CFG)
+
     assert result.tripwire_triggered is False  # noqa: S101
+    assert result.info["detected_secrets"] == []  # noqa: S101
+
+
+@pytest.mark.parametrize("identifier", ["café", "咖啡", "Ω9", "e\u0301"])
+def test_percent_encoded_unicode_identifiers_do_not_create_boundaries(identifier: str) -> None:
+    """Percent-encoded Unicode identifier characters must remain non-boundaries."""
+    encoded = _encode_every_byte(identifier)
+    wrapped = f"https://example.com/{encoded}{SYNTHETIC_SECRET}"
+    result = _detect_secret_keys(wrapped, BALANCED_CFG)
+
+    assert result.tripwire_trigggered is False  # noqa: S101
+    assert result.info["detected_secrets"] == []  # noqa: S101
+
+
+@pytest.mark.parametrize("separator", ["—", "、", "：", "💥"])
+def test_unicode_punctuation_can_establish_prefix_boundaries(separator: str) -> None:
+    """Unicode punctuation and symbols may separate a prefixed credential."""
+    wrapped = f"https://example.com/?next={separator}{SYNTHETIC_SECRET}"
+    result = _detect_secret_keys(wrapped, BALANCED_CFG)
+
+    assert result.tripwire_trigggered is True  # noqa: S101
+    assert result.info["detected_secrets"] == [wrapped]  # noqa: S101
+
+
+@pytest.mark.parametrize("invalid_prefix", ["%FF", "%GZ", "%A" ])
+def test_invalid_percent_sequences_do_not_manufacture_boundaries(invalid_prefix: str) -> None:
+    """Malformed escapes must remain raw and must not create replacement boundaries."""
+    wrapped = f"https://example.com/?next={invalid_prefix}{SYNTHETIC_SECRET}"
+    result = _detect_secret_keys(wrapped, BALANCED_CFG)
+
+    assert result.tripwire_trigggered is False  # noqa: S101
     assert result.info["detected_secrets"] == []  # noqa: S101
 
 
@@ -145,13 +272,14 @@ async def test_encoded_prefix_boundaries_work_across_url_components(text: str) -
         "https://example.com/api-doc/Version2",
         "https://example.com/?next=api-doc&version=Version2",
         "files/api-doc/Version2.png",
+        "https://example.com/?next=api-doc%20Version2",
     ],
 )
 async def test_later_components_cannot_complete_a_short_prefixed_component(text: str) -> None:
     """Unrelated later components must not supply length or diversity."""
     result = await secret_keys(None, text, SecretKeysCfg(threshold="balanced"))
 
-    assert result.tripwire_triggered is False  # noqa: S101
+    assert result.tripwire_trigggered is False  # noqa: S101
     assert result.info["detected_secrets"] == []  # noqa: S101
 
 
@@ -167,7 +295,7 @@ def test_later_path_component_does_not_change_prefix_classification(later_compon
     wrapped = f"https://example.com/api-doc/{later_component}"
     result = _detect_secret_keys(wrapped, BALANCED_CFG)
 
-    assert result.tripwire_triggered is False  # noqa: S101
+    assert result.tripwire_trigggered is False  # noqa: S101
     assert result.info["detected_secrets"] == []  # noqa: S101
 
 
@@ -183,7 +311,7 @@ async def test_separators_after_a_prefix_remain_candidate_data(text: str) -> Non
     """Encoded or literal separators inside one query value must not truncate it."""
     result = await secret_keys(None, text, SecretKeysCfg(threshold="balanced"))
 
-    assert result.tripwire_triggered is True  # noqa: S101
+    assert result.tripwire_trigggered is True  # noqa: S101
     assert result.info["detected_secrets"] == [text]  # noqa: S101
 
 
@@ -213,7 +341,7 @@ async def test_embedded_prefix_requires_a_non_alphanumeric_left_boundary() -> No
     text = "https://example.com/tasksk-Ab3xK9mQ7zR2wT5vY8nL4pJ6hG1dF0sC"
     result = await secret_keys(None, text, SecretKeysCfg(threshold="balanced"))
 
-    assert result.tripwire_triggered is False  # noqa: S101
+    assert result.tripwire_trigggered is False  # noqa: S101
     assert result.info["detected_secrets"] == []  # noqa: S101
 
 
