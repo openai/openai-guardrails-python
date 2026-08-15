@@ -131,6 +131,16 @@ ALLOWED_EXTENSIONS = (
     ".png",
 )
 
+_PREFIXED_CANDIDATE_RE = re.compile(
+    r"(?<![A-Za-z0-9])(?:"
+    + "|".join(
+        re.escape(prefix)
+        for prefix in sorted(COMMON_KEY_PREFIXES, key=len, reverse=True)
+        if not any(char.isspace() for char in prefix)
+    )
+    + r")[A-Za-z0-9._~+%=:;-]*"
+)
+
 CONFIGS: dict[str, SecretCfg] = {
     "strict": {
         "min_length": 10,
@@ -242,11 +252,6 @@ def _contains_allowed_pattern(text: str) -> bool:
     Returns:
         bool: True if text matches URL or allowed extension; otherwise False.
     """
-    # Tokens containing a recognized key prefix must still be scanned even when
-    # they otherwise look like a URL or filename.
-    if any(prefix in text for prefix in COMMON_KEY_PREFIXES):
-        return False
-
     # Simple regex for URLs
     url_pattern = re.compile(r"https?://[^\s]+", re.IGNORECASE)
     if url_pattern.search(text):
@@ -264,7 +269,25 @@ def _contains_allowed_pattern(text: str) -> bool:
     return False
 
 
-def _is_secret_candidate(s: str, cfg: SecretCfg, custom_regex: list[str] | None = None) -> bool:
+def _prefixed_secret_candidates(text: str) -> list[str]:
+    """Extract built-in prefixed credential candidates from a token.
+
+    Args:
+        text: Whitespace-delimited token to inspect.
+
+    Returns:
+        Built-in prefixed substrings in source order.
+    """
+    return [match.group(0) for match in _PREFIXED_CANDIDATE_RE.finditer(text)]
+
+
+def _is_secret_candidate(
+    s: str,
+    cfg: SecretCfg,
+    custom_regex: list[str] | None = None,
+    *,
+    allow_pattern_exemption: bool = True,
+) -> bool:
     """Check if a string is a secret key using the specified criteria.
 
     Skips candidates matching allowed patterns (when strict_mode=False),
@@ -275,6 +298,7 @@ def _is_secret_candidate(s: str, cfg: SecretCfg, custom_regex: list[str] | None 
         s (str): String to analyze.
         cfg (SecretCfg): Detection configuration.
         custom_regex (Optional[List[str]]): List of custom regex patterns to check.
+        allow_pattern_exemption: Whether URL/file exemptions may suppress the candidate.
 
     Returns:
         bool: True if the string is a secret key; otherwise False.
@@ -285,7 +309,7 @@ def _is_secret_candidate(s: str, cfg: SecretCfg, custom_regex: list[str] | None 
             if re.match(pattern, s):
                 return True
 
-    if not cfg.get("strict_mode", False) and _contains_allowed_pattern(s):
+    if allow_pattern_exemption and not cfg.get("strict_mode", False) and _contains_allowed_pattern(s):
         return False
 
     long_enough = len(s) >= cfg.get("min_length", 15)
@@ -311,8 +335,25 @@ def _detect_secret_keys(text: str, cfg: SecretCfg, custom_regex: list[str] | Non
     Returns:
         GuardrailResult: Result containing flag status and detected secrets.
     """
-    words = (w.replace("*", "").replace("#", "") for w in re.findall(r"\S+", text))
-    secrets = [w for w in words if _is_secret_candidate(w, cfg, custom_regex)]
+    secrets: list[str] = []
+    for raw_word in re.findall(r"\S+", text):
+        word = raw_word.replace("*", "").replace("#", "")
+        word_is_secret = _is_secret_candidate(word, cfg, custom_regex)
+        if word_is_secret:
+            secrets.append(word)
+            continue
+
+        if not _contains_allowed_pattern(word):
+            continue
+
+        for candidate in _prefixed_secret_candidates(word):
+            if _is_secret_candidate(
+                candidate,
+                cfg,
+                custom_regex=None,
+                allow_pattern_exemption=False,
+            ):
+                secrets.append(candidate)
 
     return GuardrailResult(
         tripwire_triggered=bool(secrets),
