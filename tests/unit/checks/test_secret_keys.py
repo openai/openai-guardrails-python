@@ -10,7 +10,8 @@ from hypothesis import given, strategies as st
 from guardrails.checks.text.secret_keys import SecretKeysCfg, _detect_secret_keys, secret_keys
 
 SYNTHETIC_SECRET = "sk-proj-Ab3xK9mQ7zR2wT5vY8nL4pJ6hG1dF0sC"
-DIRECT_PREFIXES = ["sk-", "sk_", "ghp_", "AKIA", "xoxb-", "xoxp-", "SG.", "hf_"]
+AWS_ACCESS_KEY_ID = "AKIAIOSFODNN7EXAMPLE"
+DIRECT_PREFIXES = ["sk-", "sk_", "ghp_", "xoxb-", "xoxp-", "SG.", "hf_"]
 GENERIC_PREFIXES = ["key-", "api-", "apikey-", "token-", "secret-", "xox"]
 BENIGN_SLUG_WORDS = ["documentation", "version", "release", "reference", "management", "guide", "archive"]
 BALANCED_CFG = {
@@ -58,6 +59,42 @@ def test_detect_secret_keys_flags_high_entropy_strings() -> None:
 
     assert result.tripwire_triggered is True  # noqa: S101
     assert "sk-AAAABBBBCCCCDDDD" in result.info["detected_secrets"]  # noqa: S101
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("threshold", ["balanced", "permissive"])
+async def test_aws_access_key_id_detected_standalone_and_embedded(threshold: str) -> None:
+    """AWS access-key IDs bypass generic diversity through their fixed format."""
+    standalone = await secret_keys(None, AWS_ACCESS_KEY_ID, SecretKeysCfg(threshold=threshold))
+    wrapped = f"https://example.com/?key={AWS_ACCESS_KEY_ID}"
+    embedded = await secret_keys(None, wrapped, SecretKeysCfg(threshold=threshold))
+    encoded = await secret_keys(
+        None,
+        f"https://example.com/?key=%41KIAIOSFODNN7EXAMPLE",
+        SecretKeysCfg(threshold=threshold),
+    )
+
+    assert standalone.tripwire_triggered is True  # noqa: S101
+    assert standalone.info["detected_secrets"] == [AWS_ACCESS_KEY_ID]  # noqa: S101
+    assert embedded.tripwire_triggered is True  # noqa: S101
+    assert embedded.info["detected_secrets"] == [wrapped]  # noqa: S101
+    assert encoded.tripwire_triggered is True  # noqa: S101
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "text",
+    [
+        "https://example.com/AKIA-DOCUMENTATION-2026",
+        "https://example.com/AKIAIOSFODNN7EXAMPLEEXTRA",
+    ],
+)
+async def test_non_key_akia_slugs_remain_exempt(text: str) -> None:
+    """AKIA only lifts a container exemption when the AWS key shape matches."""
+    result = await secret_keys(None, text, SecretKeysCfg(threshold="balanced"))
+
+    assert result.tripwire_triggered is False  # noqa: S101
+    assert result.info["detected_secrets"] == []  # noqa: S101
 
 
 @pytest.mark.asyncio
