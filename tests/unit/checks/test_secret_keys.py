@@ -7,7 +7,12 @@ import string
 import pytest
 from hypothesis import given, strategies as st
 
-from guardrails.checks.text.secret_keys import SecretKeysCfg, _detect_secret_keys, secret_keys
+from guardrails.checks.text.secret_keys import (
+    ALLOWED_EXTENSIONS,
+    SecretKeysCfg,
+    _detect_secret_keys,
+    secret_keys,
+)
 
 SYNTHETIC_SECRET = "sk-proj-Ab3xK9mQ7zR2wT5vY8nL4pJ6hG1dF0sC"
 AWS_ACCESS_KEY_ID = "AKIAIOSFODNN7EXAMPLE"
@@ -245,6 +250,33 @@ def test_encoded_prefix_regressions(encoded_prefix: str) -> None:
     assert result.info["detected_secrets"] == [wrapped]  # noqa: S101
 
 
+@given(invalid_byte=st.integers(min_value=0x80, max_value=0xFF))
+def test_invalid_utf8_escape_cannot_hide_later_encoded_prefix(invalid_byte: int) -> None:
+    """Malformed UTF-8 escapes must not suppress later valid encoded data."""
+    invalid_escape = f"%{invalid_byte:02X}"
+    wrapped = (
+        "https://example.com/?k="
+        f"{invalid_escape}%2F%73%6B%2DAb3xK9mQ7zR2wT5vY8nL4pJ6hG1dF0sC"
+    )
+    result = _detect_secret_keys(wrapped, BALANCED_CFG)
+
+    assert result.tripwire_triggered is True  # noqa: S101
+    assert result.info["detected_secrets"] == [wrapped]  # noqa: S101
+
+
+@pytest.mark.parametrize("malformed_escape", ["%GZ", "%A"])
+def test_malformed_escape_cannot_hide_later_encoded_prefix(malformed_escape: str) -> None:
+    """Malformed percent syntax must not suppress later valid encoded data."""
+    wrapped = (
+        "https://example.com/?k="
+        f"{malformed_escape}%2F%73%6B%2DAb3xK9mQ7zR2wT5vY8nL4pJ6hG1dF0sC"
+    )
+    result = _detect_secret_keys(wrapped, BALANCED_CFG)
+
+    assert result.tripwire_triggered is True  # noqa: S101
+    assert result.info["detected_secrets"] == [wrapped]  # noqa: S101
+
+
 @pytest.mark.parametrize(
     "double_encoded_prefix",
     [
@@ -330,6 +362,20 @@ def test_invalid_percent_sequences_do_not_manufacture_boundaries(invalid_prefix:
     """Malformed escapes must remain raw and must not create replacement boundaries."""
     wrapped = f"https://example.com/?next={invalid_prefix}{SYNTHETIC_SECRET}"
     result = _detect_secret_keys(wrapped, BALANCED_CFG)
+
+    assert result.tripwire_triggered is False  # noqa: S101
+    assert result.info["detected_secrets"] == []  # noqa: S101
+
+
+@given(
+    extension=st.sampled_from(ALLOWED_EXTENSIONS),
+    container=st.sampled_from(["{candidate}{extension}", "files/{candidate}{extension}", "https://example.com/{candidate}{extension}"]),
+)
+def test_allowed_extension_cannot_complete_short_prefixed_candidate(extension: str, container: str) -> None:
+    """Allowed file syntax must not supply length or diversity to a short prefix."""
+    candidate = "sk-ABCDEFGHIJ1"
+    text = container.format(candidate=candidate, extension=extension)
+    result = _detect_secret_keys(text, BALANCED_CFG)
 
     assert result.tripwire_triggered is False  # noqa: S101
     assert result.info["detected_secrets"] == []  # noqa: S101
