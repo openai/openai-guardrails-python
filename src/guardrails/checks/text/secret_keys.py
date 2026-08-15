@@ -130,18 +130,42 @@ ALLOWED_EXTENSIONS = (
     ".png",
 )
 
+# Prefixes that are sufficiently provider-specific to lift a URL/file exemption
+# after the existing length and diversity checks pass.
+_EMBEDDED_DIRECT_PREFIXES = (
+    "sk-",
+    "sk_",
+    "ghp_",
+    "AKIA",
+    "xox",
+    "SG.",
+    "hf_",
+)
+
+# These lexical prefixes also occur naturally in documentation and route names.
+# They may lift an exemption only when the component independently satisfies the
+# configured entropy threshold. Public-key/hash prefixes are intentionally absent.
+_EMBEDDED_ENTROPY_PREFIXES = (
+    "key-",
+    "api-",
+    "apikey-",
+    "token-",
+    "secret-",
+)
+_EMBEDDED_PREFIXES = _EMBEDDED_DIRECT_PREFIXES + _EMBEDDED_ENTROPY_PREFIXES
+_EMBEDDED_ENTROPY_PREFIX_SET = frozenset(_EMBEDDED_ENTROPY_PREFIXES)
+
 _PREFIX_RE = re.compile(
     r"(?:"
     + "|".join(
         re.escape(prefix)
-        for prefix in sorted(COMMON_KEY_PREFIXES, key=len, reverse=True)
-        if not any(char.isspace() for char in prefix)
+        for prefix in sorted(_EMBEDDED_PREFIXES, key=len, reverse=True)
     )
     + r")"
 )
 _URL_SCHEME_RE = re.compile(r"https?://", re.IGNORECASE)
 _HEX_DIGITS = frozenset("0123456789abcdefABCDEF")
-_DOTTED_PREFIXES = tuple(prefix for prefix in COMMON_KEY_PREFIXES if prefix.endswith("."))
+_DOTTED_PREFIXES = tuple(prefix for prefix in _EMBEDDED_PREFIXES if prefix.endswith("."))
 
 CONFIGS: dict[str, SecretCfg] = {
     "strict": {
@@ -308,18 +332,20 @@ def _has_prefix_boundary(text: str, start: int) -> bool:
 def _component_has_detectable_prefixed_candidate(component: str, cfg: SecretCfg) -> bool:
     """Check one structural component for a detectable built-in prefix."""
     semantic_component = _decode_percent_once(component)
-    prefix_starts = {
-        match.start()
+    prefix_matches = [
+        match
         for match in _PREFIX_RE.finditer(semantic_component)
         if _has_prefix_boundary(semantic_component, match.start())
-    }
-    if not prefix_starts:
+    ]
+    if not prefix_matches:
         return False
 
     min_length = cfg.get("min_length", 15)
     min_diversity = cfg.get("min_diversity", 2)
+    min_entropy = cfg.get("min_entropy", 3.7)
     suffix_class_mask = 0
     component_length = len(semantic_component)
+    matches_by_start = {match.start(): match.group(0) for match in prefix_matches}
 
     for index in range(component_length - 1, -1, -1):
         char = semantic_component[index]
@@ -332,12 +358,18 @@ def _component_has_detectable_prefixed_candidate(component: str, cfg: SecretCfg)
         else:
             suffix_class_mask |= 8
 
-        if (
-            index in prefix_starts
-            and component_length - index >= min_length
-            and suffix_class_mask.bit_count() >= min_diversity
-        ):
-            return True
+        matched_prefix = matches_by_start.get(index)
+        if matched_prefix is None:
+            continue
+
+        candidate = semantic_component[index:]
+        if len(candidate) < min_length or suffix_class_mask.bit_count() < min_diversity:
+            continue
+
+        if matched_prefix in _EMBEDDED_ENTROPY_PREFIX_SET and _entropy(candidate) < min_entropy:
+            continue
+
+        return True
 
     return False
 
