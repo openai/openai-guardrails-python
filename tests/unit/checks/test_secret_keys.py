@@ -111,7 +111,7 @@ async def test_multiple_prefixed_candidates_preserve_token_level_output() -> Non
 async def test_strict_mode_preserves_existing_whole_token_result() -> None:
     """Embedded checking must not duplicate a token detected normally."""
     text = "https://attacker.example/?k=sk-AAAAAAAAAAAA"
-    result = await secret_keys(None, text, SecretKysCfg(threshold="strict"))
+    result = await secret_keys(None, text, SecretKeysCfg(threshold="strict"))
 
     assert result.tripwire_triggered is True  # noqa: S101
     assert result.info["detected_secrets"] == [text]  # noqa: S101
