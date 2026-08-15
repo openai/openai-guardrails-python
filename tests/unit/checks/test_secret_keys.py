@@ -11,7 +11,8 @@ from guardrails.checks.text.secret_keys import SecretKeysCfg, _detect_secret_key
 
 SYNTHETIC_SECRET = "sk-proj-Ab3xK9mQ7zR2wT5vY8nL4pJ6hG1dF0sC"
 DIRECT_PREFIXES = ["sk-", "sk_", "ghp_", "AKIA", "xoxb-", "xoxp-", "SG.", "hf_"]
-ENTROPY_PREFIXES = ["key-", "api-", "apikey-", "token-", "secret-", "xox"]
+GENERIC_PREFIXES = ["key-", "api-", "apikey-", "token-", "secret-", "xox"]
+BENIGN_SLUG_WORDS = ["documentation", "version", "release", "reference", "management", "guide", "archive"]
 BALANCED_CFG = {
     "min_length": 15,
     "min_entropy": 3.8,
@@ -111,6 +112,7 @@ async def test_url_padding_cannot_change_prefixed_secret_classification(padding_
     "text",
     [
         "https://example.com/api-documentation-v2",
+        "https://example.com/api-documentation-version-2026-release",
         "https://example.com/token-documentation-v2",
         "https://example.com/key-release-v2-2026",
         "https://example.com/apikey-reference-v2",
@@ -129,15 +131,29 @@ async def test_ordinary_prefixed_url_slugs_remain_exempt(text: str) -> None:
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("prefix", ENTROPY_PREFIXES)
-async def test_entropy_qualified_generic_prefixes_can_lift_exemptions(prefix: str) -> None:
-    """Generic prefixes may lift exemptions when the component is high entropy."""
+@pytest.mark.parametrize("prefix", GENERIC_PREFIXES)
+async def test_high_entropy_generic_prefixes_do_not_lift_url_exemptions(prefix: str) -> None:
+    """Generic lexical prefixes remain exempt even with random-looking suffixes."""
     candidate = f"{prefix}Ab3xK9mQ7zR2wT5vY8nL4pJ6hG1dF0sC"
     text = f"https://example.com/{candidate}"
     result = await secret_keys(None, text, SecretKeysCfg(threshold="balanced"))
 
-    assert result.tripwire_triggered is True  # noqa: S101
-    assert result.info["detected_secrets"] == [text]  # noqa: S101
+    assert result.tripwire_triggered is False  # noqa: S101
+    assert result.info["detected_secrets"] == []  # noqa: S101
+
+
+@given(
+    prefix=st.sampled_from(GENERIC_PREFIXES),
+    words=st.lists(st.sampled_from(BENIGN_SLUG_WORDS), min_size=2, max_size=6),
+    year=st.integers(min_value=2000, max_value=2099),
+)
+def test_generic_prefixed_benign_slug_property(prefix: str, words: list[str], year: int) -> None:
+    """Natural-language URL slugs never lift exemptions through generic prefixes."""
+    text = f"https://example.com/{prefix}{'-'.join(words)}-{year}"
+    result = _detect_secret_keys(text, BALANCED_CFG)
+
+    assert result.tripwire_triggered is False  # noqa: S101
+    assert result.info["detected_secrets"] == []  # noqa: S101
 
 
 @given(
