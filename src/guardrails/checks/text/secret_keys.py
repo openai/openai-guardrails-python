@@ -159,6 +159,15 @@ _AWS_ACCESS_KEY_ID_LENGTH = 20
 _URL_SCHEME_RE = re.compile(r"https?://", re.IGNORECASE)
 _HEX_DIGITS = frozenset("0123456789abcdefABCDEF")
 _DOTTED_PREFIXES = tuple(prefix for prefix in _EMBEDDED_DIRECT_PREFIXES if prefix.endswith("."))
+_SENTENCE_TRAILING_PUNCTUATION = ".,;:!?"
+_PRESENTATION_CLOSERS = {
+    "(": ")",
+    "[": "]",
+    "{": "}",
+    "<": ">",
+    '"': '"',
+    "'": "'",
+}
 
 CONFIGS: dict[str, SecretCfg] = {
     "strict": {
@@ -387,6 +396,27 @@ def _strip_allowed_extension(component: str) -> str:
             return component[:raw_index]
 
     return component
+
+
+def _trim_url_presentation_suffix(url_text: str, leading_context: str) -> str:
+    """Remove sentence or matching wrapper punctuation outside a URL.
+
+    Args:
+        url_text: Raw URL span extending to the whitespace-token boundary or
+            the next URL scheme.
+        leading_context: Raw text immediately preceding this URL span.
+
+    Returns:
+        A URL span with trailing sentence punctuation and, when the URL is
+        immediately preceded by a presentation opener, its matching closer
+        removed before structural parsing.
+    """
+    trimmed = url_text.rstrip(_SENTENCE_TRAILING_PUNCTUATION)
+    if leading_context:
+        closer = _PRESENTATION_CLOSERS.get(leading_context[-1])
+        if closer is not None and trimmed.endswith(closer):
+            trimmed = trimmed[: -len(closer)].rstrip(_SENTENCE_TRAILING_PUNCTUATION)
+    return trimmed
 
 
 def _iter_path_components(path: str, *, strip_final_extension: bool) -> Iterator[str]:
@@ -649,7 +679,10 @@ def _iter_candidate_components(text: str) -> Iterator[str]:
 
     for index, match in enumerate(scheme_matches):
         end = scheme_matches[index + 1].start() if index + 1 < len(scheme_matches) else len(text)
-        url_text = text[match.start() : end]
+        leading_context = text[: match.start()]
+        url_text = _trim_url_presentation_suffix(text[match.start() : end], leading_context)
+        if not url_text:
+            continue
         try:
             parsed = urlsplit(url_text)
         except (ValueError, UnicodeError):
