@@ -133,7 +133,8 @@ ALLOWED_EXTENSIONS = (
 # Only provider-specific token stems may lift URL/file exemptions. Generic lexical
 # prefixes such as api-/token-/key- remain part of standalone detection semantics,
 # but are intentionally excluded here because natural URL slugs can satisfy length,
-# diversity, and even entropy thresholds without containing a credential.
+# diversity, and even entropy thresholds without containing a credential. AKIA is
+# handled with its fixed AWS access-key-ID shape rather than generic diversity.
 _EMBEDDED_DIRECT_PREFIXES = (
     "sk-",
     "sk_",
@@ -153,6 +154,8 @@ _PREFIX_RE = re.compile(
     )
     + r")"
 )
+_AWS_ACCESS_KEY_ID_RE = re.compile(r"AKIA[A-Z0-9]{16}")
+_AWS_ACCESS_KEY_ID_LENGTH = 20
 _URL_SCHEME_RE = re.compile(r"https?://", re.IGNORECASE)
 _HEX_DIGITS = frozenset("0123456789abcdefABCDEF")
 _DOTTED_PREFIXES = tuple(prefix for prefix in _EMBEDDED_DIRECT_PREFIXES if prefix.endswith("."))
@@ -356,6 +359,35 @@ def _has_prefix_boundary(text: str, start: int) -> bool:
     return not _is_identifier_continuation(text[start - 1])
 
 
+def _is_aws_access_key_id(value: str) -> bool:
+    """Check whether a value is a complete long-term AWS access-key ID.
+
+    Args:
+        value: Candidate value.
+
+    Returns:
+        True for exactly ``AKIA`` followed by 16 uppercase letters or digits.
+    """
+    return _AWS_ACCESS_KEY_ID_RE.fullmatch(value) is not None
+
+
+def _has_embedded_aws_access_key_id(text: str, start: int) -> bool:
+    """Check for an AWS access-key ID at a component offset.
+
+    Args:
+        text: Once-decoded component text.
+        start: Offset where the ``AKIA`` prefix begins.
+
+    Returns:
+        True when the next 20 characters form an AWS access-key ID and the
+        identifier does not continue with another identifier character.
+    """
+    end = start + _AWS_ACCESS_KEY_ID_LENGTH
+    if end > len(text) or not _is_aws_access_key_id(text[start:end]):
+        return False
+    return end == len(text) or not _is_identifier_continuation(text[end])
+
+
 def _component_has_detectable_prefixed_candidate(component: str, cfg: SecretCfg) -> bool:
     """Check one component for a provider-specific embedded credential.
 
@@ -364,16 +396,16 @@ def _component_has_detectable_prefixed_candidate(component: str, cfg: SecretCfg)
         cfg: Secret-detection thresholds for the active mode.
 
     Returns:
-        True when a provider-specific prefix begins a sufficiently long and
-        diverse candidate in this component.
+        True when a provider-specific candidate satisfies its format-specific
+        rule or the existing length/diversity policy.
     """
     semantic_component = _decode_percent_once(component)
-    prefix_starts = {
-        match.start()
+    prefix_matches = {
+        match.start(): match.group(0)
         for match in _PREFIX_RE.finditer(semantic_component)
         if _has_prefix_boundary(semantic_component, match.start())
     }
-    if not prefix_starts:
+    if not prefix_matches:
         return False
 
     min_length = cfg.get("min_length", 15)
@@ -394,7 +426,13 @@ def _component_has_detectable_prefixed_candidate(component: str, cfg: SecretCfg)
         else:
             suffix_class_mask |= 8
 
-        if index not in prefix_starts:
+        matched_prefix = prefix_matches.get(index)
+        if matched_prefix is None:
+            continue
+
+        if matched_prefix == "AKIA":
+            if _has_embedded_aws_access_key_id(semantic_component, index):
+                return True
             continue
 
         if suffix_length >= min_length and suffix_class_mask.bit_count() >= min_diversity:
@@ -548,7 +586,7 @@ def _contains_detectable_prefixed_candidate(text: str, cfg: SecretCfg) -> bool:
 
     Returns:
         True when any structural component contains a provider-specific
-        prefixed candidate satisfying the existing length/diversity policy.
+        candidate satisfying its format-specific or length/diversity policy.
     """
     return any(_component_has_detectable_prefixed_candidate(component, cfg) for component in _iter_candidate_components(text))
 
@@ -571,6 +609,9 @@ def _is_secret_candidate(s: str, cfg: SecretCfg, custom_regex: list[str] | None 
 
     if not cfg.get("strict_mode", False) and _contains_allowed_pattern(s):
         return False
+
+    if _is_aws_access_key_id(s):
+        return True
 
     long_enough = len(s) >= cfg.get("min_length", 15)
     diverse = _char_diversity(s) >= cfg.get("min_diversity", 2)
