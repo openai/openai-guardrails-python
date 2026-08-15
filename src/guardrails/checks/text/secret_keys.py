@@ -344,11 +344,22 @@ def _component_has_detectable_prefixed_candidate(component: str, cfg: SecretCfg)
     min_diversity = cfg.get("min_diversity", 2)
     min_entropy = cfg.get("min_entropy", 3.7)
     suffix_class_mask = 0
-    component_length = len(semantic_component)
+    suffix_counts: dict[str, int] = {}
+    suffix_count_log_sum = 0.0
+    suffix_length = 0
     matches_by_start = {match.start(): match.group(0) for match in prefix_matches}
 
-    for index in range(component_length - 1, -1, -1):
+    for index in range(len(semantic_component) - 1, -1, -1):
         char = semantic_component[index]
+        suffix_length += 1
+
+        previous_count = suffix_counts.get(char, 0)
+        current_count = previous_count + 1
+        suffix_counts[char] = current_count
+        if previous_count:
+            suffix_count_log_sum -= previous_count * math.log2(previous_count)
+        suffix_count_log_sum += current_count * math.log2(current_count)
+
         if char.islower():
             suffix_class_mask |= 1
         elif char.isupper():
@@ -362,12 +373,13 @@ def _component_has_detectable_prefixed_candidate(component: str, cfg: SecretCfg)
         if matched_prefix is None:
             continue
 
-        candidate = semantic_component[index:]
-        if len(candidate) < min_length or suffix_class_mask.bit_count() < min_diversity:
+        if suffix_length < min_length or suffix_class_mask.bit_count() < min_diversity:
             continue
 
-        if matched_prefix in _EMBEDDED_ENTROPY_PREFIX_SET and _entropy(candidate) < min_entropy:
-            continue
+        if matched_prefix in _EMBEDDED_ENTROPY_PREFIX_SET:
+            suffix_entropy = math.log2(suffix_length) - suffix_count_log_sum / suffix_length
+            if suffix_entropy < min_entropy:
+                continue
 
         return True
 
