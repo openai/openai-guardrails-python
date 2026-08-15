@@ -10,7 +10,8 @@ from hypothesis import given, strategies as st
 from guardrails.checks.text.secret_keys import SecretKeysCfg, _detect_secret_keys, secret_keys
 
 SYNTHETIC_SECRET = "sk-proj-Ab3xK9mQ7zR2wT5vY8nL4pJ6hG1dF0sC"
-PREFIXES = ["sk-", "ghp_", "AKIA", "xox", "SG.", "hf_", "SHA:"]
+DIRECT_PREFIXES = ["sk-", "sk_", "ghp_", "AKIA", "xox", "SG.", "hf_"]
+ENTROPY_PREFIXES = ["key-", "api-", "apikey-", "token-", "secret-"]
 BALANCED_CFG = {
     "min_length": 15,
     "min_entropy": 3.8,
@@ -27,8 +28,8 @@ def _encode_every_byte(value: str, *, lowercase: bool = False) -> str:
 
 @st.composite
 def _encoded_prefixes(draw) -> tuple[str, str]:
-    """Generate literal/mixed-case percent-encoded forms of built-in prefixes."""
-    prefix = draw(st.sampled_from(PREFIXES))
+    """Generate literal/mixed-case percent-encoded forms of direct prefixes."""
+    prefix = draw(st.sampled_from(DIRECT_PREFIXES))
     encoded_parts: list[str] = []
     for char in prefix:
         if draw(st.booleans()):
@@ -105,8 +106,41 @@ async def test_url_padding_cannot_change_prefixed_secret_classification(padding_
     assert result.info["detected_secrets"] == [text]  # noqa: S101
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "text",
+    [
+        "https://example.com/api-documentation-v2",
+        "https://example.com/token-documentation-v2",
+        "https://example.com/key-release-v2-2026",
+        "https://example.com/apikey-reference-v2",
+        "https://example.com/secret-management-v2",
+        "https://example.com/pk_documentation_v2",
+        "https://example.com/SHA:deadbeef-v2",
+    ],
+)
+async def test_ordinary_prefixed_url_slugs_remain_exempt(text: str) -> None:
+    """Lexical prefixes alone must not turn ordinary URL slugs into secrets."""
+    result = await secret_keys(None, text, SecretKeysCfg(threshold="balanced"))
+
+    assert result.tripwire_triggered is False  # noqa: S101
+    assert result.info["detected_secrets"] == []  # noqa: S101
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("prefix", ENTROPY_PREFIXES)
+async def test_entropy_qualified_generic_prefixes_can_lift_exemptions(prefix: str) -> None:
+    """Generic prefixes may lift exemptions when the component is high entropy."""
+    candidate = f"{prefix}Ab3xK9mQ7zR2wT5vY8nL4pJ6hG1dF0sC"
+    text = f"https://example.com/{candidate}"
+    result = await secret_keys(None, text, SecretKeysCfg(threshold="balanced"))
+
+    assert result.tripwire_triggered is True  # noqa: S101
+    assert result.info["detected_secrets"] == [text]  # noqa: S101
+
+
 @given(
-    prefix=st.sampled_from(PREFIXES),
+    prefix=st.sampled_from(DIRECT_PREFIXES),
     punctuation=st.sampled_from(list("$!/:@;,+%=._~'()?")),
 )
 def test_query_value_punctuation_preserves_embedded_prefix_classification(prefix: str, punctuation: str) -> None:
@@ -328,7 +362,7 @@ async def test_multiple_prefixed_candidates_preserve_token_level_output() -> Non
 @pytest.mark.asyncio
 async def test_strict_mode_preserves_existing_whole_token_result() -> None:
     """Embedded checking must not duplicate a token detected normally."""
-    text = "https://attacker.example/?k=sk-AAAAAAAAAAAA"
+    text = f"https://attacker.example/?k={SYNTHETIC_SECRET}"
     result = await secret_keys(None, text, SecretKeysCfg(threshold="strict"))
 
     assert result.tripwire_triggered is True  # noqa: S101
