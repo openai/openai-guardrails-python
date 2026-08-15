@@ -415,13 +415,13 @@ def test_encoded_allowed_extension_matches_literal_extension_classification(enco
 
 
 @given(
-    wrapper=st.sampled_from([("", ""), ("(", ")"), ("[", "]"), ("{", "}"), ("<", ">"), ('"', '"'), ("'", "'")]),
+    wrapper=st.sampled_from([("(", ")"), ("[", "]"), ("{", "}"), ("<", ">"), ('"', '"'), ("'", "'")]),
     punctuation=st.sampled_from(list(".,;:!")),
 )
 def test_url_presentation_wrapping_cannot_complete_short_candidate(
     wrapper: tuple[str, str], punctuation: str
 ) -> None:
-    """Presentation wrapping must not change a clean URL's classification."""
+    """Confirmed presentation wrapping must not change a clean URL's classification."""
     opener, closer = wrapper
     base = "https://example.com/sk-ABCDEFGHIJ1"
     text = f"{opener}{base}{closer}{punctuation}"
@@ -429,6 +429,19 @@ def test_url_presentation_wrapping_cannot_complete_short_candidate(
 
     assert result.tripwire_triggered is False  # noqa: S101
     assert result.info["detected_secrets"] == []  # noqa: S101
+
+
+def test_terminal_uri_punctuation_preserves_prefixed_classification() -> None:
+    """Terminal URI punctuation must remain credential data without a wrapper."""
+    candidate = "sk-abcdefghij1!"
+    wrapped = f"https://example.com/{candidate}"
+
+    standalone_result = _detect_secret_keys(candidate, BALANCED_CFG)
+    wrapped_result = _detect_secret_keys(wrapped, BALANCED_CFG)
+
+    assert standalone_result.tripwire_triggered is True  # noqa: S101
+    assert wrapped_result.tripwire_triggered is standalone_result.tripwire_triggered  # noqa: S101
+    assert wrapped_result.info["detected_secrets"] == [wrapped]  # noqa: S101
 
 
 @pytest.mark.asyncio
