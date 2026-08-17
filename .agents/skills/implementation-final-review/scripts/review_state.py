@@ -10,6 +10,7 @@ import os
 import re
 import subprocess
 import tempfile
+from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 
 
@@ -34,6 +35,17 @@ def _git_diff(repo: Path, *args: str) -> bytes:
 
 def _digest(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
+
+
+@dataclass(frozen=True, slots=True)
+class _Snapshot:
+    tracked_diff: bytes
+    complete_diff: bytes
+    status: bytes
+    workspace: list[dict[str, object]]
+    unfiltered_status: bytes
+    unfiltered_workspace: list[dict[str, object]]
+    component_workspaces: dict[str, list[dict[str, object]]]
 
 
 def _unsafe_index_paths(repo: Path) -> tuple[tuple[str, str], ...]:
@@ -254,6 +266,8 @@ def _workspace_entry(repo: Path, relative_path: str) -> dict[str, object]:
             "kind": "gitlink",
             "head": indexed_head,
         }
+    if path.exists():
+        raise ValueError(f"Unsupported workspace file type: {relative_path}")
     return {"path": relative_path, "kind": "missing"}
 
 
@@ -317,7 +331,7 @@ def _literal_pathspecs(
         raw_path = os.fsencode(pathspec)
         tracked_paths = _git(repo, "ls-files", "-z", "--", f":(literal){pathspec}")
         if (
-            candidate.is_file()
+            (candidate.exists() and not candidate.is_dir())
             or candidate.is_symlink()
             or raw_path in tracked_paths.split(b"\0")
             or _base_has_literal_path(repo, base, pathspec)
@@ -406,6 +420,59 @@ def _repository_fingerprint(
     return _digest(canonical.encode())
 
 
+def _capture_snapshot(
+    repo: Path,
+    base: str,
+    pathspecs: tuple[str, ...],
+    components: dict[str, tuple[str, ...]],
+) -> _Snapshot:
+    workspace = _workspace_entries(repo, base, pathspecs)
+    unfiltered_workspace = _workspace_entries(repo, base, ())
+    unfiltered_by_path = {str(entry["path"]): entry for entry in unfiltered_workspace}
+    for entry in workspace:
+        unfiltered_by_path.setdefault(str(entry["path"]), entry)
+    unfiltered_workspace = [unfiltered_by_path[path] for path in sorted(unfiltered_by_path)]
+    component_workspaces = {
+        name: _workspace_entries(repo, base, component_pathspecs)
+        for name, component_pathspecs in components.items()
+    }
+    git_pathspecs = _git_pathspecs(repo, base, pathspecs)
+    return _Snapshot(
+        tracked_diff=_git(
+            repo,
+            "diff",
+            "--binary",
+            "--full-index",
+            "--ignore-submodules=none",
+            base,
+            "--",
+            *git_pathspecs,
+        ),
+        complete_diff=_complete_diff(repo, base, pathspecs),
+        status=_git(
+            repo,
+            "status",
+            "--porcelain=v1",
+            "-z",
+            "--untracked-files=all",
+            "--ignore-submodules=none",
+            "--",
+            *git_pathspecs,
+        ),
+        workspace=workspace,
+        unfiltered_status=_git(
+            repo,
+            "status",
+            "--porcelain=v1",
+            "-z",
+            "--untracked-files=all",
+            "--ignore-submodules=none",
+        ),
+        unfiltered_workspace=unfiltered_workspace,
+        component_workspaces=component_workspaces,
+    )
+
+
 def review_state(
     repo: Path,
     base: str,
@@ -440,50 +507,29 @@ def review_state(
         _git(repo, "merge-base", "--is-ancestor", resolved_base, head)
     except subprocess.CalledProcessError as error:
         raise ValueError("Base must be an ancestor of HEAD.") from error
-    tracked_diff = _git(
-        repo,
-        "diff",
-        "--binary",
-        "--full-index",
-        "--ignore-submodules=none",
-        resolved_base,
-        "--",
-        *_git_pathspecs(repo, resolved_base, pathspecs),
-    )
-    complete_diff = _complete_diff(repo, resolved_base, pathspecs)
-    status = _git(
-        repo,
-        "status",
-        "--porcelain=v1",
-        "-z",
-        "--untracked-files=all",
-        "--ignore-submodules=none",
-        "--",
-        *_git_pathspecs(repo, resolved_base, pathspecs),
-    )
-    workspace = _workspace_entries(repo, resolved_base, pathspecs)
-    unfiltered_status = _git(
-        repo,
-        "status",
-        "--porcelain=v1",
-        "-z",
-        "--untracked-files=all",
-        "--ignore-submodules=none",
-    )
-    unfiltered_workspace = _workspace_entries(repo, resolved_base, ())
-    unfiltered_by_path = {str(entry["path"]): entry for entry in unfiltered_workspace}
-    for entry in workspace:
-        unfiltered_by_path.setdefault(str(entry["path"]), entry)
-    unfiltered_workspace = [unfiltered_by_path[path] for path in sorted(unfiltered_by_path)]
-
-    content_fingerprint = _content_fingerprint(resolved_base, workspace)
-    component_states: dict[str, dict[str, object]] = {}
-    component_owners: dict[str, list[str]] = {}
+    canonical_components: dict[str, tuple[str, ...]] = {}
     for name, component_pathspecs in sorted((components or {}).items()):
         canonical_component_pathspecs = _canonical_pathspecs(component_pathspecs)
         if not canonical_component_pathspecs:
             raise ValueError(f"Component manifest is empty: {name}")
-        component_workspace = _workspace_entries(repo, resolved_base, canonical_component_pathspecs)
+        canonical_components[name] = canonical_component_pathspecs
+
+    snapshot = _capture_snapshot(repo, resolved_base, pathspecs, canonical_components)
+    _require_reviewable_index(repo)
+    _require_clean_submodules(repo)
+    final_snapshot = _capture_snapshot(repo, resolved_base, pathspecs, canonical_components)
+    final_head = _git(repo, "rev-parse", "HEAD^{commit}").decode().strip()
+    _require_reviewable_index(repo)
+    _require_clean_submodules(repo)
+    if final_head != head or final_snapshot != snapshot:
+        raise ValueError("Repository changed while review state was captured.")
+    snapshot = final_snapshot
+
+    content_fingerprint = _content_fingerprint(resolved_base, snapshot.workspace)
+    component_states: dict[str, dict[str, object]] = {}
+    component_owners: dict[str, list[str]] = {}
+    for name, canonical_component_pathspecs in canonical_components.items():
+        component_workspace = snapshot.component_workspaces[name]
         for entry in component_workspace:
             component_owners.setdefault(str(entry["path"]), []).append(name)
         component_states[name] = {
@@ -492,7 +538,7 @@ def review_state(
             "workspace": component_workspace,
         }
     if component_states:
-        combined_paths = {str(entry["path"]) for entry in workspace}
+        combined_paths = {str(entry["path"]) for entry in snapshot.workspace}
         component_paths = set(component_owners)
         missing_paths = sorted(combined_paths - component_paths)
         extra_paths = sorted(component_paths - combined_paths)
@@ -509,29 +555,31 @@ def review_state(
     repository_state = {
         "content_fingerprint": content_fingerprint,
         "head": head,
-        "status_sha256": _digest(status),
-        "tracked_diff_sha256": _digest(tracked_diff),
-        "complete_diff_sha256": _digest(complete_diff),
+        "status_sha256": _digest(snapshot.status),
+        "tracked_diff_sha256": _digest(snapshot.tracked_diff),
+        "complete_diff_sha256": _digest(snapshot.complete_diff),
     }
     repository_fingerprint = _repository_fingerprint(
         **repository_state,
-        unfiltered_status_sha256=_digest(unfiltered_status),
-        unfiltered_content_fingerprint=_content_fingerprint(resolved_base, unfiltered_workspace),
+        unfiltered_status_sha256=_digest(snapshot.unfiltered_status),
+        unfiltered_content_fingerprint=_content_fingerprint(
+            resolved_base, snapshot.unfiltered_workspace
+        ),
     )
     if complete_diff_output is not None:
-        _write_bytes_atomically(complete_diff_output, complete_diff)
+        _write_bytes_atomically(complete_diff_output, snapshot.complete_diff)
     return {
         "fingerprint": content_fingerprint,
         "content_fingerprint": content_fingerprint,
         "repository_fingerprint": repository_fingerprint,
         "base": resolved_base,
         "pathspecs": list(pathspecs),
-        "workspace": workspace,
-        "complete_diff_paths": [str(entry["path"]) for entry in workspace],
+        "workspace": snapshot.workspace,
+        "complete_diff_paths": [str(entry["path"]) for entry in snapshot.workspace],
         "components": component_states,
         "unfiltered": {
-            "status_sha256": _digest(unfiltered_status),
-            "workspace": unfiltered_workspace,
+            "status_sha256": _digest(snapshot.unfiltered_status),
+            "workspace": snapshot.unfiltered_workspace,
         },
         **repository_state,
     }

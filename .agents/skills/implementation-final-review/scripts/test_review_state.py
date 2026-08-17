@@ -10,9 +10,11 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).parent))
 
+import review_state as review_state_module
 from review_state import (
     _component,
     _content_fingerprint,
@@ -80,6 +82,42 @@ class ReviewStateTest(unittest.TestCase):
 
         with self.assertRaisesRegex(ValueError, "worktree root"):
             review_state(self.repo / "src", self.base, ("src/runtime.py",))
+
+    def test_repository_changes_during_snapshot_fail_closed(self) -> None:
+        """Reject a diff and workspace fingerprint captured from different states."""
+        runtime = self.repo / "src" / "runtime.py"
+        runtime.write_text("VALUE = 2\n")
+        original_complete_diff = review_state_module._complete_diff
+        mutated = False
+
+        def complete_diff_then_mutate(
+            repo: Path, base: str, pathspecs: tuple[str, ...]
+        ) -> bytes:
+            nonlocal mutated
+            result = original_complete_diff(repo, base, pathspecs)
+            if not mutated:
+                runtime.write_text("VALUE = 3\n")
+                mutated = True
+            return result
+
+        with (
+            mock.patch.object(
+                review_state_module,
+                "_complete_diff",
+                side_effect=complete_diff_then_mutate,
+            ),
+            self.assertRaisesRegex(ValueError, "changed while review state was captured"),
+        ):
+            review_state(self.repo, self.base, ("src/runtime.py",))
+
+    @unittest.skipUnless(hasattr(os, "mkfifo"), "Requires POSIX FIFO support.")
+    def test_exact_special_file_path_fails_closed(self) -> None:
+        """Reject a task manifest entry that cannot produce a finite diff."""
+        fifo = self.repo / "artifact.pipe"
+        os.mkfifo(fifo)
+
+        with self.assertRaisesRegex(ValueError, "Unsupported workspace file type"):
+            review_state(self.repo, self.base, ("artifact.pipe",))
 
     @unittest.skipIf(os.name == "nt", "Executable mode normalization requires POSIX.")
     def test_executable_uses_git_owner_bit(self) -> None:

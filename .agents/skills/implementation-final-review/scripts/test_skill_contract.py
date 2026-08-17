@@ -192,8 +192,12 @@ class SkillContractTest(unittest.TestCase):
         self.assertIn("Stage reviewable gitlink pointer changes", self.skill)
         self.assertIn("fail closed on dirty worktrees, hidden index flags", self.skill)
         self.assertIn("Reject cyclic or aliased submodule worktree graphs", self.skill)
+        self.assertIn("two consecutive identical observations of HEAD", self.skill)
+        self.assertIn("state changes during capture", self.skill)
+        self.assertIn("including FIFOs, sockets, and devices", self.skill)
         self.assertIn("Require unique keys in every JSON object", self.skill)
         self.assertIn("Every JSON object must use unique keys", self.reviewer_brief)
+        self.assertIn("two consecutive identical repository observations", self.reviewer_brief)
 
     def test_verified_base_advance_closure_is_strict_and_keeps_final_verification(self) -> None:
         required_text = (
