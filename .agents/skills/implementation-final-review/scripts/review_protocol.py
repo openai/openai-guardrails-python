@@ -154,7 +154,7 @@ def _read_bytes(value: Any, context: str) -> tuple[Path, bytes]:
         raise ProtocolError(f"{context} must be an absolute path: {path}.")
     try:
         return path, path.read_bytes()
-    except OSError as error:
+    except (OSError, ValueError) as error:
         raise ProtocolError(f"Cannot read {context} {path}: {error}") from error
 
 
@@ -428,7 +428,8 @@ def validate_packet(
     prior_ledger_path: Path | None = None,
     prior_ledger_sha256: str | None = None,
 ) -> dict[str, Any]:
-    packet = _load_json(path)
+    packet_path, packet_data = _read_bytes(str(path.resolve()), "packet")
+    packet = _json_bytes(packet_data, str(packet_path))
     if type(packet.get("schema_version")) is not int or packet["schema_version"] != 1:
         raise ProtocolError("Packet schema_version must be integer 1.")
     for dotted_path in REQUIRED_PACKET_TEXT:
@@ -449,7 +450,7 @@ def validate_packet(
     if _at(packet, "task.id") != expected_task_id:
         raise ProtocolError("packet task.id must match the control-plane task ID.")
 
-    packet_size = path.stat().st_size
+    packet_size = len(packet_data)
     overage_reason = _text(packet.get("packet_overage_reason"), "packet_overage_reason")
     if packet_size > PACKET_SOFT_LIMIT_BYTES and overage_reason.strip().lower() in SENTINELS:
         raise ProtocolError(
@@ -786,9 +787,9 @@ def validate_packet(
 
     _strings(packet.get("architecture_references"), "architecture_references")
     return {
-        "packet_path": str(path.resolve()),
+        "packet_path": str(packet_path),
         "packet_size_bytes": packet_size,
-        "packet_sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+        "packet_sha256": hashlib.sha256(packet_data).hexdigest(),
         "review_state_path": str(artifacts[_at(packet, "review_state.evidence_id")]["path"]),
         "combined_fingerprint": combined,
         "components": components,
@@ -816,7 +817,10 @@ def validate_reviewer_output(
         prior_ledger_path,
         prior_ledger_sha256,
     )
-    packet = _load_json(packet_path)
+    _, packet_data = _read_bytes(str(packet_path.resolve()), "packet")
+    if hashlib.sha256(packet_data).hexdigest() != summary["packet_sha256"]:
+        raise ProtocolError("Packet changed during reviewer output validation.")
+    packet = _json_bytes(packet_data, str(packet_path.resolve()))
     output = _load_json(output_path)
     missing = sorted(REVIEWER_OUTPUT_FIELDS - output.keys())
     if missing:
@@ -829,11 +833,12 @@ def validate_reviewer_output(
     }:
         raise ProtocolError(f"Invalid reviewer verdict: {output['verdict']!r}.")
     expected_fingerprints = {
+        "packet": summary["packet_sha256"],
         "combined": summary["combined_fingerprint"],
         "components": summary["components"],
     }
     if output["reviewed_fingerprints"] != expected_fingerprints:
-        raise ProtocolError("Reviewer fingerprints do not match the packet exactly.")
+        raise ProtocolError("Reviewer packet digest or fingerprints do not match exactly.")
     assignment = next(
         (item for item in packet["reviewer_assignments"] if item.get("reviewer_id") == reviewer_id),
         None,

@@ -82,7 +82,7 @@ Encode those columns in each `kind: "authority-data-flow"` inventory object as `
 
 ## Reviewer instructions
 
-Perform exactly one read-only review round on the frozen fingerprint. Your context must be created with no inherited implementer conversation; the dispatcher uses `fork_turns: "none"` when available. First run the supplied revalidation command and calculate the merge base. Then inspect the complete raw diff, surrounding source, tests, and supplied references. Validate every assigned inventory row rather than trusting the implementer. You may report blockers outside your specialty.
+Perform exactly one read-only review round on the frozen fingerprint. Your context must be created with no inherited implementer conversation; the dispatcher uses `fork_turns: "none"` when available. First run the supplied revalidation command and calculate the merge base. Then inspect the complete raw diff, surrounding source, tests, and supplied references. Validate every assigned inventory row rather than trusting the implementer. Return the packet SHA-256 reported by preflight so the validator rejects credit after any packet field or evidence descriptor changes. You may report blockers outside your specialty.
 
 Do not edit or stage files, recursively invoke the review workflow, spawn another reviewer, run broad repository verification, inspect memory, rediscover workflow skills, rerun implementation strategy, search for the fingerprint helper, or rediscover the release tag. Inherit the supplied implementation scope contract; if it is inconsistent or leaves a decision-relevant ambiguity, report that uncertainty to the implementer instead of launching a strategy pass. If any mandatory packet field is neither populated nor explicitly marked `none` or `not applicable`, report the missing field and do not return a creditable clean verdict. Reopen primary source or released evidence only when supplied evidence is inconsistent or leaves a decision-relevant uncertainty; do not use reopening to replace missing packet contents. Run only focused non-mutating probes needed to resolve such uncertainty.
 
@@ -94,6 +94,7 @@ Return exactly one JSON object with this shape and no prose outside it:
 {
   "verdict": "clean | findings require fixes | complexity reset required | incomplete packet",
   "reviewed_fingerprints": {
+    "packet": "...",
     "combined": "...",
     "components": {"component-name": "..."}
   },

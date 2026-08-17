@@ -75,6 +75,12 @@ class ReviewStateTest(unittest.TestCase):
             explicit["content_fingerprint"], with_ignored_artifact["content_fingerprint"]
         )
 
+    def test_repository_path_must_be_the_worktree_root(self) -> None:
+        (self.repo / "src" / "runtime.py").write_text("VALUE = 2\n")
+
+        with self.assertRaisesRegex(ValueError, "worktree root"):
+            review_state(self.repo / "src", self.base, ("src/runtime.py",))
+
     @unittest.skipIf(os.name == "nt", "Executable mode normalization requires POSIX.")
     def test_executable_uses_git_owner_bit(self) -> None:
         runtime = self.repo / "src" / "runtime.py"
@@ -481,6 +487,22 @@ class ReviewStateTest(unittest.TestCase):
     def test_complete_diff_output_must_be_outside_repository(self) -> None:
         """Reject an operational diff artifact inside the worktree."""
         complete_diff = self.repo / "complete.diff"
+
+        with self.assertRaisesRegex(ValueError, "outside the repository"):
+            review_state(
+                self.repo,
+                self.base,
+                complete_diff_output=complete_diff,
+            )
+
+        self.assertFalse(complete_diff.exists())
+
+    def test_complete_diff_output_rejects_case_alias_inside_repository(self) -> None:
+        """Reject case aliases that resolve to the worktree on this filesystem."""
+        alternate_repo = self.repo.with_name(self.repo.name.swapcase())
+        if not alternate_repo.exists() or not alternate_repo.samefile(self.repo):
+            self.skipTest("Filesystem is case-sensitive.")
+        complete_diff = alternate_repo / "complete.diff"
 
         with self.assertRaisesRegex(ValueError, "outside the repository"):
             review_state(

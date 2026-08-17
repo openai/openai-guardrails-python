@@ -136,6 +136,20 @@ def _write_bytes_atomically(path: Path, data: bytes) -> None:
             pass
 
 
+def _directory_is_within(path: Path, root: Path) -> bool:
+    current = path
+    while True:
+        try:
+            if current.samefile(root):
+                return True
+        except OSError:
+            pass
+        parent = current.parent
+        if parent == current:
+            return False
+        current = parent
+
+
 def _canonical_pathspecs(pathspecs: tuple[str, ...]) -> tuple[str, ...]:
     canonical: list[str] = []
     seen: set[str] = set()
@@ -377,9 +391,14 @@ def review_state(
     complete_diff_output: Path | None = None,
 ) -> dict[str, object]:
     repo = repo.resolve()
+    top_level = Path(
+        os.fsdecode(_git(repo, "rev-parse", "--show-toplevel").rstrip(b"\n"))
+    ).resolve()
+    if not top_level.samefile(repo):
+        raise ValueError(f"Repository path must be the worktree root: {top_level}")
     if complete_diff_output is not None:
         complete_diff_output = complete_diff_output.expanduser().resolve()
-        if complete_diff_output.is_relative_to(repo):
+        if _directory_is_within(complete_diff_output.parent, repo):
             raise ValueError("Complete diff output must be outside the repository.")
     _require_visible_index_state(repo)
     _require_clean_submodules(repo)
@@ -549,7 +568,12 @@ def main() -> None:
         metavar="NAME=PATHSPEC",
         help="Named component pathspec. Repeat a name to group paths into one fingerprint.",
     )
-    parser.add_argument("--repo", type=Path, default=Path.cwd(), help="Repository worktree path.")
+    parser.add_argument(
+        "--repo",
+        type=Path,
+        default=Path.cwd(),
+        help="Repository worktree root path.",
+    )
     parser.add_argument(
         "--complete-diff-output",
         type=Path,

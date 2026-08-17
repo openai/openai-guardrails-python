@@ -345,6 +345,7 @@ class SkillContractTest(unittest.TestCase):
             "Persist enough task identity, used and authorized round budgets",
             "Persist the current combined content fingerprint as `ledger.round_fingerprint`",
             "A same-round retry is valid only when that value matches",
+            "exact packet SHA-256 and fingerprints",
         )
         for text in required_text:
             with self.subTest(text=text):

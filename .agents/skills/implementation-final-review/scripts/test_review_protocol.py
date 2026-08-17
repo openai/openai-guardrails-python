@@ -302,6 +302,7 @@ class ReviewProtocolTest(unittest.TestCase):
         return {
             "verdict": "clean",
             "reviewed_fingerprints": {
+                "packet": hashlib.sha256(self.packet_path.read_bytes()).hexdigest(),
                 "combined": self.combined,
                 "components": {"api-contract": self.component},
             },
@@ -1040,6 +1041,16 @@ class ReviewProtocolTest(unittest.TestCase):
         with self.assertRaisesRegex(ProtocolError, "inventory accounting differs"):
             self._validate_output("requirements")
 
+    def test_reviewer_output_is_bound_to_the_exact_packet(self) -> None:
+        output = self._output()
+        self._write_json(self.output_path, output)
+        packet = copy.deepcopy(self.packet)
+        packet["task"]["original_requirement"] = "A changed review requirement."
+        self._write_packet(self.packet_path, packet)
+
+        with self.assertRaisesRegex(ProtocolError, "packet digest"):
+            self._validate_output("requirements")
+
     def test_unknown_root_must_be_new_proposal_with_evidence(self) -> None:
         output = self._output()
         output["verdict"] = "findings require fixes"
@@ -1196,6 +1207,31 @@ class ReviewProtocolTest(unittest.TestCase):
 
         self.assertEqual(completed.returncode, 2)
         self.assertIn("schema_version must be integer 1", completed.stderr)
+        self.assertNotIn("Traceback", completed.stderr)
+
+    def test_cli_reports_invalid_artifact_paths_without_traceback(self) -> None:
+        invalid = copy.deepcopy(self.packet)
+        invalid["evidence_artifacts"][0]["path"] = "/tmp/invalid\0path"
+        self._write_packet(self.packet_path, invalid)
+
+        completed = subprocess.run(
+            (
+                sys.executable,
+                str(Path(__file__).with_name("review_protocol.py")),
+                "packet",
+                "--packet",
+                str(self.packet_path),
+                "--task-id",
+                "task-123",
+                "--ledger",
+                str(self.ledger_path),
+            ),
+            capture_output=True,
+            text=True,
+        )
+
+        self.assertEqual(completed.returncode, 2)
+        self.assertIn("Cannot read evidence artifact E-DIFF.path", completed.stderr)
         self.assertNotIn("Traceback", completed.stderr)
 
 
