@@ -41,6 +41,8 @@ DEFAULT_PORTS = {
 }
 
 SCHEME_PREFIX_RE = re.compile(r"^[a-z][a-z0-9+.-]*://")
+DOMAIN_HOST_CANDIDATE_RE = re.compile(r"\b[a-zA-Z0-9][a-zA-Z0-9.-]*")
+ASCII_LETTERS = frozenset("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ")
 
 
 @dataclass(frozen=True, slots=True)
@@ -105,6 +107,63 @@ class URLConfig(BaseModel):
         return normalized
 
 
+def _find_domain_end(host_candidate: str) -> int | None:
+    """Find the end of the last valid domain suffix in a host candidate.
+
+    Args:
+        host_candidate: Maximal ASCII hostname-shaped text to inspect.
+
+    Returns:
+        The exclusive end offset of the last dot followed by at least two
+        ASCII letters, or ``None`` when no valid suffix exists.
+    """
+    domain_end = None
+
+    for index, character in enumerate(host_candidate):
+        if character != ".":
+            continue
+
+        suffix_end = index + 1
+        while suffix_end < len(host_candidate) and host_candidate[suffix_end] in ASCII_LETTERS:
+            suffix_end += 1
+
+        if suffix_end - index > 2:
+            domain_end = suffix_end
+
+    return domain_end
+
+
+def _detect_domain_like_urls(text: str) -> list[str]:
+    """Detect scheme-less domain-like URLs in linear time.
+
+    Args:
+        text: Text to scan for domain-like URLs.
+
+    Returns:
+        Domain-like URL matches using the existing detection semantics.
+    """
+    detected_domains: list[str] = []
+    search_position = 0
+
+    while match := DOMAIN_HOST_CANDIDATE_RE.search(text, search_position):
+        host_candidate = match.group(0)
+        domain_end = _find_domain_end(host_candidate)
+        if domain_end is None:
+            search_position = match.end()
+            continue
+
+        match_end = match.start() + domain_end
+        if domain_end == len(host_candidate) and match_end < len(text) and text[match_end] == "/":
+            match_end += 1
+            while match_end < len(text) and not text[match_end].isspace():
+                match_end += 1
+
+        detected_domains.append(text[match.start() : match_end])
+        search_position = match_end
+
+    return detected_domains
+
+
 def _detect_urls(text: str) -> list[str]:
     """Detect URLs using regex patterns with deduplication.
 
@@ -148,8 +207,7 @@ def _detect_urls(text: str) -> list[str]:
                     scheme_urls.add(domain_part.lower())
 
     # Pattern 2: Domain-like patterns (scheme-less) - but skip if already found with scheme
-    domain_pattern = r"\b(?:www\.)?[a-zA-Z0-9][a-zA-Z0-9.-]*\.[a-zA-Z]{2,}(?:/[^\s]*)?"
-    domain_matches = re.findall(domain_pattern, text, re.IGNORECASE)
+    domain_matches = _detect_domain_like_urls(text)
 
     for match in domain_matches:
         # Clean trailing punctuation

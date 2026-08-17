@@ -2,15 +2,72 @@
 
 from __future__ import annotations
 
+import re
+import string
+from time import perf_counter
+
 import pytest
+from hypothesis import given, strategies as st
 
 from guardrails.checks.text.urls import (
     URLConfig,
+    _detect_domain_like_urls,
     _detect_urls,
     _is_url_allowed,
     _validate_url_security,
     urls,
 )
+
+REFERENCE_DOMAIN_PATTERN = re.compile(
+    r"\b(?:www\.)?[a-zA-Z0-9][a-zA-Z0-9.-]*\.[a-zA-Z]{2,}(?:/[^\s]*)?",
+    re.IGNORECASE,
+)
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ("foo.com-", ["foo.com"]),
+        ("foo.com123", ["foo.com"]),
+        ("foo.c0m", []),
+        ("foo.com.a", ["foo.com"]),
+        ("foo..example.com", ["foo..example.com"]),
+        ("-example.com", ["example.com"]),
+        ("_example.com", []),
+        ("foo.com-evil/path", ["foo.com"]),
+        ("foo.com/path?x=1", ["foo.com/path?x=1"]),
+        ("abc/example.com", ["example.com"]),
+    ],
+)
+def test_detect_domain_like_urls_preserves_existing_matches(
+    text: str,
+    expected: list[str],
+) -> None:
+    """The linear scanner should preserve established domain matching."""
+    assert _detect_domain_like_urls(text) == expected  # noqa: S101
+
+
+@given(
+    text=st.text(
+        alphabet=string.ascii_letters + string.digits + string.punctuation + " \t\n\r",
+        max_size=100,
+    )
+)
+def test_detect_domain_like_urls_matches_reference_pattern(text: str) -> None:
+    """The linear scanner should match the previous regex on bounded text."""
+    assert _detect_domain_like_urls(text) == REFERENCE_DOMAIN_PATTERN.findall(text)  # noqa: S101
+
+
+def test_detect_urls_handles_large_invalid_domain_input_quickly() -> None:
+    """Invalid dotted input should not cause quadratic regex backtracking."""
+    text = "a." * 16_000 + "-"
+
+    started_at = perf_counter()
+    detected = _detect_urls(text)
+    duration_seconds = perf_counter() - started_at
+
+    assert detected == []  # noqa: S101
+    assert duration_seconds < 1.0  # noqa: S101
 
 
 def test_detect_urls_deduplicates_scheme_and_domain() -> None:
