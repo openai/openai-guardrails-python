@@ -7,6 +7,7 @@ import argparse
 import hashlib
 import json
 import re
+import stat
 from pathlib import Path
 from typing import Any
 
@@ -152,6 +153,12 @@ def _read_bytes(value: Any, context: str) -> tuple[Path, bytes]:
     path = Path(_text(value, context, concrete=True))
     if not path.is_absolute():
         raise ProtocolError(f"{context} must be an absolute path: {path}.")
+    try:
+        mode = path.stat().st_mode
+    except (OSError, ValueError) as error:
+        raise ProtocolError(f"Cannot read {context} {path}: {error}") from error
+    if not stat.S_ISREG(mode):
+        raise ProtocolError(f"{context} must be a regular file: {path}.")
     try:
         return path, path.read_bytes()
     except (OSError, ValueError) as error:
@@ -659,6 +666,10 @@ def validate_packet(
         if current_round not in {prior_round, prior_round + 1}:
             raise ProtocolError(
                 "ledger.current_round must match the prior round or advance by exactly one."
+            )
+        if current_round == prior_round and authorized_budgets != prior_budgets:
+            raise ProtocolError(
+                "A same-round retry budget history must match the prior ledger snapshot."
             )
         if current_round == prior_round and round_fingerprint != prior_round_fingerprint:
             raise ProtocolError(

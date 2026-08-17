@@ -36,30 +36,32 @@ def _digest(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
-def _hidden_index_paths(repo: Path) -> tuple[tuple[str, str], ...]:
+def _unsafe_index_paths(repo: Path) -> tuple[tuple[str, str], ...]:
     raw_entries = _git(repo, "ls-files", "-v", "-z")
-    hidden_paths: list[tuple[str, str]] = []
+    unsafe_paths: list[tuple[str, str]] = []
     for entry in raw_entries.split(b"\0"):
         if len(entry) < 3 or entry[1:2] != b" ":
             continue
         tag = entry[:1]
         relative_path = os.fsdecode(entry[2:])
         if tag.islower():
-            hidden_paths.append(("assume-unchanged", relative_path))
+            unsafe_paths.append(("assume-unchanged", relative_path))
         elif tag == b"S":
             candidate = repo / relative_path
             if candidate.exists() or candidate.is_symlink():
-                hidden_paths.append(("materialized skip-worktree", relative_path))
-    return tuple(sorted(hidden_paths))
+                unsafe_paths.append(("materialized skip-worktree", relative_path))
+    for entry in _git(repo, "ls-files", "--unmerged", "-z").split(b"\0"):
+        _, separator, raw_path = entry.partition(b"\t")
+        if separator:
+            unsafe_paths.append(("unmerged", os.fsdecode(raw_path)))
+    return tuple(sorted(set(unsafe_paths)))
 
 
-def _require_visible_index_state(repo: Path, context: str = "repository") -> None:
-    hidden_paths = _hidden_index_paths(repo)
-    if hidden_paths:
-        details = ", ".join(f"{kind}={path}" for kind, path in hidden_paths)
-        raise ValueError(
-            f"The {context} contains unsupported hidden index paths: {details}"
-        )
+def _require_reviewable_index(repo: Path, context: str = "repository") -> None:
+    unsafe_paths = _unsafe_index_paths(repo)
+    if unsafe_paths:
+        details = ", ".join(f"{kind}={path}" for kind, path in unsafe_paths)
+        raise ValueError(f"The {context} contains unsupported index state: {details}")
 
 
 def _index_gitlinks(repo: Path) -> dict[str, str]:
@@ -82,7 +84,7 @@ def _is_repository_root(path: Path) -> bool:
 
 
 def _require_clean_submodule(repo: Path, display_path: str, expected_head: str) -> None:
-    _require_visible_index_state(repo, f"submodule {display_path}")
+    _require_reviewable_index(repo, f"submodule {display_path}")
     actual_head = _git(repo, "rev-parse", "HEAD^{commit}").decode().strip()
     if actual_head != expected_head:
         raise ValueError(
@@ -400,7 +402,7 @@ def review_state(
         complete_diff_output = complete_diff_output.expanduser().resolve()
         if _directory_is_within(complete_diff_output.parent, repo):
             raise ValueError("Complete diff output must be outside the repository.")
-    _require_visible_index_state(repo)
+    _require_reviewable_index(repo)
     _require_clean_submodules(repo)
     pathspecs = _canonical_pathspecs(pathspecs)
     if components and not pathspecs:

@@ -14,7 +14,9 @@ Treat implementation and final review as separate phases. Reconstruct the change
 - Require independent review. A same-context self-review cannot satisfy the clean-review gate.
 - Freeze task-owned content while reviewers inspect a fingerprint.
 - Treat an exact normalized file path in the task and component manifests as authoritative even when ignore rules match that file. An existing exact file takes literal precedence over Git pathspec metacharacters; use explicit `:(glob)` magic when pattern semantics are intended. A directory or glob pathspec never promotes ignored operational files into the review.
+- Require the repository and every initialized submodule index to have no unresolved merge stages before fingerprinting.
 - Require every initialized submodule, including nested submodules, to be clean and checked out at the commit recorded by its parent index before freezing review state. Stage reviewable gitlink pointer changes in the parent repository; fail closed on dirty worktrees, hidden index flags, ignored nested changes, and untracked embedded repositories.
+- Require packet, ledger, manifest, receipt, reviewer-output, and evidence paths to resolve to finite regular files; materialize devices, FIFOs, sockets, or generated streams into regular files before validation.
 - Repeat commit-hook inspection, every safe rewriting step, second-pass idempotence, and generated-provenance validation before every fingerprint freeze, including post-fix and delta-review rounds. Record the exact executable inspection and rewriting commands plus their results in packet preflight evidence; a prose label is not an executable command.
 - Start independent reviewers without inherited conversation history. Fresh judgment does not require repeatedly replaying the implementer's context.
 - Report only concrete, patch-scoped findings supported by requirements, released behavior, a durable boundary, explicit maintainer intent, user reliance, or a baseline regression.
@@ -32,7 +34,7 @@ Keep the same task identity and ledger, preserve its canonical root-cause histor
 
 ## Workflow
 
-Persist the current combined content fingerprint as `ledger.round_fingerprint` and bind it to the packet fingerprint. A same-round retry is valid only when that value matches the immutable prior ledger snapshot; a changed fingerprint advances the round.
+Persist the current combined content fingerprint as `ledger.round_fingerprint` and bind it to the packet fingerprint. A same-round retry is valid only when that value and the authorized budget history match the immutable prior ledger snapshot; a changed fingerprint or newly authorized budget advances the round.
 
 1. Finish the initial implementation and focused tests. Apply formatting before review when formatting can rewrite the diff. Inspect the actual final commit-hook configuration and run the exact safe, non-committing equivalent of every hook step that can rewrite task-owned content before freezing the first review fingerprint. Run each rewriting step until a second execution is content-idempotent. Normalize generated files before computing embedded hashes or provenance so the hook cannot invalidate them later. Record any hook step that cannot safely run before review; if that step later changes task content, apply the normal invalidation rules without exception.
 2. Re-read the original user request and the current implementation scope contract. If no contract exists, record the required behavior, compatibility requirements, intentionally unsupported cases and failure behavior, and supported alternative or `none`.

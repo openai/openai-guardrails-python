@@ -1,6 +1,8 @@
 # Independent Reviewer Brief
 
-The ledger contains a `round_fingerprint` equal to the packet's combined content fingerprint. A same-round retry must preserve the immutable prior snapshot's `round_fingerprint`; a changed fingerprint requires advancing exactly one round.
+The ledger contains a `round_fingerprint` equal to the packet's combined content fingerprint. A same-round retry must preserve the immutable prior snapshot's `round_fingerprint` and authorized budget history; a changed fingerprint or newly authorized budget requires advancing exactly one round.
+
+Every packet, ledger, manifest, receipt, reviewer-output, and evidence path must resolve to a finite regular file. Materialize devices, FIFOs, sockets, or generated streams before validation.
 
 Use this template to prepare one self-contained, factual snapshot packet per fingerprint round. Fill every field or mark it explicitly `none` or `not applicable`; do not dispatch an incomplete packet. Fill it once, reuse the shared body byte-for-byte for every reviewer, and vary only the final specialty assignment. Keep this control-plane brief near 12 KB when practical. Store larger evidence in indexed files and reference each file by exact path and SHA-256 digest. Do not omit decision-relevant evidence merely to meet the soft size target. Do not include implementer conclusions, suspected bugs, prior findings, or intended fixes.
 

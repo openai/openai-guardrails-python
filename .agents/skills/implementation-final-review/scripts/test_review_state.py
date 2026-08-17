@@ -570,6 +570,24 @@ class ReviewStateTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "skip-worktree.*src/runtime.py"):
             review_state(self.repo, self.base, ("src/runtime.py",))
 
+    def test_unmerged_index_paths_fail_closed(self) -> None:
+        """Reject unresolved index stages before fingerprinting worktree content."""
+        self._git("checkout", "-qb", "other")
+        (self.repo / "src" / "runtime.py").write_text("VALUE = 'other'\n")
+        self._git("commit", "-qam", "other change")
+        self._git("checkout", "-qb", "current", self.base)
+        (self.repo / "src" / "runtime.py").write_text("VALUE = 'current'\n")
+        self._git("commit", "-qam", "current change")
+        merged = subprocess.run(
+            ("git", "-C", str(self.repo), "merge", "other"),
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(merged.returncode, 1)
+
+        with self.assertRaisesRegex(ValueError, "unmerged=src/runtime.py"):
+            review_state(self.repo, self.base, ("src/runtime.py",))
+
     def test_ordinary_directory_is_not_a_gitlink(self) -> None:
         """Do not discover the parent repository through a directory."""
         self.assertEqual(

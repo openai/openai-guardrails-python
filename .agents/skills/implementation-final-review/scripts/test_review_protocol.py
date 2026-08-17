@@ -575,6 +575,36 @@ class ReviewProtocolTest(unittest.TestCase):
             prior_digest,
         )
 
+    def test_same_round_retry_cannot_expand_the_budget_history(self) -> None:
+        prior_path = self.root / "prior-ledger.json"
+        prior = copy.deepcopy(self.packet["ledger"])
+        self._write_json(prior_path, prior)
+        prior_digest = hashlib.sha256(prior_path.read_bytes()).hexdigest()
+        expanded = copy.deepcopy(self.packet)
+        expanded["ledger"]["authorized_round_budgets"] = [6, 2]
+        expanded["ledger"]["remaining_budget"] = 7
+        self._write_packet(self.packet_path, expanded)
+
+        with self.assertRaisesRegex(ProtocolError, "same-round retry budget history"):
+            validate_packet(
+                self.packet_path,
+                "task-123",
+                self.ledger_path,
+                prior_path,
+                prior_digest,
+            )
+
+        expanded["ledger"]["current_round"] = 2
+        expanded["ledger"]["remaining_budget"] = 6
+        self._write_packet(self.packet_path, expanded)
+        validate_packet(
+            self.packet_path,
+            "task-123",
+            self.ledger_path,
+            prior_path,
+            prior_digest,
+        )
+
     def test_later_round_requires_digest_bound_prior_ledger(self) -> None:
         packet = copy.deepcopy(self.packet)
         packet["ledger"]["current_round"] = 2
@@ -732,6 +762,16 @@ class ReviewProtocolTest(unittest.TestCase):
         self.evidence.write_text("changed\n")
 
         with self.assertRaisesRegex(ProtocolError, "digest mismatch"):
+            self._validate_packet()
+
+    @unittest.skipUnless(Path("/dev/null").exists(), "Requires a POSIX device path.")
+    def test_packet_rejects_non_regular_evidence_files(self) -> None:
+        packet = copy.deepcopy(self.packet)
+        packet["evidence_artifacts"][0]["path"] = "/dev/null"
+        packet["evidence_artifacts"][0]["sha256"] = hashlib.sha256(b"").hexdigest()
+        self._write_packet(self.packet_path, packet)
+
+        with self.assertRaisesRegex(ProtocolError, "must be a regular file"):
             self._validate_packet()
 
     def test_complete_diff_must_match_review_state(self) -> None:
