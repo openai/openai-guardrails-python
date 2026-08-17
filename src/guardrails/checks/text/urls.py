@@ -26,6 +26,7 @@ from collections.abc import Iterator
 from dataclasses import dataclass, field
 from heapq import merge
 from ipaddress import AddressValueError, ip_address, ip_network
+from itertools import chain
 from typing import Any
 from urllib.parse import ParseResult, urlparse
 
@@ -42,13 +43,15 @@ DEFAULT_PORTS = {
     "https": 443,
 }
 
-SCHEME_PREFIX_RE = re.compile(r"^[a-z][a-z0-9+.-]*://")
+SCHEME_PREFIX_RE = re.compile(r"^[a-z][a-z0-9+.-]*://", re.IGNORECASE)
 _DOMAIN_HOST_CANDIDATE_PATTERN = r"[a-zA-Z0-9][a-zA-Z0-9.-]*"
 DOMAIN_HOST_CANDIDATE_RE = re.compile(rf"\b{_DOMAIN_HOST_CANDIDATE_PATTERN}", re.IGNORECASE)
 _AMBIGUOUS_DOMAIN_PATTERN = rf"(?<![A-Za-z0-9])(?i:{_DOMAIN_HOST_CANDIDATE_PATTERN})"
 AMBIGUOUS_DOMAIN_HOST_CANDIDATE_RE = re.compile(_AMBIGUOUS_DOMAIN_PATTERN)
-_IP_URL_PATTERN = r"(?:[0-9]{1,3}\.){3}[0-9]{1,3}(?::[0-9]+)?(?:/[^\s]*)?"
+_IP_HOST_PATTERN = r"(?:[0-9]{1,3}\.){3}[0-9]{1,3}(?::[0-9]+)?"
+_IP_URL_PATTERN = rf"{_IP_HOST_PATTERN}(?:/[^\s]*)?"
 IP_URL_RE = re.compile(rf"\b{_IP_URL_PATTERN}")
+_IP_HOST_RE = re.compile(rf"\b{_IP_HOST_PATTERN}")
 AMBIGUOUS_IP_URL_RE = re.compile(rf"(?<![A-Za-z0-9]){_IP_URL_PATTERN}")
 ASCII_LETTERS = frozenset("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ")
 CASE_INSENSITIVE_ASCII_LETTERS = ASCII_LETTERS | frozenset("İıſK")
@@ -67,7 +70,43 @@ _POST_CONTROL_HARD_URL_BOUNDARIES = frozenset(('"', "`", "|", "^", "\\", "[", "{
 _POST_CONTROL_HARD_URL_BOUNDARY_RE = re.compile(r'["`|^\\\[{<]')
 _PAIRED_DELIMITER_OPEN_CODES = {"(": 1, "[": 2, "{": 3, "<": 4}
 _PAIRED_DELIMITER_CLOSE_TO_OPEN_CODE = {")": 1, "]": 2, "}": 3, ">": 4}
+_PRESENTATION_CLOSERS = {"(": ")", "[": "]", "{": "}", "<": ">", "'": "'", '"': '"', "`": "`"}
 _PAIRED_DELIMITER_RE = re.compile(r"[()\[\]{}<>]")
+_ADJACENT_SCHEME_URL_BOUNDARIES = (
+    _TRAILING_SENTENCE_PUNCTUATION
+    | frozenset(_PAIRED_DELIMITER_OPEN_CODES)
+    | frozenset(_PAIRED_DELIMITER_CLOSE_TO_OPEN_CODE)
+    | frozenset(("'", '"', "`"))
+)
+_ADJACENT_SCHEME_URL_BOUNDARY_CLASS = re.escape("".join(sorted(_ADJACENT_SCHEME_URL_BOUNDARIES)))
+_HIERARCHICAL_ADJACENT_SCHEME_URL_BOUNDARIES = _ADJACENT_SCHEME_URL_BOUNDARIES - frozenset(":")
+_HIERARCHICAL_ADJACENT_SCHEME_URL_BOUNDARY_CLASS = re.escape("".join(sorted(_HIERARCHICAL_ADJACENT_SCHEME_URL_BOUNDARIES)))
+_ADJACENT_DOMAIN_START_RE = re.compile(
+    rf"(?<=[{_ADJACENT_SCHEME_URL_BOUNDARY_CLASS}]){_DOMAIN_HOST_CANDIDATE_PATTERN}",
+    re.IGNORECASE,
+)
+_ADJACENT_IP_START_RE = re.compile(rf"(?<=[{_ADJACENT_SCHEME_URL_BOUNDARY_CLASS}])(?:[0-9]{{1,3}}\.){{3}}[0-9]{{1,3}}")
+_EXPLICIT_URL_SCHEME_PATTERN = r"(?:https?|ftp)://|(?:data|javascript|vbscript):"
+_EXPLICIT_URL_SCHEME_RE = re.compile(_EXPLICIT_URL_SCHEME_PATTERN, re.IGNORECASE)
+_HTTP_URL_CHARACTER_PATTERN = r'[^\s<>"{}|\\^`\[\]]'
+_BRACKETED_HTTP_AUTHORITY_PATTERN = r"https?://\[[^\]\s/?#]+\]"
+_HIERARCHICAL_URL_COMPONENT_PATTERN = (
+    r"(?:(?!["
+    + _HIERARCHICAL_ADJACENT_SCHEME_URL_BOUNDARY_CLASS
+    + r"](?:"
+    + _EXPLICIT_URL_SCHEME_PATTERN
+    + r"))(?:"
+    + _BRACKETED_HTTP_AUTHORITY_PATTERN
+    + "|"
+    + _HTTP_URL_CHARACTER_PATTERN
+    + r"))"
+)
+_HTTP_URL_COMPONENT_PATTERN = _HIERARCHICAL_URL_COMPONENT_PATTERN
+_HTTP_URL_PATTERN = r"https?://" + _HTTP_URL_COMPONENT_PATTERN + "+"
+_FTP_URL_PATTERN = r"ftp://" + _HIERARCHICAL_URL_COMPONENT_PATTERN + "+"
+_BRACKETED_HTTP_URL_PATTERN = _BRACKETED_HTTP_AUTHORITY_PATTERN + _HTTP_URL_COMPONENT_PATTERN + "*"
+_BRACKETED_HTTP_AUTHORITY_RE = re.compile(_BRACKETED_HTTP_AUTHORITY_PATTERN, re.IGNORECASE)
+_TRAILING_DETECTED_URL_PUNCTUATION_RE = re.compile(r"[.,;:!?)\]]+$")
 _DENSE_DELIMITER_SAMPLE_SIZE = 64
 _DENSE_DELIMITER_SAMPLE_WINDOW = 4_096
 _POST_CONTROL_UNMATCHED_URL_BOUNDARIES = frozenset(")]}>")
@@ -352,10 +391,30 @@ def _detect_domain_like_url_spans(
 
         match_end = match.start() + domain_end
         if domain_end == len(host_candidate) and match_end < len(text) and text[match_end] == "/":
-            match_end += 1
-            while match_end < len(text) and not text[match_end].isspace():
-                match_end += 1
+            match_end = _find_scheme_less_path_end(text, match_end)
 
+        detected_spans.append((match.start(), match_end))
+        search_position = match_end
+
+    return detected_spans
+
+
+def _detect_ip_url_spans(text: str) -> list[tuple[int, int]]:
+    """Detect IPv4 URL spans with adjacent-URL boundaries.
+
+    Args:
+        text: Text to scan for IPv4 URLs.
+
+    Returns:
+        Inclusive start and exclusive end offsets for IPv4 URLs.
+    """
+    detected_spans: list[tuple[int, int]] = []
+    search_position = 0
+
+    while match := _IP_HOST_RE.search(text, search_position):
+        match_end = match.end()
+        if match_end < len(text) and text[match_end] == "/":
+            match_end = _find_scheme_less_path_end(text, match_end)
         detected_spans.append((match.start(), match_end))
         search_position = match_end
 
@@ -1029,9 +1088,490 @@ def _find_ambiguous_url_candidates(
     return candidates
 
 
+def _is_nested_url_value_start(
+    text: str,
+    owner_end: int,
+    start: int,
+) -> bool:
+    """Return whether a scheme continues an owned URL query value.
+
+    Args:
+        text: Original text containing the scheme.
+        owner_end: Exclusive end of the previous owned URL span.
+        start: Inclusive scheme offset.
+
+    Returns:
+        True when the scheme remains inside the previous query-value span.
+    """
+    _ = text
+    return owner_end >= 0 and start < owner_end
+
+
+def _token_end(text: str, start: int) -> int:
+    """Return the end of the whitespace-delimited token at ``start``.
+
+    Args:
+        text: Source text containing the token.
+        start: Inclusive offset inside the token.
+
+    Returns:
+        The exclusive token end.
+    """
+    end = start
+    while end < len(text) and not text[end].isspace():
+        end += 1
+    return end
+
+
+def _presentation_wrapper_end(text: str, start: int, end: int) -> int | None:
+    """Return the end of an immediately enclosing presentation wrapper.
+
+    Args:
+        text: Source text containing the URL.
+        start: Inclusive URL offset.
+        end: Exclusive cleaned URL offset.
+
+    Returns:
+        The URL end when the next character closes an immediate wrapper, or
+        ``None`` when the URL is not immediately wrapped.
+    """
+    if start == 0 or end >= len(text):
+        return None
+    expected_closer = _PRESENTATION_CLOSERS.get(text[start - 1])
+    if expected_closer is None or text[end] != expected_closer:
+        return None
+    return end
+
+
+def _has_valid_http_authority(url: str) -> bool:
+    """Return whether text has a released-valid HTTP authority.
+
+    Args:
+        url: Candidate HTTP URL prefix.
+
+    Returns:
+        True when the prefix has an HTTP(S) scheme, nonempty host, and valid
+        port syntax.
+    """
+    try:
+        parsed_url = urlparse(url)
+        hostname = parsed_url.hostname
+        _port = parsed_url.port
+    except (ValueError, UnicodeError):
+        return False
+    return parsed_url.scheme.lower() in {"http", "https"} and hostname is not None
+
+
+def _has_open_http_query_value(url: str) -> bool:
+    """Return whether a valid HTTP URL ends with an empty query value.
+
+    Args:
+        url: Accepted explicit URL candidate.
+
+    Returns:
+        True when the URL has no fragment and its final query field ends in
+        an equals sign.
+    """
+    try:
+        parsed_url = urlparse(url)
+        hostname = parsed_url.hostname
+        _port = parsed_url.port
+    except (ValueError, UnicodeError):
+        return False
+
+    final_query_field = parsed_url.query.rsplit("&", 1)[-1]
+    value_separator = final_query_field.find("=")
+    return (
+        parsed_url.scheme.lower() in {"http", "https"}
+        and hostname is not None
+        and not parsed_url.fragment
+        and bool(parsed_url.query)
+        and value_separator == len(final_query_field) - 1
+    )
+
+
+def _clean_detected_scheme_url(url: str) -> str:
+    """Remove presentation punctuation from an explicit URL candidate.
+
+    Args:
+        url: Raw explicit-scheme candidate.
+
+    Returns:
+        Candidate without trailing presentation punctuation. A closing bracket
+        that terminates an IPv6 authority is preserved.
+    """
+    bracketed_authority = _BRACKETED_HTTP_AUTHORITY_RE.match(url)
+    structural_prefix_end = bracketed_authority.end() if bracketed_authority else 0
+    return url[:structural_prefix_end] + _TRAILING_DETECTED_URL_PUNCTUATION_RE.sub(
+        "",
+        url[structural_prefix_end:],
+    )
+
+
+def _iter_adjacent_url_starts(url: str, search_start: int) -> Iterator[int]:
+    """Yield boundary-aligned URL starts in source order.
+
+    Args:
+        url: Explicit URL candidate to scan.
+        search_start: Inclusive offset for nested candidates.
+
+    Yields:
+        Unique source offsets for explicit schemes, domains, and IPv4 hosts.
+    """
+    explicit_starts = (
+        match.start()
+        for match in _EXPLICIT_URL_SCHEME_RE.finditer(url, search_start)
+        if match.start() > search_start and url[match.start() - 1] in _ADJACENT_SCHEME_URL_BOUNDARIES
+    )
+    domain_starts = (match.start() for match in _ADJACENT_DOMAIN_START_RE.finditer(url, search_start) if _find_domain_end(match.group()) is not None)
+    ip_starts = (match.start() for match in _ADJACENT_IP_START_RE.finditer(url, search_start))
+    previous_start = -1
+    for start in merge(explicit_starts, domain_starts, ip_starts):
+        if start != previous_start:
+            yield start
+            previous_start = start
+
+
+def _is_adjacent_url_start(text: str, start: int) -> bool:
+    """Return whether presentation punctuation introduces a URL.
+
+    Args:
+        text: Source text containing the possible URL.
+        start: Inclusive offset immediately after presentation punctuation.
+
+    Returns:
+        True when an explicit, domain, or IPv4 URL starts at the offset.
+    """
+    if _EXPLICIT_URL_SCHEME_RE.match(text, start) is not None:
+        return True
+    domain_match = _ADJACENT_DOMAIN_START_RE.match(text, start)
+    if domain_match is not None and _find_domain_end(domain_match.group()) is not None:
+        return True
+    return _ADJACENT_IP_START_RE.match(text, start) is not None
+
+
+def _find_scheme_less_path_end(text: str, path_start: int) -> int:
+    """Find a scheme-less path end without rescanning later suffixes.
+
+    Args:
+        text: Source text containing the path.
+        path_start: Offset of the slash that begins the path.
+
+    Returns:
+        The exclusive path end at whitespace, token end, or an adjacent URL
+        presentation boundary.
+    """
+    position = path_start + 1
+    while position < len(text):
+        character = text[position]
+        if character.isspace():
+            return position
+        if character in _ADJACENT_SCHEME_URL_BOUNDARIES and position + 1 < len(text) and _is_adjacent_url_start(text, position + 1):
+            return position
+        position += 1
+    return position
+
+
+def _has_owned_http_query_value(url: str) -> bool:
+    """Return whether an empty query value owns a nested URL suffix.
+
+    Args:
+        url: Raw HTTP(S) candidate before presentation cleanup.
+
+    Returns:
+        True when a query field ending in ``=`` is followed only by nesting
+        punctuation before a URL-shaped descendant.
+    """
+    scheme_prefix_end = url.find("://") + 3
+    query_start = url.find("?", scheme_prefix_end)
+    if query_start < 0:
+        return False
+    fragment_start = url.find("#", query_start)
+    query_end = fragment_start if fragment_start >= 0 else len(url)
+    nested_boundaries = _ADJACENT_SCHEME_URL_BOUNDARIES | frozenset(("/", "\\"))
+
+    explicit_starts = (match.start() for match in _EXPLICIT_URL_SCHEME_RE.finditer(url, query_start + 1))
+    domain_starts = (
+        match.start() for match in _ADJACENT_DOMAIN_START_RE.finditer(url, query_start + 1) if _find_domain_end(match.group()) is not None
+    )
+    ip_starts = (match.start() for match in _ADJACENT_IP_START_RE.finditer(url, query_start + 1))
+    scan_position = query_start + 1
+    value_separator_found = False
+    separator_is_nested = True
+    separator_length = 0
+    separator_start = -1
+    field_owns_nested_urls = False
+    for start in chain(merge(explicit_starts, domain_starts, ip_starts), (query_end,)):
+        scan_end = min(start, query_end)
+        while scan_position < scan_end:
+            character = url[scan_position]
+            if character == "&":
+                value_separator_found = False
+                separator_is_nested = True
+                separator_length = 0
+                separator_start = -1
+                field_owns_nested_urls = False
+            elif not field_owns_nested_urls and not value_separator_found:
+                if character == "=":
+                    value_separator_found = True
+                    separator_is_nested = True
+                    separator_length = 0
+                    separator_start = scan_position + 1
+            elif not field_owns_nested_urls:
+                separator_length += 1
+                if character not in nested_boundaries:
+                    separator_is_nested = False
+            scan_position += 1
+        if start >= query_end:
+            break
+        if (
+            not field_owns_nested_urls
+            and value_separator_found
+            and separator_length
+            and separator_is_nested
+            and separator_start >= 0
+            and _mark_unmatched_closing_delimiters(url[separator_start:scan_end]) is None
+        ):
+            field_owns_nested_urls = True
+    return field_owns_nested_urls
+
+
+def _truncate_before_adjacent_scheme_less_url(url: str) -> str:
+    """Split a presentation-adjacent scheme-less URL from a scheme URL.
+
+    Args:
+        url: Raw explicit-scheme candidate.
+
+    Returns:
+        The explicit URL prefix, unless an active empty query value owns the
+        adjacent scheme-less candidate.
+    """
+    lowered_url = url.lower()
+    if not lowered_url.startswith(("http://", "https://")):
+        scheme_prefix_end = url.find(":") + 1
+        if scheme_prefix_end <= 0:
+            return url
+        data_payload_separator = url.find(",", scheme_prefix_end) if lowered_url.startswith("data:") else -1
+        for start in _iter_adjacent_url_starts(url, scheme_prefix_end):
+            boundary = start - 1
+            if boundary == data_payload_separator:
+                continue
+            return url[:boundary]
+        return url
+
+    scheme_prefix_end = url.find("://") + 3
+    component_starts = [position for delimiter in "/?#" if (position := url.find(delimiter, scheme_prefix_end)) >= 0]
+    first_component_start = min(component_starts, default=len(url))
+    userinfo_end = url.rfind("@", scheme_prefix_end, first_component_start)
+    query_start = url.find("?", first_component_start)
+    fragment_start = url.find("#", first_component_start)
+    authority_is_valid: bool | None = None
+    query_scan_position = query_start + 1
+    query_value_separator_found = False
+    query_value_has_content = False
+    query_field_owns_nested_urls = False
+    for start in _iter_adjacent_url_starts(url, scheme_prefix_end):
+        boundary = start - 1
+        boundary_character = url[boundary]
+        if start <= userinfo_end:
+            continue
+        if boundary_character == ":" and boundary < first_component_start:
+            return url
+        if boundary_character == "." and boundary < first_component_start:
+            continue
+        if authority_is_valid is None:
+            authority_is_valid = _has_valid_http_authority(url[:boundary])
+            if not authority_is_valid:
+                return url
+
+        in_query = query_start >= 0 and boundary > query_start and (fragment_start < 0 or boundary < fragment_start)
+        if in_query:
+            while query_scan_position < boundary:
+                character = url[query_scan_position]
+                if character == "&":
+                    query_value_separator_found = False
+                    query_value_has_content = False
+                    query_field_owns_nested_urls = False
+                elif not query_field_owns_nested_urls and not query_value_separator_found:
+                    if character == "=":
+                        query_value_separator_found = True
+                elif not query_field_owns_nested_urls:
+                    query_value_has_content = True
+                query_scan_position += 1
+            if query_field_owns_nested_urls:
+                continue
+            if query_value_separator_found and not query_value_has_content:
+                query_field_owns_nested_urls = True
+                continue
+        if boundary_character == "." and (fragment_start < 0 or boundary < fragment_start):
+            continue
+        return url[:boundary]
+
+    return url
+
+
+def _has_same_preserved_url_identity(source_url: str, preserved_url: str) -> bool:
+    """Compare URL identity while normalizing only scheme and host case.
+
+    Args:
+        source_url: URL spelling recovered from the source text.
+        preserved_url: Exact configured URL spelling.
+
+    Returns:
+        True when normalized authority and case-sensitive components match.
+    """
+    try:
+        source_parsed = urlparse(source_url)
+        preserved_parsed = urlparse(preserved_url)
+        same_authority = (
+            source_parsed.scheme.lower() == preserved_parsed.scheme.lower()
+            and source_parsed.hostname is not None
+            and preserved_parsed.hostname is not None
+            and source_parsed.hostname.lower() == preserved_parsed.hostname.lower()
+            and source_parsed.port == preserved_parsed.port
+        )
+    except (ValueError, UnicodeError):
+        return False
+    same_components = (
+        source_parsed.username == preserved_parsed.username
+        and source_parsed.password == preserved_parsed.password
+        and source_parsed.path == preserved_parsed.path
+        and source_parsed.params == preserved_parsed.params
+        and source_parsed.query == preserved_parsed.query
+        and source_parsed.fragment == preserved_parsed.fragment
+    )
+    return same_authority and same_components
+
+
+def _find_preserved_component_url_prefix(
+    raw_candidate: str,
+    preserved_component_urls: tuple[str, ...],
+) -> str | None:
+    """Find an exact allow-list URL at the start of a longer source span.
+
+    Args:
+        raw_candidate: Raw explicit-scheme regex candidate.
+        preserved_component_urls: Exact allow-list URL strings.
+
+    Returns:
+        The longest exact URL prefix ending before presentation punctuation or
+        an adjacent URL, or ``None`` when the candidate must use normal
+        adjacency splitting.
+    """
+    for preserved_url in preserved_component_urls:
+        source_prefix = raw_candidate[: len(preserved_url)]
+        if not _has_same_preserved_url_identity(source_prefix, preserved_url):
+            continue
+        if len(raw_candidate) == len(preserved_url):
+            return source_prefix
+
+        suffix = raw_candidate[len(preserved_url) :]
+        if (
+            source_prefix
+            and source_prefix[-1] in _ADJACENT_SCHEME_URL_BOUNDARIES
+            and _EXPLICIT_URL_SCHEME_RE.match(raw_candidate, len(preserved_url)) is not None
+        ):
+            return source_prefix
+        if suffix and all(character in _ADJACENT_SCHEME_URL_BOUNDARIES for character in suffix):
+            return source_prefix
+
+        for adjacent_start in _iter_adjacent_url_starts(raw_candidate, len(preserved_url)):
+            bridge = raw_candidate[len(preserved_url) : adjacent_start]
+            prefix_ends_with_boundary = source_prefix[-1] in _ADJACENT_SCHEME_URL_BOUNDARIES
+            if (bridge and all(character in _ADJACENT_SCHEME_URL_BOUNDARIES for character in bridge)) or (not bridge and prefix_ends_with_boundary):
+                return source_prefix
+            break
+    return None
+
+
+def _iter_preserved_component_url_spans(
+    text: str,
+    preserved_component_urls: tuple[str, ...],
+) -> Iterator[tuple[int, int, str, bool]]:
+    """Yield exact configured URL spans directly from source text.
+
+    Args:
+        text: Source text scanned for URLs.
+        preserved_component_urls: Exact allow-list URL strings.
+
+    Yields:
+        Scheme-candidate tuples preserving the original source spelling.
+    """
+    for scheme_match in _EXPLICIT_URL_SCHEME_RE.finditer(text):
+        start = scheme_match.start()
+        if start > 0 and not text[start - 1].isspace() and text[start - 1] not in _ADJACENT_SCHEME_URL_BOUNDARIES:
+            continue
+        for preserved_url in preserved_component_urls:
+            end = start + len(preserved_url)
+            if end > len(text):
+                continue
+            source_url = text[start:end]
+            if not _has_same_preserved_url_identity(source_url, preserved_url):
+                continue
+            if end < len(text):
+                next_character = text[end]
+                source_ends_with_boundary = source_url[-1] in _ADJACENT_SCHEME_URL_BOUNDARIES
+                adjacent_url = source_ends_with_boundary and _is_adjacent_url_start(text, end)
+                if not next_character.isspace() and next_character not in _ADJACENT_SCHEME_URL_BOUNDARIES and not adjacent_url:
+                    continue
+            yield start, end, source_url, False
+            break
+
+
+def _find_adjacent_explicit_url_after_prefix(raw_candidate: str, prefix_end: int) -> int | None:
+    """Find an explicit URL separated from a preserved source prefix.
+
+    Args:
+        raw_candidate: Raw explicit-scheme regex candidate.
+        prefix_end: Exclusive end of the preserved URL prefix.
+
+    Returns:
+        The adjacent URL start, or ``None`` when intervening text is content.
+    """
+    match = _EXPLICIT_URL_SCHEME_RE.search(raw_candidate, prefix_end)
+    if match is None:
+        return None
+    bridge = raw_candidate[prefix_end : match.start()]
+    prefix_ends_with_boundary = prefix_end > 0 and raw_candidate[prefix_end - 1] in _ADJACENT_SCHEME_URL_BOUNDARIES
+    if (bridge and all(character in _ADJACENT_SCHEME_URL_BOUNDARIES for character in bridge)) or (not bridge and prefix_ends_with_boundary):
+        return match.start()
+    return None
+
+
+def _released_url_detection_order(candidate: tuple[int, int, str]) -> tuple[int, int]:
+    """Return the released detector category and source order.
+
+    Args:
+        candidate: Source start, source end, and detected URL text.
+
+    Returns:
+        A stable ordering key that preserves the released pattern-category
+        order while retaining source order inside each category.
+    """
+    start, _, url = candidate
+    lowered_url = url.lower()
+    if lowered_url.startswith(("http://", "https://")):
+        category = 0
+    elif lowered_url.startswith("ftp://"):
+        category = 1
+    elif lowered_url.startswith("data:"):
+        category = 2
+    elif lowered_url.startswith("javascript:"):
+        category = 3
+    elif lowered_url.startswith("vbscript:"):
+        category = 4
+    elif IP_URL_RE.fullmatch(url) is not None:
+        category = 6
+    else:
+        category = 5
+    return category, start
+
+
 def _detect_urls(
     text: str,
     allowed_schemes: set[str] | frozenset[str] = frozenset(),
+    *,
+    preserved_component_urls: frozenset[str] = frozenset(),
 ) -> list[str]:
     """Detect URLs using regex patterns with deduplication.
 
@@ -1043,16 +1583,16 @@ def _detect_urls(
     Args:
         text: The text to scan for URLs.
         allowed_schemes: Additional configured scheme names to recognize.
+        preserved_component_urls: Exact URL strings whose valid components may
+            retain presentation punctuation followed by domain-shaped text.
 
     Returns:
         List of unique URL strings found in the text, with trailing
         punctuation removed.
     """
-    # Pattern for cleaning trailing punctuation (] must be escaped)
-    PUNCTUATION_CLEANUP = r"[.,;:!?)\]]+$"
-
     ambiguous_candidates = _find_ambiguous_url_candidates(text, allowed_schemes)
-    detected_urls = [candidate for candidate, _ in ambiguous_candidates]
+    preserved_component_url_prefixes = tuple(sorted(preserved_component_urls, key=len, reverse=True))
+    ambiguous_urls = [candidate for candidate, _ in ambiguous_candidates]
     if ambiguous_candidates:
         detection_characters = list(text)
         for _, (start, end) in ambiguous_candidates:
@@ -1063,78 +1603,184 @@ def _detect_urls(
 
     # Pattern 1: URLs with schemes (highest priority)
     scheme_patterns = [
-        r'https?://[^\s<>"{}|\\^`\[\]]+',
-        r'ftp://[^\s<>"{}|\\^`\[\]]+',
+        _BRACKETED_HTTP_URL_PATTERN,
+        # Let a presentation-delimited later explicit scheme start a new match.
+        _HTTP_URL_PATTERN,
+        _FTP_URL_PATTERN,
         r'data:[^\s<>"{}|\\^`\[\]]+',
         r'javascript:[^\s<>"{}|\\^`\[\]]+',
         r'vbscript:[^\s<>"{}|\\^`\[\]]+',
     ]
 
-    scheme_urls = set()
+    scheme_candidates = list(
+        _iter_preserved_component_url_spans(
+            text_without_ambiguous_candidates,
+            preserved_component_url_prefixes,
+        )
+    )
     for pattern in scheme_patterns:
-        matches = re.findall(pattern, text_without_ambiguous_candidates, re.IGNORECASE)
-        for match in matches:
+        matches = re.finditer(pattern, text_without_ambiguous_candidates, re.IGNORECASE)
+        for scheme_match in matches:
             # Clean trailing punctuation
-            cleaned = re.sub(PUNCTUATION_CLEANUP, "", match)
+            raw_candidate = scheme_match.group()
+            preserved_prefix = _find_preserved_component_url_prefix(
+                raw_candidate,
+                preserved_component_url_prefixes,
+            )
+            separated = preserved_prefix or _truncate_before_adjacent_scheme_less_url(raw_candidate)
+            cleaned = preserved_prefix or _clean_detected_scheme_url(separated)
+            candidate_start = scheme_match.start()
+            if (
+                preserved_prefix is None
+                and candidate_start > 0
+                and text_without_ambiguous_candidates[candidate_start - 1] == "'"
+                and cleaned.endswith("'")
+            ):
+                cleaned = cleaned[:-1]
             if cleaned:
-                detected_urls.append(cleaned)
-                # Track the domain part to avoid duplicates
-                if "://" in cleaned:
-                    domain_part = cleaned.split("://", 1)[1].split("/")[0].split("?")[0].split("#")[0]
-                    scheme_urls.add(domain_part.lower())
+                trailing_presentation = separated[len(cleaned) :]
+                source_suffix_start = candidate_start + len(cleaned)
+                source_suffix_starts_with_closer = (
+                    source_suffix_start < len(text_without_ambiguous_candidates)
+                    and text_without_ambiguous_candidates[source_suffix_start] in _PAIRED_DELIMITER_CLOSE_TO_OPEN_CODE
+                )
+                open_query_owns_suffix = (
+                    _has_open_http_query_value(cleaned)
+                    and not source_suffix_starts_with_closer
+                    and _mark_unmatched_closing_delimiters(trailing_presentation) is None
+                )
+                owns_query_value = preserved_prefix is None and (
+                    open_query_owns_suffix or (_has_valid_http_authority(cleaned) and _has_owned_http_query_value(raw_candidate))
+                )
+                scheme_candidates.append(
+                    (
+                        candidate_start,
+                        candidate_start + len(cleaned),
+                        cleaned,
+                        owns_query_value,
+                    )
+                )
+                if preserved_prefix is not None:
+                    adjacent_start = _find_adjacent_explicit_url_after_prefix(
+                        raw_candidate,
+                        len(preserved_prefix),
+                    )
+                    if adjacent_start is not None:
+                        adjacent_raw = raw_candidate[adjacent_start:]
+                        adjacent_url = _clean_detected_scheme_url(_truncate_before_adjacent_scheme_less_url(adjacent_raw))
+                        if adjacent_url:
+                            adjacent_source_start = candidate_start + adjacent_start
+                            scheme_candidates.append(
+                                (
+                                    adjacent_source_start,
+                                    adjacent_source_start + len(adjacent_url),
+                                    adjacent_url,
+                                    False,
+                                )
+                            )
+
+    covered_end = -1
+    nested_value_owner_end = -1
+    owned_query_spans: list[tuple[int, int]] = []
+    detected_candidates: list[tuple[int, int, str]] = []
+    current_token_end = -1
+    for start, end, cleaned, owns_query_value in sorted(
+        scheme_candidates,
+        key=lambda candidate: (candidate[0], -(candidate[1] - candidate[0])),
+    ):
+        if start < covered_end:
+            continue
+        if _is_nested_url_value_start(text, nested_value_owner_end, start):
+            covered_end = end
+            continue
+        detected_candidates.append((start, end, cleaned))
+        covered_end = end
+        if owns_query_value:
+            if end > current_token_end:
+                current_token_end = _token_end(text, end)
+            wrapper_end = _presentation_wrapper_end(text, start, end)
+            if wrapper_end is not None:
+                nested_value_owner_end = -1
+                continue
+            fragment_start = text.find("#", start, current_token_end)
+            field_end = text.find("&", end, current_token_end)
+            owner_boundaries = [boundary for boundary in (fragment_start, field_end) if boundary >= 0]
+            nested_value_owner_end = min(owner_boundaries, default=current_token_end)
+            if field_end >= 0 and (fragment_start < 0 or field_end < fragment_start):
+                extended_raw = text[start:current_token_end]
+                extended_url = _clean_detected_scheme_url(_truncate_before_adjacent_scheme_less_url(extended_raw))
+                extended_end = start + len(extended_url)
+                if extended_end > end:
+                    detected_candidates[-1] = (start, extended_end, extended_url)
+                    covered_end = extended_end
+            if end < nested_value_owner_end:
+                owned_query_spans.append((end, nested_value_owner_end))
+        else:
+            nested_value_owner_end = -1
+    fallback_characters = list(text_without_ambiguous_candidates)
+    for start, end, _, _ in scheme_candidates:
+        fallback_characters[start:end] = " " * (end - start)
+    for start, end in owned_query_spans:
+        fallback_characters[start:end] = " " * (end - start)
+    text_without_explicit_scheme_candidates = "".join(fallback_characters)
 
     # Pattern 2: Domain-like patterns (scheme-less) - but skip if already found with scheme
-    domain_matches = _detect_domain_like_urls(text_without_ambiguous_candidates)
+    domain_spans = _detect_domain_like_url_spans(text_without_explicit_scheme_candidates)
+    domain_candidates = ((start, end, text_without_explicit_scheme_candidates[start:end]) for start, end in domain_spans)
 
-    for match in domain_matches:
-        # Clean trailing punctuation
-        cleaned = re.sub(PUNCTUATION_CLEANUP, "", match)
+    # Pattern 3: IP addresses - merge with domains to preserve source order.
+    ip_spans = _detect_ip_url_spans(text_without_explicit_scheme_candidates)
+    ip_candidates = ((start, end, text_without_explicit_scheme_candidates[start:end]) for start, end in ip_spans)
+    for start, end, fallback_url in merge(
+        domain_candidates,
+        ip_candidates,
+        key=lambda candidate: candidate[0],
+    ):
+        _ = start, end
+        cleaned = _TRAILING_DETECTED_URL_PUNCTUATION_RE.sub("", fallback_url)
         if cleaned:
-            # Extract just the domain part for comparison
-            domain_part = cleaned.split("/")[0].split("?")[0].split("#")[0].lower()
-            # Only add if we haven't already found this domain with a scheme
-            if domain_part not in scheme_urls:
-                detected_urls.append(cleaned)
+            detected_candidates.append((start, start + len(cleaned), cleaned))
 
-    # Pattern 3: IP addresses - similar deduplication
-    ip_matches = IP_URL_RE.findall(text_without_ambiguous_candidates)
+    # Remove only non-adjacent bare hosts already represented by an explicit URL.
+    final_urls: list[str] = []
+    scheme_url_domains: set[str] = set()
+    ambiguous_explicit_urls = [url for url in ambiguous_urls if "://" in url]
+    ambiguous_scheme_less_urls = [url for url in ambiguous_urls if "://" not in url]
 
-    for match in ip_matches:
-        # Clean trailing punctuation
-        cleaned = re.sub(PUNCTUATION_CLEANUP, "", match)
-        if cleaned:
-            # Extract IP part for comparison
-            ip_part = cleaned.split("/")[0].split("?")[0].split("#")[0].lower()
-            if ip_part not in scheme_urls:
-                detected_urls.append(cleaned)
-
-    # Advanced deduplication: Remove domains that are already part of full URLs
-    final_urls = []
-    scheme_url_domains = set()
-
-    # First pass: collect all domains from scheme-ful URLs
-    for url in detected_urls:
-        if "://" in url:
-            try:
-                parsed = urlparse(url)
-                if parsed.hostname:
-                    scheme_url_domains.add(parsed.hostname.lower())
-                    # Also add www-stripped version
-                    bare_domain = parsed.hostname.lower().replace("www.", "")
-                    scheme_url_domains.add(bare_domain)
-            except (ValueError, UnicodeError):
-                # Skip URLs with parsing errors (malformed URLs, encoding issues)
-                # This is expected for edge cases and doesn't require logging
-                pass
+    # First pass: collect all domains from ordinary hierarchical URLs. Ambiguous
+    # candidates have already been removed from fallback detection by source span,
+    # so a surviving same-host fallback is a distinct occurrence.
+    ordinary_explicit_urls = (url for _, _, url in detected_candidates if "://" in url)
+    for url in ordinary_explicit_urls:
+        try:
+            parsed = urlparse(url)
+            if parsed.hostname:
+                scheme_url_domains.add(parsed.hostname.lower())
+                # Also add www-stripped version
+                bare_domain = parsed.hostname.lower().removeprefix("www.")
+                scheme_url_domains.add(bare_domain)
+        except (ValueError, UnicodeError):
+            # Skip URLs with parsing errors (malformed URLs, encoding issues)
+            # This is expected for edge cases and doesn't require logging
+            pass
+    # Second pass: retain source order while removing only legacy bare-host duplicates.
+    for start, _, url in sorted(detected_candidates, key=_released_url_detection_order):
+        if _EXPLICIT_URL_SCHEME_RE.match(url) is not None:
+            final_urls.append(url)
+            continue
+        url_lower = url.lower().removeprefix("www.")
+        presentation_adjacent = start > 0 and text[start - 1] in _ADJACENT_SCHEME_URL_BOUNDARIES
+        if presentation_adjacent or url_lower not in scheme_url_domains:
             final_urls.append(url)
 
-    # Second pass: only add scheme-less URLs if their domain isn't already covered
-    for url in detected_urls:
-        if "://" not in url:
-            # Check if this domain is already covered by a full URL
-            url_lower = url.lower().replace("www.", "")
-            if url_lower not in scheme_url_domains:
-                final_urls.append(url)
+    hierarchical_urls = [url for url in final_urls if "://" in url]
+    scheme_less_urls = [url for url in final_urls if "://" not in url]
+    final_urls = [
+        *ambiguous_explicit_urls,
+        *hierarchical_urls,
+        *ambiguous_scheme_less_urls,
+        *scheme_less_urls,
+    ]
 
     # Remove empty URLs and return unique list
     return list(dict.fromkeys([url for url in final_urls if url]))
@@ -1252,7 +1898,7 @@ def _is_url_allowed(
         return False
 
     url_host = url_host.lower()
-    url_domain = url_host.replace("www.", "")
+    url_domain = url_host.removeprefix("www.")
     scheme_lower = parsed_url.scheme.lower() if parsed_url.scheme else ""
     # Safely get port (rejects malformed ports)
     url_port = _safe_get_port(parsed_url, scheme_lower)
@@ -1271,7 +1917,7 @@ def _is_url_allowed(
         url_ip = None
 
     for allowed_entry in allow_list:
-        allowed_entry = allowed_entry.lower().strip()
+        allowed_entry = allowed_entry.strip()
 
         has_explicit_scheme = bool(SCHEME_PREFIX_RE.match(allowed_entry))
         if has_explicit_scheme:
@@ -1322,7 +1968,7 @@ def _is_url_allowed(
         if not allowed_host:
             continue
 
-        allowed_domain = allowed_host.replace("www.", "")
+        allowed_domain = allowed_host.removeprefix("www.")
 
         # Port matching: enforce if allow list has explicit port
         if allowed_port_explicit is not None and allowed_port != url_port:
@@ -1368,7 +2014,15 @@ async def urls(ctx: Any, data: str, config: URLConfig) -> GuardrailResult:
     _ = ctx
 
     # Detect URLs using regex patterns
-    detected_urls = _detect_urls(data, config.allowed_schemes)
+    normalized_allow_list_urls = (allowed_url.strip() for allowed_url in config.url_allow_list)
+    explicit_allow_list_urls = frozenset(
+        allowed_url for allowed_url in normalized_allow_list_urls if _EXPLICIT_URL_SCHEME_RE.match(allowed_url) is not None
+    )
+    detected_urls = _detect_urls(
+        data,
+        config.allowed_schemes,
+        preserved_component_urls=explicit_allow_list_urls,
+    )
 
     allowed, blocked = [], []
     blocked_reasons = []
