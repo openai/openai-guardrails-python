@@ -236,6 +236,27 @@ def _sha256(value: Any, context: str) -> str:
     return digest
 
 
+def _inventory_digest(row: dict[str, Any]) -> str:
+    content = {key: value for key, value in row.items() if key != "id"}
+    canonical = json.dumps(content, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(canonical.encode()).hexdigest()
+
+
+def _digest_map(value: Any, context: str, expected_ids: set[str]) -> dict[str, str]:
+    digests = {
+        _text(raw_id, f"{context} key", concrete=True): _sha256(digest, f"{context}.{raw_id}")
+        for raw_id, digest in _object(value, context).items()
+    }
+    actual_ids = set(digests)
+    if actual_ids != expected_ids:
+        raise ProtocolError(
+            f"{context} must bind the exact owned IDs: "
+            f"missing={sorted(expected_ids - actual_ids)}, "
+            f"unexpected={sorted(actual_ids - expected_ids)}."
+        )
+    return digests
+
+
 def _workspace_entries(value: Any, context: str) -> dict[str, dict[str, Any]]:
     entries: dict[str, dict[str, Any]] = {}
     for index, raw_entry in enumerate(_array(value, context)):
@@ -551,6 +572,7 @@ def validate_packet(
             raise ProtocolError(f"Component manifest {name!r} must match review state exactly.")
 
     inventory_ids: set[str] = set()
+    inventory_digests: dict[str, str] = {}
     for index, raw_row in enumerate(_array(packet.get("inventory"), "inventory")):
         row = _object(raw_row, f"inventory[{index}]")
         row_id = _text(row.get("id"), f"inventory[{index}].id", concrete=True)
@@ -566,6 +588,7 @@ def validate_packet(
             raise ProtocolError(f"Inventory {row_id} is missing {kind} fields: {missing_fields}.")
         for field in INVENTORY_FIELDS[kind]:
             _text(row[field], f"inventory[{index}].{field}")
+        inventory_digests[row_id] = _inventory_digest(row)
     if not inventory_ids:
         raise ProtocolError("inventory must not be empty.")
 
@@ -616,6 +639,7 @@ def validate_packet(
         )
     canonical_roots: dict[str, dict[str, Any]] = {}
     inventory_owners: dict[str, str] = {}
+    owned_evidence_ids: set[str] = set()
     for index, raw_root in enumerate(_array(ledger.get("root_causes"), "ledger.root_causes")):
         root = _object(raw_root, f"ledger.root_causes[{index}]")
         root_id = _text(root.get("id"), f"ledger.root_causes[{index}].id")
@@ -647,11 +671,28 @@ def validate_packet(
             "inventory_ids": root_inventory,
             "contract_evidence_ids": root_evidence,
         }
+        owned_evidence_ids.update(root_evidence)
     if set(inventory_owners) != inventory_ids:
         raise ProtocolError(
             "Every inventory ID must have exactly one canonical root owner; "
             f"unowned={sorted(inventory_ids - set(inventory_owners))}."
         )
+    evidence_bindings = _digest_map(
+        ledger.get("contract_evidence_sha256"),
+        "ledger.contract_evidence_sha256",
+        owned_evidence_ids,
+    )
+    inventory_bindings = _digest_map(
+        ledger.get("inventory_sha256"),
+        "ledger.inventory_sha256",
+        inventory_ids,
+    )
+    for evidence_id, digest in evidence_bindings.items():
+        if artifacts[evidence_id]["digest"] != digest:
+            raise ProtocolError(f"ledger evidence digest mismatch for {evidence_id}.")
+    for inventory_id, digest in inventory_bindings.items():
+        if inventory_digests[inventory_id] != digest:
+            raise ProtocolError(f"ledger inventory digest mismatch for {inventory_id}.")
 
     if current_round > 1 and (prior_ledger_path is None or prior_ledger_sha256 is None):
         raise ProtocolError("Rounds after 1 require a digest-bound prior ledger snapshot.")
@@ -710,6 +751,8 @@ def validate_packet(
                 "A same-round retry fingerprint must match the prior ledger snapshot."
             )
         prior_roots: dict[str, dict[str, Any]] = {}
+        prior_owned_evidence_ids: set[str] = set()
+        prior_owned_inventory_ids: set[str] = set()
         for index, raw_root in enumerate(
             _array(prior.get("root_causes"), "prior ledger.root_causes")
         ):
@@ -731,6 +774,18 @@ def validate_packet(
                     )
                 ),
             }
+            prior_owned_evidence_ids.update(prior_roots[prior_id]["contract_evidence_ids"])
+            prior_owned_inventory_ids.update(prior_roots[prior_id]["inventory_ids"])
+        prior_evidence_bindings = _digest_map(
+            prior.get("contract_evidence_sha256"),
+            "prior ledger.contract_evidence_sha256",
+            prior_owned_evidence_ids,
+        )
+        prior_inventory_bindings = _digest_map(
+            prior.get("inventory_sha256"),
+            "prior ledger.inventory_sha256",
+            prior_owned_inventory_ids,
+        )
         for prior_id, prior_root in prior_roots.items():
             current_root = canonical_roots.get(prior_id)
             if current_root is None:
@@ -745,19 +800,34 @@ def validate_packet(
                 current_root["contract_evidence_ids"]
             ):
                 raise ProtocolError(f"ledger regressed ownership for prior root {prior_id}.")
+            for evidence_id in prior_root["contract_evidence_ids"]:
+                if evidence_bindings[evidence_id] != prior_evidence_bindings[evidence_id]:
+                    raise ProtocolError(f"ledger changed prior evidence {evidence_id}.")
+            for inventory_id in prior_root["inventory_ids"]:
+                if inventory_bindings[inventory_id] != prior_inventory_bindings[inventory_id]:
+                    raise ProtocolError(f"ledger changed prior inventory {inventory_id}.")
             prior_evidence_digests = {
-                artifacts[evidence_id]["digest"]
+                prior_evidence_bindings[evidence_id]
                 for evidence_id in prior_root["contract_evidence_ids"]
+            }
+            prior_inventory_digests = {
+                prior_inventory_bindings[inventory_id]
+                for inventory_id in prior_root["inventory_ids"]
             }
             content_new_evidence = {
                 evidence_id
                 for evidence_id in new_evidence
                 if artifacts[evidence_id]["digest"] not in prior_evidence_digests
             }
+            content_new_inventory = {
+                inventory_id
+                for inventory_id in new_inventory
+                if inventory_bindings[inventory_id] not in prior_inventory_digests
+            }
             if (
                 prior_root["status"] == "closed"
                 and current_root["status"] == "open"
-                and not (new_inventory or content_new_evidence)
+                and not (content_new_inventory or content_new_evidence)
             ):
                 raise ProtocolError(
                     f"ledger reopened prior root {prior_id} without content-new evidence."
@@ -961,12 +1031,17 @@ def validate_reviewer_output(
 
     canonical_roots = {root["id"]: root for root in packet["ledger"]["root_causes"]}
     prior_canonical_roots: dict[str, dict[str, Any]] = {}
+    prior_evidence_bindings: dict[str, str] = {}
+    prior_inventory_bindings: dict[str, str] = {}
     if prior_ledger_data is not None:
         prior_ledger = _json_bytes(prior_ledger_data, str(prior_ledger_path))
         prior_canonical_roots = {root["id"]: root for root in prior_ledger["root_causes"]}
+        prior_evidence_bindings = prior_ledger["contract_evidence_sha256"]
+        prior_inventory_bindings = prior_ledger["inventory_sha256"]
     evidence_digests = {
         artifact["id"]: artifact["sha256"] for artifact in packet["evidence_artifacts"]
     }
+    inventory_digests = packet["ledger"]["inventory_sha256"]
     indexed_evidence = set(evidence_digests)
     indexed_inventory = {row["id"] for row in packet["inventory"]}
     owned_evidence = {
@@ -975,9 +1050,6 @@ def validate_reviewer_output(
         for evidence_id in root["contract_evidence_ids"]
     }
     owned_evidence_digests = {evidence_digests[evidence_id] for evidence_id in owned_evidence}
-    owned_inventory = {
-        inventory_id for root in canonical_roots.values() for inventory_id in root["inventory_ids"]
-    }
     inventory_owners = {
         inventory_id: root_id
         for root_id, root in canonical_roots.items()
@@ -985,6 +1057,7 @@ def validate_reviewer_output(
     }
     findings = _array(output["findings"], "findings")
     proposed_roots: set[str] = set()
+    proposed_evidence_owners: dict[str, str] = {}
     for index, raw_finding in enumerate(findings):
         finding = _object(raw_finding, f"findings[{index}]")
         missing_finding = sorted(FINDING_FIELDS - finding.keys())
@@ -1030,14 +1103,24 @@ def validate_reviewer_output(
                     f"Finding {index} root evidence must be new in the current ledger round."
                 )
             prior_evidence_digests = {
-                evidence_digests[evidence_id] for evidence_id in prior_evidence
+                prior_evidence_bindings[evidence_id]
+                for evidence_id in prior_evidence
+            }
+            prior_inventory_digests = {
+                prior_inventory_bindings[inventory_id]
+                for inventory_id in prior_inventory
             }
             content_new_evidence = {
                 evidence_id
                 for evidence_id in new_evidence
                 if evidence_digests[evidence_id] not in prior_evidence_digests
             }
-            new_for_root = bool(content_new_evidence or new_inventory)
+            content_new_inventory = {
+                inventory_id
+                for inventory_id in new_inventory
+                if inventory_digests[inventory_id] not in prior_inventory_digests
+            }
+            new_for_root = bool(content_new_evidence or content_new_inventory)
             if root["status"] == "closed" and not new_for_root:
                 raise ProtocolError(
                     f"Finding {index} reopens closed root {root_id} "
@@ -1047,19 +1130,40 @@ def validate_reviewer_output(
             raise ProtocolError(
                 f"Finding {index} must reuse a canonical root ID or propose NEW:<slug>."
             )
-        elif not (
-            {
-                evidence_id
+        else:
+            if new_inventory:
+                raise ProtocolError(
+                    f"Finding {index} new root proposal cannot reuse canonical inventory: "
+                    f"{sorted(new_inventory)}."
+                )
+            proposal_digests = {
+                evidence_digests[evidence_id]
                 for evidence_id in new_evidence
                 if evidence_digests[evidence_id] not in owned_evidence_digests
             }
-            or new_inventory - owned_inventory
-        ):
-            raise ProtocolError(
-                f"Finding {index} proposes {root_id} without content-new evidence "
-                "or globally unowned inventory."
-            )
-        else:
+            available_digests = {
+                digest
+                for digest in proposal_digests
+                if proposed_evidence_owners.get(digest) in {None, root_id}
+            }
+            if not available_digests:
+                existing_owners = sorted(
+                    {
+                        proposed_evidence_owners[digest]
+                        for digest in proposal_digests
+                        if digest in proposed_evidence_owners
+                    }
+                )
+                if existing_owners:
+                    raise ProtocolError(
+                        f"Finding {index} reuses evidence owned by proposed root "
+                        f"{existing_owners}."
+                    )
+                raise ProtocolError(
+                    f"Finding {index} proposes {root_id} without content-new evidence."
+                )
+            for digest in available_digests:
+                proposed_evidence_owners.setdefault(digest, root_id)
             proposed_roots.add(root_id)
 
     uncertainty = _strings(output["remaining_uncertainty"], "remaining_uncertainty")

@@ -206,6 +206,10 @@ class SkillContractTest(unittest.TestCase):
         )
         self.assertIn("unique opened-file device and inode identities", self.reviewer_brief)
         self.assertIn("evidence digest absent from every canonical root", self.reviewer_brief)
+        self.assertIn("`contract_evidence_sha256`", self.reviewer_brief)
+        self.assertIn("`inventory_sha256`", self.reviewer_brief)
+        self.assertIn("prior bindings are immutable", self.reviewer_brief)
+        self.assertIn("every distinct root proposed in the same output", self.reviewer_brief)
         self.assertIn(
             "Credited receipt content digests and exact commands must be unique",
             self.reviewer_brief,
@@ -373,7 +377,9 @@ class SkillContractTest(unittest.TestCase):
             "Canonicalize each path before opening",
             "opened descriptor's device and inode identity",
             "require their validated digests to remain unchanged",
-            "digest is absent from that root's prior evidence",
+            "evidence or inventory as new for a canonical root only when its digest is absent",
+            "Preserve those digest bindings across rounds",
+            "every distinct root proposed in the same output",
             "credited receipt to have a unique content digest and exact command",
         )
         for text in required_text:
@@ -386,9 +392,9 @@ class SkillContractTest(unittest.TestCase):
             "run the complexity reset once",
             "scan the complete inventory for sibling scenarios",
             "mark the canonical root-cause ID closed",
-            "Do not reopen it for another local patch without new contract evidence or a newly "
-            "uncovered inventory ID",
-            "reject aliases, renamed IDs, and bare unknown IDs",
+            "Do not reopen it for another local patch without content-new contract evidence or "
+            "semantic inventory",
+            "reject aliases, renamed or copied content, and bare unknown IDs",
         )
         for text in required_text:
             with self.subTest(text=text):
@@ -506,7 +512,8 @@ class SkillContractTest(unittest.TestCase):
             "Each sibling-scenario scan must reuse a canonical root ID",
             "verification.preflight_results` as an array of exact `command` and `result` objects",
             "ledger file's JSON object to match the packet ledger exactly",
-            "not already owned by any canonical root",
+            "not already owned by any canonical or distinct proposed root",
+            "digest maps must bind exactly the currently owned IDs",
             "absolute `path` and `sha256` digest",
             'role: "review-state"',
             'role: "repository-status"',

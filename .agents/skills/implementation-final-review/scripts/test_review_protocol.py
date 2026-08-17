@@ -18,6 +18,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 from review_protocol import (
     ProtocolError,
+    _inventory_digest,
     _read_bytes,
     _validate_credited_receipt,
     _workspace_entries,
@@ -134,7 +135,7 @@ class ReviewProtocolTest(unittest.TestCase):
         )
 
     def _packet(self) -> dict[str, object]:
-        return {
+        packet: dict[str, Any] = {
             "schema_version": 1,
             "packet_overage_reason": "none",
             "task": {
@@ -285,6 +286,20 @@ class ReviewProtocolTest(unittest.TestCase):
                 },
             ],
         }
+        owned_evidence = {
+            evidence_id
+            for root in packet["ledger"]["root_causes"]
+            for evidence_id in root["contract_evidence_ids"]
+        }
+        packet["ledger"]["contract_evidence_sha256"] = {
+            artifact["id"]: artifact["sha256"]
+            for artifact in packet["evidence_artifacts"]
+            if artifact["id"] in owned_evidence
+        }
+        packet["ledger"]["inventory_sha256"] = {
+            row["id"]: _inventory_digest(row) for row in packet["inventory"]
+        }
+        return packet
 
     def _receipt(self) -> dict[str, object]:
         fingerprints = {
@@ -484,6 +499,40 @@ class ReviewProtocolTest(unittest.TestCase):
         with self.assertRaisesRegex(ProtocolError, "must match the packet fingerprint"):
             self._validate_packet()
 
+    def test_ledger_digest_maps_cover_exact_owned_ids(self) -> None:
+        """Require digest bindings for exactly the IDs owned by roots."""
+        packet = copy.deepcopy(self.packet)
+        del packet["ledger"]["contract_evidence_sha256"]["E-ROOT"]
+        self._write_packet(self.packet_path, packet)
+
+        with self.assertRaisesRegex(ProtocolError, "must bind the exact owned IDs"):
+            self._validate_packet()
+
+        packet = copy.deepcopy(self.packet)
+        packet["ledger"]["contract_evidence_sha256"]["E-NEW"] = hashlib.sha256(
+            self.new_evidence.read_bytes()
+        ).hexdigest()
+        self._write_packet(self.packet_path, packet)
+
+        with self.assertRaisesRegex(ProtocolError, r"unexpected=\['E-NEW'\]"):
+            self._validate_packet()
+
+    def test_ledger_digest_maps_match_indexed_content(self) -> None:
+        """Reject ledger bindings that differ from current indexed content."""
+        packet = copy.deepcopy(self.packet)
+        packet["ledger"]["contract_evidence_sha256"]["E-ROOT"] = "0" * 64
+        self._write_packet(self.packet_path, packet)
+
+        with self.assertRaisesRegex(ProtocolError, "evidence digest mismatch for E-ROOT"):
+            self._validate_packet()
+
+        packet = copy.deepcopy(self.packet)
+        packet["ledger"]["inventory_sha256"]["INV-2"] = "0" * 64
+        self._write_packet(self.packet_path, packet)
+
+        with self.assertRaisesRegex(ProtocolError, "inventory digest mismatch for INV-2"):
+            self._validate_packet()
+
     def test_canonical_roots_cannot_alias_the_same_ownership(self) -> None:
         packet = copy.deepcopy(self.packet)
         alias = copy.deepcopy(packet["ledger"]["root_causes"][0])
@@ -556,8 +605,73 @@ class ReviewProtocolTest(unittest.TestCase):
                 "contract_evidence_ids": ["E-DIFF"],
             }
         ]
+        del removed_root["ledger"]["contract_evidence_sha256"]["E-ROOT"]
         self._write_packet(self.packet_path, removed_root)
         with self.assertRaisesRegex(ProtocolError, "removed prior canonical root"):
+            validate_packet(
+                self.packet_path,
+                "task-123",
+                self.ledger_path,
+                prior_path,
+                prior_digest,
+            )
+
+    def test_prior_ledger_binds_owned_evidence_content(self) -> None:
+        """Reject content replacement under a previously owned evidence ID."""
+        prior_path = self.root / "prior-ledger.json"
+        prior = copy.deepcopy(self.packet["ledger"])
+        prior["contract_evidence_sha256"] = {
+            "E-DIFF": hashlib.sha256(self.evidence.read_bytes()).hexdigest(),
+            "E-ROOT": hashlib.sha256(self.root_evidence.read_bytes()).hexdigest(),
+        }
+        self._write_json(prior_path, prior)
+        prior_digest = hashlib.sha256(prior_path.read_bytes()).hexdigest()
+
+        self.root_evidence.write_text("replacement root evidence\n")
+        packet = copy.deepcopy(self.packet)
+        root_artifact = next(
+            artifact for artifact in packet["evidence_artifacts"] if artifact["id"] == "E-ROOT"
+        )
+        replacement_digest = hashlib.sha256(self.root_evidence.read_bytes()).hexdigest()
+        root_artifact["sha256"] = replacement_digest
+        packet["ledger"]["contract_evidence_sha256"] = {
+            "E-DIFF": hashlib.sha256(self.evidence.read_bytes()).hexdigest(),
+            "E-ROOT": replacement_digest,
+        }
+        packet["ledger"]["current_round"] = 2
+        packet["ledger"]["remaining_budget"] = 4
+        self._write_packet(self.packet_path, packet)
+
+        with self.assertRaisesRegex(ProtocolError, "changed prior evidence E-ROOT"):
+            validate_packet(
+                self.packet_path,
+                "task-123",
+                self.ledger_path,
+                prior_path,
+                prior_digest,
+            )
+
+    def test_prior_ledger_binds_owned_inventory_content(self) -> None:
+        """Reject content replacement under a previously owned inventory ID."""
+        prior_path = self.root / "prior-ledger.json"
+        prior = copy.deepcopy(self.packet["ledger"])
+        prior["inventory_sha256"] = {
+            row["id"]: _inventory_digest(row) for row in self.packet["inventory"]
+        }
+        self._write_json(prior_path, prior)
+        prior_digest = hashlib.sha256(prior_path.read_bytes()).hexdigest()
+
+        packet = copy.deepcopy(self.packet)
+        inventory_row = next(row for row in packet["inventory"] if row["id"] == "INV-2")
+        inventory_row["validation"] = "replacement validation contract"
+        packet["ledger"]["inventory_sha256"] = {
+            row["id"]: _inventory_digest(row) for row in packet["inventory"]
+        }
+        packet["ledger"]["current_round"] = 2
+        packet["ledger"]["remaining_budget"] = 4
+        self._write_packet(self.packet_path, packet)
+
+        with self.assertRaisesRegex(ProtocolError, "changed prior inventory INV-2"):
             validate_packet(
                 self.packet_path,
                 "task-123",
@@ -824,6 +938,9 @@ class ReviewProtocolTest(unittest.TestCase):
         )
         closed_root["status"] = "open"
         closed_root["contract_evidence_ids"].append("E-COPY")
+        packet["ledger"]["contract_evidence_sha256"]["E-COPY"] = hashlib.sha256(
+            copied_evidence.read_bytes()
+        ).hexdigest()
         packet["ledger"]["current_round"] = 2
         packet["ledger"]["remaining_budget"] = 4
         self._write_packet(self.packet_path, packet)
@@ -1327,7 +1444,7 @@ class ReviewProtocolTest(unittest.TestCase):
         output["findings"][0]["root_cause_id"] = "NEW:new-boundary"
         output["findings"][0]["root_cause_evidence"]["new_inventory_ids"] = ["INV-1"]
         self._write_json(self.output_path, output)
-        with self.assertRaisesRegex(ProtocolError, "without content-new evidence"):
+        with self.assertRaisesRegex(ProtocolError, "cannot reuse canonical inventory"):
             self._validate_output("requirements")
 
         output["findings"][0]["root_cause_evidence"]["new_inventory_ids"] = []
@@ -1357,6 +1474,51 @@ class ReviewProtocolTest(unittest.TestCase):
         self._write_json(self.output_path, output)
 
         with self.assertRaisesRegex(ProtocolError, "without content-new evidence"):
+            self._validate_output("requirements")
+
+    def test_copied_inventory_does_not_reopen_a_closed_root(self) -> None:
+        """Reject a renamed copy of inventory as closed-root evidence."""
+        prior_path = self.root / "prior-ledger.json"
+        self._write_json(prior_path, self.packet["ledger"])
+        prior_digest = hashlib.sha256(prior_path.read_bytes()).hexdigest()
+        packet = copy.deepcopy(self.packet)
+        copied_inventory = copy.deepcopy(packet["inventory"][1])
+        copied_inventory["id"] = "INV-COPY"
+        packet["inventory"].append(copied_inventory)
+        packet["ledger"]["inventory_sha256"]["INV-COPY"] = _inventory_digest(
+            copied_inventory
+        )
+        closed_root = next(
+            root for root in packet["ledger"]["root_causes"] if root["id"] == "ROOT_CLOSED"
+        )
+        closed_root["status"] = "open"
+        closed_root["inventory_ids"].append("INV-COPY")
+        packet["reviewer_assignments"][1]["inventory_ids"].append("INV-COPY")
+        packet["ledger"]["current_round"] = 2
+        packet["ledger"]["remaining_budget"] = 4
+        self._write_packet(self.packet_path, packet)
+
+        with self.assertRaisesRegex(ProtocolError, "without content-new evidence"):
+            validate_packet(
+                self.packet_path,
+                "task-123",
+                self.ledger_path,
+                prior_path,
+                prior_digest,
+            )
+
+    def test_distinct_new_roots_cannot_share_one_evidence_digest(self) -> None:
+        """Require distinct new roots to own distinct evidence content."""
+        output = self._output()
+        output["verdict"] = "findings require fixes"
+        first = self._finding("NEW:first-root")
+        first["root_cause_evidence"]["new_contract_evidence_ids"] = ["E-NEW"]
+        second = self._finding("NEW:second-root")
+        second["root_cause_evidence"]["new_contract_evidence_ids"] = ["E-NEW"]
+        output["findings"] = [first, second]
+        self._write_json(self.output_path, output)
+
+        with self.assertRaisesRegex(ProtocolError, "reuses evidence owned by proposed root"):
             self._validate_output("requirements")
 
     def test_closed_root_requires_new_evidence(self) -> None:
@@ -1426,6 +1588,10 @@ class ReviewProtocolTest(unittest.TestCase):
         prior_path = self.root / "prior-ledger.json"
         prior = copy.deepcopy(self.packet["ledger"])
         prior["root_causes"] = [prior["root_causes"][0]]
+        prior["contract_evidence_sha256"] = {
+            "E-DIFF": prior["contract_evidence_sha256"]["E-DIFF"]
+        }
+        prior["inventory_sha256"] = {"INV-1": prior["inventory_sha256"]["INV-1"]}
         self._write_json(prior_path, prior)
         prior_digest = hashlib.sha256(prior_path.read_bytes()).hexdigest()
 
