@@ -203,6 +203,13 @@ def _descriptor(value: Any, context: str) -> tuple[Path, bytes, str, FileIdentit
     return path, data, actual, identity
 
 
+def _read_unchanged(path: Path, expected_digest: str, context: str) -> bytes:
+    _, data, _ = _read_bytes(str(path.resolve()), context)
+    if hashlib.sha256(data).hexdigest() != expected_digest:
+        raise ProtocolError(f"{context} changed during protocol validation.")
+    return data
+
+
 def _pathspec_file(value: Any, context: str) -> list[str]:
     _, data, _ = _read_bytes(value, context)
     try:
@@ -816,9 +823,10 @@ def validate_packet(
     ):
         _command_result(result, f"verification.preflight_results[{index}]")
         preflight_commands.add(result["command"])
-    receipt_paths: set[Path] = set()
     receipt_identities: set[FileIdentity] = set()
     receipt_digests: set[str] = set()
+    receipt_digests_by_path: dict[str, str] = {}
+    receipt_commands: set[str] = set()
     for index, raw_receipt in enumerate(
         _array(verification.get("credited_receipts"), "verification.credited_receipts")
     ):
@@ -829,31 +837,58 @@ def validate_packet(
             raise ProtocolError(f"Duplicate credited receipt file identity: {receipt_path}.")
         if receipt_digest in receipt_digests:
             raise ProtocolError(f"Duplicate credited receipt digest: {receipt_digest}.")
-        receipt_paths.add(receipt_path)
         receipt_identities.add(receipt_identity)
         receipt_digests.add(receipt_digest)
+        receipt_digests_by_path[str(receipt_path)] = receipt_digest
+        receipt = _json_bytes(receipt_data, str(receipt_path))
         validate_receipt_data(
-            _json_bytes(receipt_data, str(receipt_path)),
+            receipt,
             combined,
             components,
             state["repository_fingerprint"],
             preflight_commands,
         )
+        command = receipt["command"]
+        if command in receipt_commands:
+            raise ProtocolError(f"Duplicate credited receipt command: {command!r}.")
+        receipt_commands.add(command)
 
     _strings(packet.get("architecture_references"), "architecture_references")
     return {
         "packet_path": str(packet_path),
         "packet_size_bytes": packet_size,
         "packet_sha256": hashlib.sha256(packet_data).hexdigest(),
+        "ledger_sha256": hashlib.sha256(ledger_data).hexdigest(),
         "review_state_path": str(artifacts[_at(packet, "review_state.evidence_id")]["path"]),
         "combined_fingerprint": combined,
         "components": components,
         "inventory_ids": sorted(inventory_ids),
         "reviewer_ids": sorted(reviewer_ids),
-        "credited_receipt_paths": sorted(
-            str(receipt_path.resolve()) for receipt_path in receipt_paths
-        ),
+        "credited_receipt_digests": dict(sorted(receipt_digests_by_path.items())),
+        "credited_receipt_paths": sorted(receipt_digests_by_path),
     }
+
+
+def _revalidate_control_files(
+    packet_path: Path,
+    expected_ledger_path: Path,
+    prior_ledger_path: Path | None,
+    prior_ledger_sha256: str | None,
+    summary: dict[str, Any],
+) -> tuple[dict[str, Any], bytes | None]:
+    packet_data = _read_unchanged(packet_path, summary["packet_sha256"], "Packet")
+    packet = _json_bytes(packet_data, str(packet_path.resolve()))
+    _read_unchanged(expected_ledger_path, summary["ledger_sha256"], "Current ledger")
+    if prior_ledger_path is None:
+        return packet, None
+    if prior_ledger_sha256 is None:
+        raise ProtocolError("Prior ledger path and SHA-256 must be supplied together.")
+    prior_ledger_data = _read_unchanged(
+        prior_ledger_path,
+        prior_ledger_sha256,
+        "Prior ledger",
+    )
+    return packet, prior_ledger_data
 
 
 def validate_reviewer_output(
@@ -872,10 +907,13 @@ def validate_reviewer_output(
         prior_ledger_path,
         prior_ledger_sha256,
     )
-    _, packet_data, _ = _read_bytes(str(packet_path.resolve()), "packet")
-    if hashlib.sha256(packet_data).hexdigest() != summary["packet_sha256"]:
-        raise ProtocolError("Packet changed during reviewer output validation.")
-    packet = _json_bytes(packet_data, str(packet_path.resolve()))
+    packet, prior_ledger_data = _revalidate_control_files(
+        packet_path,
+        expected_ledger_path,
+        prior_ledger_path,
+        prior_ledger_sha256,
+        summary,
+    )
     output = _load_json(output_path)
     missing = sorted(REVIEWER_OUTPUT_FIELDS - output.keys())
     if missing:
@@ -923,8 +961,8 @@ def validate_reviewer_output(
 
     canonical_roots = {root["id"]: root for root in packet["ledger"]["root_causes"]}
     prior_canonical_roots: dict[str, dict[str, Any]] = {}
-    if prior_ledger_path is not None:
-        prior_ledger = _load_json(prior_ledger_path)
+    if prior_ledger_data is not None:
+        prior_ledger = _json_bytes(prior_ledger_data, str(prior_ledger_path))
         prior_canonical_roots = {root["id"]: root for root in prior_ledger["root_causes"]}
     evidence_digests = {
         artifact["id"]: artifact["sha256"] for artifact in packet["evidence_artifacts"]
@@ -1058,6 +1096,41 @@ def validate_reviewer_output(
     }
 
 
+def _validate_credited_receipt(
+    packet_path: Path,
+    receipt_path: Path,
+    expected_task_id: str,
+    expected_ledger_path: Path,
+    prior_ledger_path: Path | None = None,
+    prior_ledger_sha256: str | None = None,
+) -> dict[str, Any]:
+    summary = validate_packet(
+        packet_path,
+        expected_task_id,
+        expected_ledger_path,
+        prior_ledger_path,
+        prior_ledger_sha256,
+    )
+    _revalidate_control_files(
+        packet_path,
+        expected_ledger_path,
+        prior_ledger_path,
+        prior_ledger_sha256,
+        summary,
+    )
+    canonical_receipt_path = receipt_path.resolve()
+    expected_digest = summary["credited_receipt_digests"].get(str(canonical_receipt_path))
+    if expected_digest is None:
+        raise ProtocolError("The receipt path is not indexed by the validated packet.")
+    _read_unchanged(canonical_receipt_path, expected_digest, "Receipt")
+    return {
+        "receipt_path": str(canonical_receipt_path),
+        "receipt_sha256": expected_digest,
+        "combined_fingerprint": summary["combined_fingerprint"],
+        "reusable": True,
+    }
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     commands = parser.add_subparsers(dest="command", required=True)
@@ -1096,21 +1169,14 @@ def main() -> None:
                 args.prior_ledger_sha256,
             )
         else:
-            summary = validate_packet(
+            result = _validate_credited_receipt(
                 args.packet,
+                args.receipt,
                 args.task_id,
                 args.ledger,
                 args.prior_ledger,
                 args.prior_ledger_sha256,
             )
-            receipt_path = str(args.receipt.resolve())
-            if receipt_path not in summary["credited_receipt_paths"]:
-                raise ProtocolError("The receipt path is not indexed by the validated packet.")
-            result = {
-                "receipt_path": receipt_path,
-                "combined_fingerprint": summary["combined_fingerprint"],
-                "reusable": True,
-            }
     except ProtocolError as error:
         parser.error(str(error))
     print(json.dumps(result, indent=2, sort_keys=True))

@@ -206,7 +206,11 @@ class SkillContractTest(unittest.TestCase):
         )
         self.assertIn("unique opened-file device and inode identities", self.reviewer_brief)
         self.assertIn("evidence digest absent from every canonical root", self.reviewer_brief)
-        self.assertIn("Credited receipt content digests must be unique", self.reviewer_brief)
+        self.assertIn(
+            "Credited receipt content digests and exact commands must be unique",
+            self.reviewer_brief,
+        )
+        self.assertIn("requires their validated digests to remain unchanged", self.reviewer_brief)
 
     def test_verified_base_advance_closure_is_strict_and_keeps_final_verification(self) -> None:
         required_text = (
@@ -368,8 +372,9 @@ class SkillContractTest(unittest.TestCase):
             "read content from that same descriptor",
             "Canonicalize each path before opening",
             "opened descriptor's device and inode identity",
+            "require their validated digests to remain unchanged",
             "digest is absent from that root's prior evidence",
-            "credited receipt to have a unique content digest",
+            "credited receipt to have a unique content digest and exact command",
         )
         for text in required_text:
             with self.subTest(text=text):

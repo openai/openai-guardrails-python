@@ -11,6 +11,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from typing import Any
 from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).parent))
@@ -18,6 +19,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 from review_protocol import (
     ProtocolError,
     _read_bytes,
+    _validate_credited_receipt,
     _workspace_entries,
     validate_packet,
     validate_receipt_data,
@@ -343,6 +345,9 @@ class ReviewProtocolTest(unittest.TestCase):
         self.assertEqual(summary["packet_size_bytes"], self.packet_path.stat().st_size)
         self.assertEqual(
             summary["packet_sha256"], hashlib.sha256(self.packet_path.read_bytes()).hexdigest()
+        )
+        self.assertEqual(
+            summary["ledger_sha256"], hashlib.sha256(self.ledger_path.read_bytes()).hexdigest()
         )
 
     def test_packet_rejects_duplicate_json_keys(self) -> None:
@@ -1111,6 +1116,30 @@ class ReviewProtocolTest(unittest.TestCase):
         with self.assertRaisesRegex(ProtocolError, "Duplicate credited receipt digest"):
             self._validate_packet()
 
+    def test_packet_rejects_multiple_receipts_for_one_command(self) -> None:
+        """Reject distinct receipt files that credit the same command."""
+        first_receipt = self._receipt()
+        self._write_json(self.receipt_path, first_receipt)
+        second_receipt = copy.deepcopy(first_receipt)
+        second_receipt["environment"] = "The same gate rerun in a fresh local process."
+        second_receipt_path = self.root / "second-receipt.json"
+        self._write_json(second_receipt_path, second_receipt)
+        packet = copy.deepcopy(self.packet)
+        packet["verification"]["credited_receipts"] = [
+            {
+                "path": str(self.receipt_path),
+                "sha256": hashlib.sha256(self.receipt_path.read_bytes()).hexdigest(),
+            },
+            {
+                "path": str(second_receipt_path),
+                "sha256": hashlib.sha256(second_receipt_path.read_bytes()).hexdigest(),
+            },
+        ]
+        self._write_packet(self.packet_path, packet)
+
+        with self.assertRaisesRegex(ProtocolError, "Duplicate credited receipt command"):
+            self._validate_packet()
+
     def test_packet_rejects_receipt_for_unrelated_successful_command(self) -> None:
         receipt = self._receipt()
         receipt["command"] = "true"
@@ -1181,6 +1210,37 @@ class ReviewProtocolTest(unittest.TestCase):
         self.assertEqual(completed.returncode, 2)
         self.assertIn("receipt path is not indexed", completed.stderr)
 
+    def test_receipt_validation_rechecks_the_indexed_file(self) -> None:
+        """Reject a receipt replaced after packet validation."""
+        receipt = self._receipt()
+        self._write_json(self.receipt_path, receipt)
+        packet = copy.deepcopy(self.packet)
+        packet["verification"]["credited_receipts"] = [
+            {
+                "path": str(self.receipt_path),
+                "sha256": hashlib.sha256(self.receipt_path.read_bytes()).hexdigest(),
+            }
+        ]
+        self._write_packet(self.packet_path, packet)
+        original_validate_packet = validate_packet
+
+        def validate_then_replace_receipt(*args: Any, **kwargs: Any) -> dict[str, Any]:
+            summary = original_validate_packet(*args, **kwargs)
+            receipt["environment"] = "A replacement environment after packet validation."
+            self._write_json(self.receipt_path, receipt)
+            return summary
+
+        with (
+            mock.patch("review_protocol.validate_packet", side_effect=validate_then_replace_receipt),
+            self.assertRaisesRegex(ProtocolError, "Receipt changed"),
+        ):
+            _validate_credited_receipt(
+                self.packet_path,
+                self.receipt_path,
+                "task-123",
+                self.ledger_path,
+            )
+
     def test_clean_output_must_match_assignment_and_fingerprint(self) -> None:
         output = self._output()
         self._write_json(self.output_path, output)
@@ -1202,6 +1262,58 @@ class ReviewProtocolTest(unittest.TestCase):
 
         with self.assertRaisesRegex(ProtocolError, "packet digest"):
             self._validate_output("requirements")
+
+    def test_reviewer_output_rechecks_current_ledger_after_packet_validation(self) -> None:
+        """Reject a current ledger replaced after packet validation."""
+        output = self._output()
+        self._write_json(self.output_path, output)
+        original_validate_packet = validate_packet
+
+        def validate_then_replace_ledger(*args: Any, **kwargs: Any) -> dict[str, Any]:
+            summary = original_validate_packet(*args, **kwargs)
+            replacement = copy.deepcopy(self.packet["ledger"])
+            replacement["remaining_budget"] = 99
+            self._write_json(self.ledger_path, replacement)
+            return summary
+
+        with (
+            mock.patch("review_protocol.validate_packet", side_effect=validate_then_replace_ledger),
+            self.assertRaisesRegex(ProtocolError, "Current ledger changed"),
+        ):
+            self._validate_output("requirements")
+
+    def test_reviewer_output_rechecks_prior_ledger_after_packet_validation(self) -> None:
+        """Reject a prior ledger replaced after packet validation."""
+        prior_path = self.root / "prior-ledger.json"
+        self._write_json(prior_path, self.packet["ledger"])
+        prior_digest = hashlib.sha256(prior_path.read_bytes()).hexdigest()
+        packet = copy.deepcopy(self.packet)
+        packet["ledger"]["current_round"] = 2
+        packet["ledger"]["remaining_budget"] = 4
+        self._write_packet(self.packet_path, packet)
+        self._write_json(self.output_path, self._output())
+        original_validate_packet = validate_packet
+
+        def validate_then_replace_prior(*args: Any, **kwargs: Any) -> dict[str, Any]:
+            summary = original_validate_packet(*args, **kwargs)
+            replacement = copy.deepcopy(self.packet["ledger"])
+            replacement["root_causes"] = []
+            self._write_json(prior_path, replacement)
+            return summary
+
+        with (
+            mock.patch("review_protocol.validate_packet", side_effect=validate_then_replace_prior),
+            self.assertRaisesRegex(ProtocolError, "Prior ledger changed"),
+        ):
+            validate_reviewer_output(
+                self.packet_path,
+                "requirements",
+                self.output_path,
+                "task-123",
+                self.ledger_path,
+                prior_path,
+                prior_digest,
+            )
 
     def test_unknown_root_must_be_new_proposal_with_evidence(self) -> None:
         output = self._output()
