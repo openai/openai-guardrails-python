@@ -1,349 +1,229 @@
-# Coding Style Guide for Agents
+# Contributor Guide
 
-## Overview
+This guide defines the required workflow for agents and contributors working in the OpenAI Guardrails Python repository.
 
-This document defines **required coding standards** and the **response contract** for software agents and LLMs (including ChatGPT Codex) contributing Python code to this repository. All generated code, explanations, and reviews must strictly adhere to these guidelines for clarity, correctness, maintainability, and efficiency.
+## Policies and mandatory rules
 
----
+### Repository skills
 
-## Persona & Philosophy
+Repository skills live under `.agents/skills/`. A reference such as `$<skill-name>` is a repository instruction reference, not a request for manual user invocation. When a rule requires a skill, read `.agents/skills/<skill-name>/SKILL.md` completely before taking task actions, follow it, and resolve referenced files relative to that skill directory.
 
-- **Role:** Principal Software Engineer (10+ years Python, Haskell)
-- **Approach:** Write _exceptional code_—clear, correct, maintainable, and efficient.
-- **Design bias:** Favor pure, immutable functions. Use dataclasses or OOP only when they reduce cognitive load.
+This repository intentionally provides only these six skills:
 
----
+- `$code-change-verification`
+- `$implementation-final-review`
+- `$implementation-kickoff`
+- `$implementation-strategy`
+- `$maintainer-review`
+- `$pr-draft-summary`
 
-## 1. Guiding Principles
+#### `$implementation-kickoff`
 
-Memorize and observe these six core principles in all output:
+Use `$implementation-kickoff` only when the user explicitly invokes it. It may create a dedicated worktree, a local branch, and one local commit as described by the skill. It never authorizes a push, pull-request creation, or any other GitHub mutation.
 
-| #   | Principle                | One-liner                                                             |
-| --- | ------------------------ | --------------------------------------------------------------------- |
-| 1   | Readability > cleverness | Descriptive names, linear flow, 100-char lines.                       |
-| 2   | Typed by default         | All public API fully type-annotated. Type-checking must pass.         |
-| 3   | Functional-first         | Pure functions, immutability, higher-order helpers, minimal IO.       |
-| 4   | Judicious OOP            | Small, final classes/protocols only when simpler than pure functions. |
-| 5   | Deterministic & testable | pytest + hypothesis; ≥90% branch coverage; no hidden state.           |
-| 6   | Modern & lean            | Python 3.10+, stdlib first, async for IO, profile before optimizing.  |
+#### `$implementation-strategy`
 
----
+Before changing or reviewing runtime code, exported APIs, external configuration, persisted schemas, wire formats, or other caller-visible behavior, use `$implementation-strategy` to define the compatibility boundary and the smallest coherent implementation.
 
-## 2. Concrete Coding Rules
+Before coding, record an implementation scope contract with:
 
-All generated code **must** satisfy the following checklist:
+1. Required behavior.
+2. Compatibility requirements.
+3. Intentionally unsupported cases and their failure behavior.
+4. A supported alternative, or `none`.
 
-### 2.1 Naming & Structure
+Repeat the strategy check before each review-feedback batch that would widen supported behavior, add a compatibility branch, change lifecycle or protocol ownership, or expand test permutations.
 
-- Use `snake_case` for variables/functions, `PascalCase` for classes, `SCREAMING_SNAKE` for constants.
-- Place library code under `src/yourpkg/`; tests under `tests/`.
-- One public concept per module; re-export via `__all__`.
+Independent reviewers dispatched by `$implementation-final-review` inherit the implementer's recorded implementation scope contract. The implementer remains responsible for rerunning `$implementation-strategy` before any review-feedback batch that widens the supported contract or changes a durable boundary.
 
-### 2.2 Immutability & Data
+#### `$implementation-final-review`
 
-- Default to `@dataclass(frozen=True, slots=True)` for records.
-- Use `tuple` and `frozenset` by default; mutable collections only where required.
+After implementing runtime code, tests, examples, build or test behavior, or behavior-impacting docs and completing focused checks, run `$implementation-final-review` before broad verification and before declaring the task complete. Repository instructions authorize this automatic invocation without a separate user mention.
 
-### 2.3 Async & Concurrency
+Do not invoke it for planning, investigation, report-only work, repository metadata changes, or documentation without behavior impact. Its clean-review gate does not replace verification.
 
-- Use `async/await` for all IO-bound work.
-- Never block the event loop (no `time.sleep` or heavy CPU loops without `run_in_executor`).
-- Prefer `asyncio.Semaphore` for rate limiting over raw `gather`.
+#### `$code-change-verification`
 
-### 2.4 Error Handling
+Run `$code-change-verification` after final review and before marking work complete when changes affect:
 
-- Never use bare `except:`; always catch only exceptions you can handle.
-- Chain exceptions for context (`raise ... from err`).
-- Differentiate between programmer errors (`assert`) and user errors (`ValueError`).
+- `src/guardrails/` or `mcp_server/` runtime code.
+- `tests/`.
+- `examples/`.
+- Build, packaging, docs-build, or test configuration such as `pyproject.toml`, `uv.lock`, `Makefile`, `mkdocs.yml`, `docs/scripts/`, or CI workflows.
 
-### 2.5 Logging & Observability
+Skip it for repository metadata or editorial documentation-only changes, including `.agents/`, `AGENTS.md`, `README.md`, and ordinary prose under `docs/`, unless the user explicitly requests the full stack or the change affects executable examples, generated reference content, or build behavior.
 
-- Use the `logging` module, never `print`.
-- All log entries must include: `event="action_name"`, `duration_ms`, and relevant IDs.
+Treat this skill as the final broad gate. During iterative review, prefer focused tests and narrowly targeted static checks.
 
-### 2.6 Testing
+Immediately before the broad stack, use available read-only task or process evidence to check for another repository-wide test, typecheck, build, examples, or integration command on the same host. When concrete contention exists, continue useful non-heavy work and retry later. Do not add a repository lock, host-wide mutex, sentinel file, or user-triggered `finalize` step. Lack of host telemetry alone is not a blocker.
 
-- All code must be covered by `pytest -q` and `pytest --cov=yourpkg --cov-branch` at ≥90%.
-- Use `hypothesis` for all non-trivial data logic; always seed with `PYTHONHASHSEED`.
-- All async code must be tested with `pytest.mark.asyncio`.
+#### `$maintainer-review`
 
-### 2.7 Tooling & CI
+Use `$maintainer-review` when the user asks for a maintainer-level review of an issue, pull request, proposed fix, or competing implementations. Separate evidence for the user need from code quality and repository readiness. Use read-only remote access only.
 
-```shell
-ruff check --select ALL --ignore D203,D213   # Google-style docs
-ruff format                                 # Like Black, but via Ruff
-pyright                                     # Strict mode
-pre-commit run --all-files                  # As defined in .pre-commit-config.yaml
+#### `$pr-draft-summary`
+
+Before the final response for a task that changed runtime code, tests, examples, build/test configuration, or behavior-impacting docs, use `$pr-draft-summary` after review and verification. It produces copy-ready text only and does not authorize creating a branch, committing, pushing, or opening a pull request.
+
+Skip it for repository metadata, editorial docs, conversation-only work, or when the user explicitly says not to include a PR draft.
+
+### Work status reporting
+
+- Use `RUNNING` only in commentary while autonomous work remains and no user action is required.
+- Use `COMPLETE` in the final response only when every applicable implementation, review, verification, commit, and handoff step is complete.
+- Use `NEEDS_DECISION` in the final response only when progress requires a concrete user choice, expanded authority, or unresolved external condition. State the exact decision or condition instead of asking the user to say "continue".
+
+### Git and GitHub safety
+
+- Work in the current checkout and branch unless the user explicitly asks for or approves a different branch or worktree.
+- Preserve unrelated and user-owned changes. Never remove or overwrite an existing worktree or branch to make room.
+- Agent workflows must never push, open or edit pull requests, post comments or reviews, merge, tag, publish releases, or otherwise mutate GitHub.
+- Do not run `gh`. Use an approved read-only GitHub mechanism when remote evidence is required.
+- Local branch creation, staging, and commits require explicit user authorization or explicit invocation of `$implementation-kickoff`.
+- Stop after local verification and the requested local handoff.
+
+### Scope discipline and complexity reset
+
+- Implement the narrowest explicitly requested behavior.
+- Prefer adapting the required case into an existing pipeline over creating a parallel schema, validation path, resolver, or source of truth.
+- Every new abstraction, state field, compatibility branch, configuration option, or dependency must map to a requirement, released contract, durable boundary, or verified runtime risk.
+- Do not treat every Python shape or third-party protocol variant as supported merely because it is constructible.
+- When a second related review finding would add another condition, protocol hop, compatibility case, or test permutation to the same abstraction, stop patching and run the complexity-reset workflow in `$implementation-strategy`.
+- Keep unrelated refactors and pre-existing failures out of the patch.
+
+### Documentation verification tiers
+
+Use the narrowest tier that covers the complete diff:
+
+- Editorial: spelling, terminology, punctuation, or formatting without changed behavior, runnable code, navigation, links, anchors, or generated content. Inspect the diff, run targeted searches, and run `git diff --check`.
+- Content: new or materially changed behavior guidance or runnable snippets without structural changes. Verify claims against code and authoritative sources, validate changed snippets when practical, and run `make build-docs` after content is stable.
+- Structural: added, removed, renamed, or moved pages; changes to `mkdocs.yml`, documentation scripts, plugins, or generated reference inputs. Run focused generators and `make build-docs` after structure is stable. Use `$code-change-verification` when build or test configuration is affected.
+
+Do not edit generated output. Use `make build-full-docs` only for translation-tooling changes, explicit localization work, or a requested broad localization audit.
+
+## Project structure
+
+- `src/guardrails/`: Public package and runtime implementation.
+- `src/guardrails/checks/`: Built-in guardrail checks.
+- `src/guardrails/evals/`: Evaluation runtime.
+- `mcp_server/`: Workspace package for the MCP server.
+- `tests/unit/`: Hermetic unit tests.
+- `tests/integration/`: Repository integration tests; these are still expected to avoid live services unless explicitly marked and authorized.
+- `examples/`: User-facing examples.
+- `docs/`: MkDocs documentation source.
+- `pyproject.toml`, `uv.lock`: Dependencies, packaging, and tool configuration.
+- `Makefile`: Common development commands.
+- `.github/workflows/`: CI, docs, and publication workflows.
+
+Use `uv run ...` for Python commands so local execution uses the repository environment.
+
+## Guardrails runtime boundaries
+
+### Public API and compatibility
+
+- Treat documented imports from `guardrails` and exported symbols in `src/guardrails/__init__.py` as compatibility contracts.
+- Preserve positional argument meaning for released public constructors and functions. Append optional parameters when possible.
+- Keep sync and async clients behaviorally aligned: `GuardrailsOpenAI`, `GuardrailsAsyncOpenAI`, `GuardrailsAzureOpenAI`, and `GuardrailsAsyncAzureOpenAI`.
+- Review Chat Completions and Responses API paths together when shared guardrail behavior changes.
+- Review streaming and non-streaming paths together when input checks, output checks, suppression, response wrapping, cancellation, or exception behavior changes.
+- Preserve caller-visible OpenAI client behavior that this package intentionally proxies, including response types, streaming ownership, and supported keyword forwarding.
+- Treat guardrail configuration, Pydantic models, registry names, CLI flags, serialized evaluation inputs, and MCP schemas as external configuration or wire contracts when released.
+- Keep import-time behavior free of live network calls and optional-resource failures.
+
+### Guardrail execution and failures
+
+- Preserve stage ordering and the distinction between input, output, and tool guardrails.
+- Keep `GuardrailTripwireTriggered` and Agents SDK tripwire behavior consistent with documented suppression and propagation rules.
+- Validate malformed configuration before model or provider side effects whenever possible.
+- Trace cleanup and ownership across success, tripwire, provider error, cancellation, partial stream consumption, and early iterator close.
+- Do not retain sensitive user input, model output, credentials, or provider payloads in exception chains, logs, telemetry, or test artifacts unless the public contract explicitly requires it.
+- Treat remote or model-backed checks as paid and side-effecting. Unit and integration tests must remain hermetic by default.
+
+### Tests
+
+- Mirror source behavior under `tests/unit/` and reserve `tests/integration/` for cross-module behavior.
+- Prefer DAMP tests that read as specifications. Use fixtures and parametrization where they improve clarity.
+- Add regression tests for required behavior and representative failure paths. Use Hypothesis for non-trivial input domains when it materially improves coverage.
+- Async tests use `pytest.mark.asyncio`. Do not use sleeps or real network calls in ordinary tests.
+- Test public behavior rather than branch-local helper structure.
+- For changes to a shared guardrail path, cover relevant sync/async, streaming/non-streaming, and Chat Completions/Responses variants without duplicating mechanically equivalent cases.
+
+## Development workflow
+
+1. Inspect the current status and applicable instructions without modifying user-owned work.
+2. Use `$implementation-strategy` when the change affects runtime or caller-visible contracts.
+3. Implement the narrowest coherent change and add focused tests.
+4. Run focused formatting, static checks, and tests while iterating.
+5. Run `$implementation-final-review` when applicable.
+6. Run `$code-change-verification` when applicable.
+7. Run `$pr-draft-summary` when applicable.
+8. Create a local commit only when authorized. Never push or mutate GitHub.
+
+### Common commands
+
+Install or refresh dependencies when needed:
+
+```bash
+make sync
 ```
 
-### 2.8 Dependencies & Packaging
+Run focused tests:
 
-- All dependencies are pinned in `pyproject.toml` (`[project]`, `[tool.rye]`, or `[tool.poetry]`).
-- For CLIs, expose entry points via `[project.scripts]`.
-- Avoid heavy dependencies; justify and document any non-stdlib package.
-
----
-
-## 3. Documentation
-
-- All functions/classes require **Google-style docstrings** (`Args:`, `Returns:`, `Raises:`).
-- The docstring summary line must be ≤72 chars.
-- Include minimal, runnable usage examples, guarded by `if __name__ == "__main__"`.
-
----
-
-## 4. Commit & PR Etiquette
-
-- **Title:** Imperative present, ≤50 chars.
-- **Body:** What + why (wrap at 72).
-- Always link relevant issue refs (`Fixes #123`), and add benchmarks for perf-related changes.
-
----
-
-## 5. LLM Response Contract (ChatGPT Codex Only)
-
-- **All code** must be fenced as
-
-  ````markdown
-  ```python
-  # code here
-  ```
-  ````
-
-- Obey every rule in section 2 (Coding Rules).
-- If alternatives exist, list **Pros / Cons** after your primary solution.
-- Provide **pytest** snippets for all new functions and public APIs.
-- Explicitly **flag and explain** any deviation from these guidelines in reviews or diffs.
-
----
-
-## 6. Review Checklist (for agents and reviewers)
-
-- [ ] All public functions, classes, and modules are fully type-annotated.
-- [ ] Names, file structure, and style match section 2.
-- [ ] All tests pass locally, with ≥90% branch coverage (see CI status).
-- [ ] Error handling is specific, contextual, and never uses bare `except:`.
-- [ ] All log output uses the `logging` module with event/action context.
-- [ ] No print statements or unapproved dependencies.
-- [ ] All changes are documented and include minimal working examples.
-- [ ] Commit and PR messages follow etiquette rules.
-
----
-
-## 7. Examples
-
-### Code Example
-
-```python
-from dataclasses import dataclass
-
-@dataclass(frozen=True, slots=True)
-class User:
-    """User account with immutable attributes.
-
-    Args:
-        id: Unique user identifier.
-        name: Display name.
-    """
-    id: int
-    name: str
+```bash
+uv run pytest -q tests/unit/test_<area>.py
 ```
 
-### Pytest Example
+Run formatting and linting:
 
-```python
-import pytest
-from yourpkg.models import User
-
-def test_user_is_immutable():
-    user = User(id=1, name="Alice")
-    with pytest.raises(Exception):
-        user.id = 2
+```bash
+make format
+make lint
 ```
 
-### LLM Response Example
+Run both configured type checkers:
 
-```python
-# Here is a functional utility following all standards:
-def add_one(x: int) -> int:
-    """Return input incremented by one.
-
-    Args:
-        x: An integer.
-
-    Returns:
-        Integer one greater than x.
-    """
-    return x + 1
-
-# Pytest example:
-def test_add_one():
-    assert add_one(2) == 3
+```bash
+uv run mypy src tests
+uv run pyright
 ```
 
-**Pros**: Pure, fully typed, easily testable.
-**Cons**: For very simple operations, docstrings may seem verbose, but aid maintainability.
+Run the test suite and coverage gate:
 
----
-
-## 8. References
-
-- [OpenAI Codex Documentation](https://github.com/openai/codex)
-- [Pyright](https://github.com/microsoft/pyright)
-- [Ruff](https://docs.astral.sh/ruff/)
-- [pytest](https://docs.pytest.org/en/latest/)
-- [hypothesis](https://hypothesis.readthedocs.io/)
-- [Google Python Style Guide](https://google.github.io/styleguide/pyguide.html)
-
----
-
-**This file is required reading for all agents and contributors. Deviations must be justified and flagged in code reviews.**
-
-# PyTest Best Practices for Agents
-
-## Overview
-
-This document defines best practices and conventions for software engineering agents (including ChatGPT Codex) when **generating unit tests with pytest** for Python packages. It aims to ensure test code is readable, robust, and maintainable, and to enable agents to collaborate effectively with developers and automated systems.
-
----
-
-## Goals
-
-- Write **discoverable, idiomatic pytest tests** for Python codebases.
-- Prefer **DAMP (Descriptive And Meaningful Phrases)** over excessive DRY, prioritizing readability.
-- Validate **invariants and properties** rather than only asserting on outputs.
-- Structure and document tests so that they are easy to understand and maintain.
-- Integrate with standard Python project layouts and CI.
-
----
-
-## 1. Test Directory & File Structure
-
-- **Mirror code layout** in the test suite.
-
-  - Example:
-
-    ```
-    src/
-        your_package/
-            core.py
-    tests/
-        unit/
-            test_core.py
-        integration/
-            test_cli.py
-    ```
-
-- Place fast unit tests in `tests/unit/`, and use `tests/integration/` for tests requiring I/O, external systems, or longer runtimes.
-- Each test module should cover a single module or feature, and be named `test_<modulename>.py`.
-
----
-
-## 2. Writing Readable Tests (DAMP > DRY)
-
-- **DAMP**: Be explicit. Favor clarity over clever abstractions; minor repetition is OK if it clarifies test intent.
-- Only refactor repeated setup into fixtures or helpers when duplication would harm maintainability or understanding.
-- When extracting helpers, keep them as close as possible to their use (within the same test file if feasible).
-- Each test should **read as a specification** and explain "what" is being tested, not just "how".
-
----
-
-## 3. Testing Invariants & Properties
-
-- **Do not** only assert expected outputs for fixed inputs; also test fundamental properties and invariants.
-- Examples:
-
-  - Instead of only `assert sort([3,1,2]) == [1,2,3]`, also assert the result is sorted and is a permutation of the input.
-  - Use **property-based testing** (e.g., [hypothesis](https://hypothesis.readthedocs.io/)) for coverage of input space.
-
-- Prefer property-based tests for code with complex input domains, and classic example-based tests for regression or documentation.
-
----
-
-## 4. Pytest Conventions and Tools
-
-- **Fixtures**: Use `pytest` fixtures for dependencies and setup, not class-based `setUp`/`tearDown`.
-
-  - Pass fixtures as function arguments to make dependencies explicit.
-  - Use scopes (`function`, `module`, etc.) to control resource lifetimes.
-
-- **Parametrize**: Use `@pytest.mark.parametrize` to test multiple scenarios clearly.
-- **Exception Handling**: Use `pytest.raises` for asserting exceptions.
-- **Floating Point**: Use `pytest.approx` for float comparisons.
-- **Temporary Resources**: Use built-in fixtures like `tmp_path`, `monkeypatch`, `capsys`, and `caplog`.
-- **Markers**: Mark slow, network, or integration tests for selective execution.
-
----
-
-## 5. Test Style Guidelines
-
-- Each test function must start with `test_`.
-- Use **type hints** in tests for clarity.
-- Prefer **AAA (Arrange, Act, Assert)** structure and use blank lines or comments to make test phases clear.
-- Name test functions with descriptive behavior:
-  e.g., `test_parse_returns_empty_list_for_blank_input`
-- Prefer **one assertion per behavior**, but multiple asserts are fine when related.
-- Keep test data minimal yet realistic; use local factories or fixtures for complex setup.
-- Avoid logic and branching in test code, except for explicitly asserting both outcomes.
-- Docstrings are optional for trivial tests, but document non-obvious behaviors or fixtures.
-
----
-
-## 6. Example
-
-```python
-import pytest
-from your_package.math import fib
-
-@pytest.mark.parametrize("n, expected", [(0, 0), (1, 1), (7, 13)])
-def test_fib_known_values(n: int, expected: int) -> None:
-    """Test canonical Fibonacci numbers for low n."""
-    result = fib(n)
-    assert result == expected
-
-@pytest.mark.parametrize("n", [10, 20, 30])
-def test_fib_monotonicity(n: int) -> None:
-    """Fibonacci sequence is non-decreasing."""
-    assert fib(n) <= fib(n+1)
-
-from hypothesis import given, strategies as st
-
-@given(st.integers(min_value=2, max_value=100))
-def test_fib_upper_bound(n: int) -> None:
-    """Fibonacci number is always less than 2^n."""
-    assert fib(n) < 2 ** n
+```bash
+make tests
+make coverage
 ```
 
----
+Build documentation:
 
-## 7. Checklist for Agent-Generated Tests
+```bash
+make build-docs
+```
 
-- [ ] Tests are in the correct directory and named for the module under test.
-- [ ] DAMP style: explicit, not over-abstracted; repeated setup only refactored if necessary.
-- [ ] Property-based and example-based tests are included where appropriate.
-- [ ] Use `pytest` fixtures, parametrization, and markers idiomatically.
-- [ ] Test names and docstrings (if present) describe intent.
-- [ ] No direct I/O, sleeps, or network calls unless explicitly marked as integration.
-- [ ] Tests are deterministic, hermetic, and CI-friendly.
+### Code style
 
----
+- Target Python 3.11+ and fully type public APIs.
+- Use descriptive names and straightforward control flow.
+- Prefer pure functions and immutable values when they reduce state and lifecycle complexity.
+- Use specific exception handling and preserve useful context with explicit chaining.
+- Use `logging`, not `print`, in library code. Never log secrets or raw sensitive content.
+- Follow the Ruff and mypy configuration in `pyproject.toml`; repository configuration overrides generic style preferences.
+- Public functions and classes require concise Google-style docstrings.
+- Keep comments focused on why, not a restatement of the code.
 
-## References
+## Commit and PR text
 
-- [pytest documentation](https://docs.pytest.org/en/latest/)
-- [Hypothesis property-based testing](https://hypothesis.readthedocs.io/)
-- [OpenAI Codex documentation](https://github.com/openai/codex)
-- [Python Testing in Practice](https://realpython.com/pytest-python-testing/)
+- Use concise, imperative commit subjects. Conventional prefixes such as `fix:`, `feat:`, `docs:`, and `chore:` are preferred when they clarify intent.
+- Keep commits focused and include tests with behavior changes.
+- Copy-ready GitHub text must use `#123` for this repository and `owner/repo#123` for cross-repository references. Do not wrap native issue or pull-request references in Markdown links.
+- Never include local paths, internal review artifacts, task IDs, or Codex-only directives in copy-ready external text.
 
----
+## Review baseline
 
-## Appendix: Prompts for Codex/ChatGPT
-
-- **Be specific**: Start with a clear comment, code snippet, or data sample.
-- **Specify language and libraries**: e.g., `# Python 3.10, using pytest`
-- **Provide example(s) and properties**: e.g., "Write pytest unit tests for this function, ensuring monotonicity and correct output for known inputs."
-- **Comment style**: Use docstrings for function behavior, inline comments for assertions.
-
----
-
-**This file guides agents and automated tools to produce high-quality, maintainable Python tests in line with modern Python and pytest best practices.**
+- The implementation satisfies the explicit requirement without unsupported scope expansion.
+- Released public behavior and durable formats remain compatible or have an explicitly approved migration.
+- Sync/async, streaming/non-streaming, and Chat Completions/Responses parity are covered where affected.
+- Failure, cancellation, cleanup, and sensitive-data paths are reviewed where affected.
+- Tests cover new behavior and representative edge cases.
+- Applicable formatting, lint, type checking, tests, and documentation checks pass.
+- The final diff contains no unrelated changes and no untracked task deliverables are omitted.
