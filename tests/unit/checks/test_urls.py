@@ -2,15 +2,85 @@
 
 from __future__ import annotations
 
+import re
+import string
+from statistics import median
+from timeit import repeat
+
 import pytest
+from hypothesis import given, strategies as st
 
 from guardrails.checks.text.urls import (
     URLConfig,
+    _detect_domain_like_urls,
     _detect_urls,
     _is_url_allowed,
     _validate_url_security,
     urls,
 )
+
+REFERENCE_DOMAIN_PATTERN = re.compile(
+    r"\b(?:www\.)?[a-zA-Z0-9][a-zA-Z0-9.-]*\.[a-zA-Z]{2,}(?:/[^\s]*)?",
+    re.IGNORECASE,
+)
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ("foo.com-", ["foo.com"]),
+        ("foo.com123", ["foo.com"]),
+        ("foo.c0m", []),
+        ("foo.com.a", ["foo.com"]),
+        ("foo..example.com", ["foo..example.com"]),
+        ("-example.com", ["example.com"]),
+        ("_example.com", []),
+        ("foo.com-evil/path", ["foo.com"]),
+        ("foo.com/path?x=1", ["foo.com/path?x=1"]),
+        ("abc/example.com", ["example.com"]),
+        ("example.cİ", ["example.cİ"]),
+        ("example.cı", ["example.cı"]),
+        ("example.cſ", ["example.cſ"]),
+        ("example.cK", ["example.cK"]),
+        ("K.example.com", ["K.example.com"]),
+        ("foo.ſſ/path", ["foo.ſſ/path"]),
+    ],
+)
+def test_detect_domain_like_urls_preserves_existing_matches(
+    text: str,
+    expected: list[str],
+) -> None:
+    """The linear scanner should preserve established domain matching."""
+    assert _detect_domain_like_urls(text) == expected  # noqa: S101
+
+
+@given(
+    text=st.text(
+        alphabet=string.ascii_letters + string.digits + string.punctuation + "İıſK \t\n\r",
+        max_size=100,
+    )
+)
+def test_detect_domain_like_urls_matches_reference_pattern(text: str) -> None:
+    """The linear scanner should match the previous regex on bounded text."""
+    assert _detect_domain_like_urls(text) == REFERENCE_DOMAIN_PATTERN.findall(text)  # noqa: S101
+
+
+def test_detect_urls_scales_linearly_for_invalid_domain_input() -> None:
+    """Doubling invalid dotted input should not cause quadratic growth."""
+    small_text = "a." * 2_000 + "-"
+    large_text = "a." * 4_000 + "-"
+
+    small_duration = median(repeat(lambda: _detect_urls(small_text), number=1, repeat=7))
+    large_duration = median(repeat(lambda: _detect_urls(large_text), number=1, repeat=7))
+
+    assert _detect_urls(small_text) == []  # noqa: S101
+    assert _detect_urls(large_text) == []  # noqa: S101
+    assert large_duration < small_duration * 3  # noqa: S101
+
+
+def test_detect_urls_preserves_unicode_casefolded_domain() -> None:
+    """Unicode characters matched by the previous regex remain detectable."""
+    assert _detect_urls("Visit attacker.cK now") == ["attacker.cK"]  # noqa: S101
 
 
 def test_detect_urls_deduplicates_scheme_and_domain() -> None:
