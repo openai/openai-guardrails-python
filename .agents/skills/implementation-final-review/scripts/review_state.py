@@ -135,8 +135,6 @@ def _untracked_paths(repo: Path, pathspecs: tuple[str, ...]) -> tuple[bytes, ...
 def _literal_pathspecs(repo: Path, pathspecs: tuple[str, ...]) -> frozenset[str]:
     literal_pathspecs: set[str] = set()
     for pathspec in pathspecs:
-        if pathspec.startswith(":("):
-            continue
         relative_path = PurePosixPath(pathspec)
         if (
             relative_path.is_absolute()

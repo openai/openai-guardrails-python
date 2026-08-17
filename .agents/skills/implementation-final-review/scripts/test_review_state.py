@@ -159,6 +159,15 @@ class ReviewStateTest(unittest.TestCase):
 
         self.assertEqual(state["complete_diff_paths"], ["plans/[a].md"])
 
+    def test_existing_magic_prefixed_filename_is_exact(self) -> None:
+        """Treat an existing magic-prefixed filename as an exact path."""
+        (self.repo / ":(glob)literal").write_text("literal filename\n")
+        (self.repo / "literal").write_text("glob match\n")
+
+        state = review_state(self.repo, self.base, (":(glob)literal",))
+
+        self.assertEqual(state["complete_diff_paths"], [":(glob)literal"])
+
     def test_explicit_glob_magic_preserves_pattern_semantics(self) -> None:
         (self.repo / "plans" / "[a].md").write_text("literal\n")
         (self.repo / "plans" / "a.md").write_text("glob match\n")
