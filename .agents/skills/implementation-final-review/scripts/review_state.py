@@ -35,6 +35,26 @@ def _digest(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
+def _submodule_worktree_sha256(repo: Path) -> str:
+    tracked_diff = _git(repo, "diff", "--binary", "--full-index", "HEAD")
+    raw_untracked_paths = _git(repo, "ls-files", "--others", "--exclude-standard", "-z")
+    untracked_workspace = [
+        _workspace_entry(repo, os.fsdecode(raw_path))
+        for raw_path in sorted(raw_untracked_paths.split(b"\0"))
+        if raw_path
+    ]
+    canonical = json.dumps(
+        {
+            "tracked_diff_sha256": _digest(tracked_diff),
+            "untracked_workspace": untracked_workspace,
+        },
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return _digest(canonical.encode())
+
+
 def _canonical_pathspecs(pathspecs: tuple[str, ...]) -> tuple[str, ...]:
     canonical: list[str] = []
     seen: set[str] = set()
@@ -47,6 +67,29 @@ def _canonical_pathspecs(pathspecs: tuple[str, ...]) -> tuple[str, ...]:
             canonical.append(pathspec)
             seen.add(pathspec)
     return tuple(canonical)
+
+
+def _base_has_literal_path(repo: Path, base: str, pathspec: str) -> bool:
+    raw_path = os.fsencode(pathspec)
+    entries = _git(
+        repo,
+        "ls-tree",
+        "-z",
+        base,
+        "--",
+        f":(literal){pathspec}",
+    )
+    for entry in entries.split(b"\0"):
+        metadata, separator, entry_path = entry.partition(b"\t")
+        fields = metadata.split()
+        if (
+            separator
+            and entry_path == raw_path
+            and len(fields) >= 2
+            and fields[1] != b"tree"
+        ):
+            return True
+    return False
 
 
 def _load_pathspec_file(path: Path) -> tuple[str, ...]:
@@ -80,19 +123,22 @@ def _workspace_entry(repo: Path, relative_path: str) -> dict[str, object]:
             submodule_status = _git(path, "status", "--porcelain=v1", "-z")
         except (subprocess.CalledProcessError, FileNotFoundError):
             return {"path": relative_path, "kind": "directory"}
-        return {
+        entry: dict[str, object] = {
             "path": relative_path,
             "kind": "gitlink",
             "head": submodule_head,
             "status_sha256": _digest(submodule_status),
         }
+        if submodule_status:
+            entry["worktree_sha256"] = _submodule_worktree_sha256(path)
+        return entry
     return {"path": relative_path, "kind": "missing"}
 
 
 def _workspace_entries(
     repo: Path, base: str, pathspecs: tuple[str, ...]
 ) -> list[dict[str, object]]:
-    git_pathspecs = _git_pathspecs(repo, pathspecs)
+    git_pathspecs = _git_pathspecs(repo, base, pathspecs)
     tracked_paths = _git(
         repo,
         "diff",
@@ -103,7 +149,7 @@ def _workspace_entries(
         "--",
         *git_pathspecs,
     )
-    untracked_paths = _untracked_paths(repo, pathspecs)
+    untracked_paths = _untracked_paths(repo, base, pathspecs)
     paths = {
         os.fsdecode(raw_path)
         for raw_path in (*tracked_paths.split(b"\0"), *untracked_paths)
@@ -112,8 +158,8 @@ def _workspace_entries(
     return [_workspace_entry(repo, relative_path) for relative_path in sorted(paths)]
 
 
-def _untracked_paths(repo: Path, pathspecs: tuple[str, ...]) -> tuple[bytes, ...]:
-    literal_pathspecs = _literal_pathspecs(repo, pathspecs)
+def _untracked_paths(repo: Path, base: str, pathspecs: tuple[str, ...]) -> tuple[bytes, ...]:
+    literal_pathspecs = _literal_pathspecs(repo, base, pathspecs)
     raw_paths = _git(
         repo,
         "ls-files",
@@ -121,7 +167,7 @@ def _untracked_paths(repo: Path, pathspecs: tuple[str, ...]) -> tuple[bytes, ...
         "--exclude-standard",
         "-z",
         "--",
-        *_git_pathspecs(repo, pathspecs, literal_pathspecs),
+        *_git_pathspecs(repo, base, pathspecs, literal_pathspecs),
     )
     paths = {raw_path for raw_path in raw_paths.split(b"\0") if raw_path}
     for pathspec in literal_pathspecs:
@@ -132,7 +178,9 @@ def _untracked_paths(repo: Path, pathspecs: tuple[str, ...]) -> tuple[bytes, ...
     return tuple(sorted(paths))
 
 
-def _literal_pathspecs(repo: Path, pathspecs: tuple[str, ...]) -> frozenset[str]:
+def _literal_pathspecs(
+    repo: Path, base: str, pathspecs: tuple[str, ...]
+) -> frozenset[str]:
     literal_pathspecs: set[str] = set()
     for pathspec in pathspecs:
         relative_path = PurePosixPath(pathspec)
@@ -145,17 +193,24 @@ def _literal_pathspecs(repo: Path, pathspecs: tuple[str, ...]) -> frozenset[str]
         candidate = repo.joinpath(*relative_path.parts)
         raw_path = os.fsencode(pathspec)
         tracked_paths = _git(repo, "ls-files", "-z", "--", f":(literal){pathspec}")
-        if candidate.is_file() or candidate.is_symlink() or raw_path in tracked_paths.split(b"\0"):
+        if (
+            candidate.is_file()
+            or candidate.is_symlink()
+            or raw_path in tracked_paths.split(b"\0")
+            or _base_has_literal_path(repo, base, pathspec)
+        ):
             literal_pathspecs.add(pathspec)
     return frozenset(literal_pathspecs)
 
 
 def _git_pathspecs(
     repo: Path,
+    base: str,
     pathspecs: tuple[str, ...],
     literal_pathspecs: frozenset[str] | None = None,
 ) -> tuple[str, ...]:
-    literal_pathspecs = literal_pathspecs or _literal_pathspecs(repo, pathspecs)
+    if literal_pathspecs is None:
+        literal_pathspecs = _literal_pathspecs(repo, base, pathspecs)
     return tuple(
         f":(literal){pathspec}" if pathspec in literal_pathspecs else pathspec
         for pathspec in pathspecs
@@ -171,10 +226,10 @@ def _complete_diff(repo: Path, base: str, pathspecs: tuple[str, ...]) -> bytes:
             "--full-index",
             base,
             "--",
-            *_git_pathspecs(repo, pathspecs),
+            *_git_pathspecs(repo, base, pathspecs),
         )
     ]
-    for raw_path in _untracked_paths(repo, pathspecs):
+    for raw_path in _untracked_paths(repo, base, pathspecs):
         chunks.append(
             _git_diff(
                 repo,
@@ -257,7 +312,7 @@ def review_state(
         "--full-index",
         resolved_base,
         "--",
-        *_git_pathspecs(repo, pathspecs),
+        *_git_pathspecs(repo, resolved_base, pathspecs),
     )
     complete_diff = _complete_diff(repo, resolved_base, pathspecs)
     status = _git(
@@ -267,7 +322,7 @@ def review_state(
         "-z",
         "--untracked-files=all",
         "--",
-        *_git_pathspecs(repo, pathspecs),
+        *_git_pathspecs(repo, resolved_base, pathspecs),
     )
     workspace = _workspace_entries(repo, resolved_base, pathspecs)
     unfiltered_status = _git(

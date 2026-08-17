@@ -168,6 +168,20 @@ class ReviewStateTest(unittest.TestCase):
 
         self.assertEqual(state["complete_diff_paths"], [":(glob)literal"])
 
+    def test_deleted_magic_prefixed_filename_is_exact_from_base(self) -> None:
+        """Treat a deleted base filename with magic syntax as exact."""
+        magic_prefixed = self.repo / ":(glob)literal"
+        magic_prefixed.write_text("deleted literal filename\n")
+        (self.repo / "literal").write_text("glob match\n")
+        self._git("add", ".")
+        self._git("commit", "-qm", "add magic-prefixed filename")
+        self.base = self._git("rev-parse", "HEAD").strip()
+        self._git("rm", "-q", "--", ":(literal):(glob)literal")
+
+        state = review_state(self.repo, self.base, (":(glob)literal",))
+
+        self.assertEqual(state["complete_diff_paths"], [":(glob)literal"])
+
     def test_explicit_glob_magic_preserves_pattern_semantics(self) -> None:
         (self.repo / "plans" / "[a].md").write_text("literal\n")
         (self.repo / "plans" / "a.md").write_text("glob match\n")
@@ -175,6 +189,55 @@ class ReviewStateTest(unittest.TestCase):
         state = review_state(self.repo, self.base, (":(glob)plans/[a].md",))
 
         self.assertEqual(state["complete_diff_paths"], ["plans/[a].md", "plans/a.md"])
+
+    def test_dirty_submodule_content_changes_fingerprint(self) -> None:
+        """Fingerprint dirty submodule content, not only its status."""
+        source = self.repo / ".fixtures" / "dependency-source"
+        source.mkdir(parents=True)
+        subprocess.run(("git", "init", "-q", str(source)), check=True)
+        subprocess.run(
+            ("git", "-C", str(source), "config", "user.email", "submodule@example.test"),
+            check=True,
+        )
+        subprocess.run(
+            ("git", "-C", str(source), "config", "user.name", "Submodule Test"),
+            check=True,
+        )
+        (source / "tracked.txt").write_text("committed\n")
+        subprocess.run(("git", "-C", str(source), "add", "."), check=True)
+        subprocess.run(("git", "-C", str(source), "commit", "-qm", "initial"), check=True)
+        with (self.repo / ".gitignore").open("a") as gitignore:
+            gitignore.write(".fixtures/\n")
+        self._git(
+            "-c",
+            "protocol.file.allow=always",
+            "submodule",
+            "add",
+            "-q",
+            str(source),
+            "vendor/dependency",
+        )
+        self._git("add", ".")
+        self._git("commit", "-qm", "add dependency")
+        self.base = self._git("rev-parse", "HEAD").strip()
+        tracked = self.repo / "vendor" / "dependency" / "tracked.txt"
+        tracked.write_text("first dirty body\n")
+        before = review_state(self.repo, self.base, ("vendor/dependency",))
+
+        tracked.write_text("second dirty body\n")
+        after = review_state(self.repo, self.base, ("vendor/dependency",))
+
+        self.assertEqual(
+            before["workspace"][0]["status_sha256"],
+            after["workspace"][0]["status_sha256"],
+        )
+        self.assertEqual(before["complete_diff_sha256"], after["complete_diff_sha256"])
+        self.assertNotEqual(
+            before["workspace"][0]["worktree_sha256"],
+            after["workspace"][0]["worktree_sha256"],
+        )
+        self.assertNotEqual(before["content_fingerprint"], after["content_fingerprint"])
+        self.assertNotEqual(before["repository_fingerprint"], after["repository_fingerprint"])
 
     def test_cli_writes_complete_diff_output(self) -> None:
         (self.repo / "tests" / "test_new.py").write_text("assert True\n")
