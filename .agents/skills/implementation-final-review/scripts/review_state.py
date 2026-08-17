@@ -57,12 +57,12 @@ def _nonblocking_opener(path: str, flags: int) -> int:
     return os.open(path, flags | getattr(os, "O_NONBLOCK", 0))
 
 
-def _read_regular_file(path: Path) -> tuple[bytes, int]:
+def _read_regular_file(path: Path) -> tuple[bytes, os.stat_result]:
     with open(path, "rb", opener=_nonblocking_opener) as file:
-        mode = os.fstat(file.fileno()).st_mode
-        if not stat.S_ISREG(mode):
+        file_stat = os.fstat(file.fileno())
+        if not stat.S_ISREG(file_stat.st_mode):
             raise _NonRegularFileError(path)
-        return file.read(), mode
+        return file.read(), file_stat
 
 
 def _unsafe_index_paths(repo: Path) -> tuple[tuple[str, str], ...]:
@@ -248,7 +248,7 @@ def _load_pathspec_file(path: Path) -> tuple[str, ...]:
     return _canonical_pathspecs(tuple(values))
 
 
-def _read_workspace_file(path: Path, relative_path: str) -> tuple[bytes, int]:
+def _read_workspace_file(path: Path, relative_path: str) -> tuple[bytes, os.stat_result]:
     try:
         return _read_regular_file(path)
     except _NonRegularFileError as error:
@@ -267,12 +267,12 @@ def _workspace_entry(repo: Path, relative_path: str) -> dict[str, object]:
             "sha256": _digest(content),
         }
     if path.is_file():
-        file_content, mode = _read_workspace_file(path, relative_path)
+        file_content, file_stat = _read_workspace_file(path, relative_path)
         content = b"file\0" + file_content
         return {
             "path": relative_path,
             "kind": "file",
-            "executable": bool(mode & 0o100),
+            "executable": bool(file_stat.st_mode & 0o100),
             "sha256": _digest(content),
         }
     indexed_head = _index_gitlinks(repo).get(relative_path)

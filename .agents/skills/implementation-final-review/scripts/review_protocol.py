@@ -153,17 +153,21 @@ def _at(value: dict[str, Any], dotted_path: str) -> Any:
     return current
 
 
-def _read_bytes(value: Any, context: str) -> tuple[Path, bytes]:
-    path = Path(_text(value, context, concrete=True))
-    if not path.is_absolute():
-        raise ProtocolError(f"{context} must be an absolute path: {path}.")
+FileIdentity = tuple[int, int]
+
+
+def _read_bytes(value: Any, context: str) -> tuple[Path, bytes, FileIdentity]:
+    requested_path = Path(_text(value, context, concrete=True))
+    if not requested_path.is_absolute():
+        raise ProtocolError(f"{context} must be an absolute path: {requested_path}.")
     try:
-        data, _ = _read_regular_file(path)
+        path = requested_path.resolve(strict=True)
+        data, file_stat = _read_regular_file(path)
     except _NonRegularFileError as error:
-        raise ProtocolError(f"{context} must be a regular file: {path}.") from error
+        raise ProtocolError(f"{context} must be a regular file: {requested_path}.") from error
     except (OSError, ValueError) as error:
-        raise ProtocolError(f"Cannot read {context} {path}: {error}") from error
-    return path, data
+        raise ProtocolError(f"Cannot read {context} {requested_path}: {error}") from error
+    return path, data, (file_stat.st_dev, file_stat.st_ino)
 
 
 def _json_bytes(data: bytes, context: str) -> dict[str, Any]:
@@ -183,24 +187,24 @@ def _json_bytes(data: bytes, context: str) -> dict[str, Any]:
 
 
 def _load_json(path: Path) -> dict[str, Any]:
-    _, data = _read_bytes(str(path.resolve()), str(path))
+    _, data, _ = _read_bytes(str(path.resolve()), str(path))
     return _json_bytes(data, str(path))
 
 
-def _descriptor(value: Any, context: str) -> tuple[Path, bytes, str]:
+def _descriptor(value: Any, context: str) -> tuple[Path, bytes, str, FileIdentity]:
     descriptor = _object(value, context)
-    path, data = _read_bytes(descriptor.get("path"), f"{context}.path")
+    path, data, identity = _read_bytes(descriptor.get("path"), f"{context}.path")
     expected = _text(descriptor.get("sha256"), f"{context}.sha256")
     if not SHA256.fullmatch(expected):
         raise ProtocolError(f"{context}.sha256 must be a lowercase SHA-256 digest.")
     actual = hashlib.sha256(data).hexdigest()
     if actual != expected:
         raise ProtocolError(f"{context} digest mismatch for {path}.")
-    return path, data, actual
+    return path, data, actual, identity
 
 
 def _pathspec_file(value: Any, context: str) -> list[str]:
-    _, data = _read_bytes(value, context)
+    _, data, _ = _read_bytes(value, context)
     try:
         lines = [line for line in data.decode().splitlines() if line]
     except UnicodeError as error:
@@ -269,6 +273,7 @@ def _workspace_paths(value: Any, context: str) -> set[str]:
 
 def _evidence_artifacts(packet: dict[str, Any]) -> dict[str, dict[str, Any]]:
     artifacts: dict[str, dict[str, Any]] = {}
+    artifact_identities: dict[FileIdentity, str] = {}
     role_ids: dict[str, set[str]] = {
         "complete-diff": set(),
         "review-state": set(),
@@ -281,7 +286,16 @@ def _evidence_artifacts(packet: dict[str, Any]) -> dict[str, dict[str, Any]]:
         artifact_id = _text(artifact.get("id"), f"evidence_artifacts[{index}].id")
         if artifact_id in artifacts:
             raise ProtocolError(f"Duplicate evidence artifact ID: {artifact_id}.")
-        path, data, digest = _descriptor(artifact, f"evidence artifact {artifact_id}")
+        path, data, digest, identity = _descriptor(
+            artifact, f"evidence artifact {artifact_id}"
+        )
+        existing_artifact = artifact_identities.get(identity)
+        if existing_artifact is not None:
+            raise ProtocolError(
+                f"Duplicate evidence artifact file identity for "
+                f"{existing_artifact} and {artifact_id}."
+            )
+        artifact_identities[identity] = artifact_id
         role = artifact.get("role")
         if role not in {"complete-diff", "review-state", "repository-status", "supporting"}:
             raise ProtocolError(f"Evidence artifact {artifact_id} has an invalid role: {role!r}.")
@@ -444,7 +458,7 @@ def validate_packet(
     prior_ledger_path: Path | None = None,
     prior_ledger_sha256: str | None = None,
 ) -> dict[str, Any]:
-    packet_path, packet_data = _read_bytes(str(path.resolve()), "packet")
+    packet_path, packet_data, _ = _read_bytes(str(path.resolve()), "packet")
     packet = _json_bytes(packet_data, str(packet_path))
     if type(packet.get("schema_version")) is not int or packet["schema_version"] != 1:
         raise ProtocolError("Packet schema_version must be integer 1.")
@@ -561,8 +575,10 @@ def validate_packet(
         )
 
     ledger = _object(packet.get("ledger"), "ledger")
-    ledger_path, ledger_data = _read_bytes(ledger.get("path"), "ledger.path")
-    if ledger_path.resolve() != expected_ledger_path:
+    ledger_path, ledger_data, ledger_identity = _read_bytes(
+        ledger.get("path"), "ledger.path"
+    )
+    if ledger_path != expected_ledger_path:
         raise ProtocolError("ledger.path must match the control-plane ledger path.")
     if _json_bytes(ledger_data, str(ledger_path)) != ledger:
         raise ProtocolError("ledger.path content must match the packet ledger exactly.")
@@ -635,8 +651,10 @@ def validate_packet(
     if prior_ledger_path is not None or prior_ledger_sha256 is not None:
         if prior_ledger_path is None or prior_ledger_sha256 is None:
             raise ProtocolError("Prior ledger path and SHA-256 must be supplied together.")
-        prior_path, prior_data = _read_bytes(str(prior_ledger_path), "prior ledger path")
-        if prior_path.samefile(ledger_path):
+        prior_path, prior_data, prior_identity = _read_bytes(
+            str(prior_ledger_path), "prior ledger path"
+        )
+        if prior_identity == ledger_identity:
             raise ProtocolError("Prior ledger snapshot must be distinct from the current ledger.")
         if not SHA256.fullmatch(prior_ledger_sha256):
             raise ProtocolError("Prior ledger SHA-256 must be a lowercase SHA-256 digest.")
@@ -788,15 +806,17 @@ def validate_packet(
         _command_result(result, f"verification.preflight_results[{index}]")
         preflight_commands.add(result["command"])
     receipt_paths: set[Path] = set()
+    receipt_identities: set[FileIdentity] = set()
     for index, raw_receipt in enumerate(
         _array(verification.get("credited_receipts"), "verification.credited_receipts")
     ):
-        receipt_path, receipt_data, _ = _descriptor(
+        receipt_path, receipt_data, _, receipt_identity = _descriptor(
             raw_receipt, f"verification.credited_receipts[{index}]"
         )
-        if receipt_path in receipt_paths:
-            raise ProtocolError(f"Duplicate credited receipt path: {receipt_path}.")
+        if receipt_identity in receipt_identities:
+            raise ProtocolError(f"Duplicate credited receipt file identity: {receipt_path}.")
         receipt_paths.add(receipt_path)
+        receipt_identities.add(receipt_identity)
         validate_receipt_data(
             _json_bytes(receipt_data, str(receipt_path)),
             combined,
@@ -837,7 +857,7 @@ def validate_reviewer_output(
         prior_ledger_path,
         prior_ledger_sha256,
     )
-    _, packet_data = _read_bytes(str(packet_path.resolve()), "packet")
+    _, packet_data, _ = _read_bytes(str(packet_path.resolve()), "packet")
     if hashlib.sha256(packet_data).hexdigest() != summary["packet_sha256"]:
         raise ProtocolError("Packet changed during reviewer output validation.")
     packet = _json_bytes(packet_data, str(packet_path.resolve()))

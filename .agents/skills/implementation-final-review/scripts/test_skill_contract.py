@@ -204,6 +204,7 @@ class SkillContractTest(unittest.TestCase):
         self.assertIn(
             "path-level `stat` must not authorize a later reopen", self.reviewer_brief
         )
+        self.assertIn("unique opened-file device and inode identities", self.reviewer_brief)
 
     def test_verified_base_advance_closure_is_strict_and_keeps_final_verification(self) -> None:
         required_text = (
@@ -363,6 +364,8 @@ class SkillContractTest(unittest.TestCase):
             "resolve to finite regular files",
             "Verify the file type after opening",
             "read content from that same descriptor",
+            "Canonicalize each path before opening",
+            "opened descriptor's device and inode identity",
         )
         for text in required_text:
             with self.subTest(text=text):

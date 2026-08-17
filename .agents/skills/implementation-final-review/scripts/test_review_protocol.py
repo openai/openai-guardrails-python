@@ -779,6 +779,25 @@ class ReviewProtocolTest(unittest.TestCase):
         with self.assertRaisesRegex(ProtocolError, "digest mismatch"):
             self._validate_packet()
 
+    @unittest.skipIf(os.name == "nt", "Symlink creation requires platform privileges.")
+    def test_packet_rejects_aliased_evidence_paths(self) -> None:
+        alias = self.root / "root-evidence-alias.txt"
+        alias.symlink_to(self.root_evidence)
+        packet = copy.deepcopy(self.packet)
+        packet["evidence_artifacts"].append(
+            {
+                "id": "E-ROOT-ALIAS",
+                "path": str(alias),
+                "sha256": hashlib.sha256(self.root_evidence.read_bytes()).hexdigest(),
+                "role": "supporting",
+                "purpose": "Alias of existing root-cause evidence.",
+            }
+        )
+        self._write_packet(self.packet_path, packet)
+
+        with self.assertRaisesRegex(ProtocolError, "Duplicate evidence artifact file identity"):
+            self._validate_packet()
+
     @unittest.skipUnless(Path("/dev/null").exists(), "Requires a POSIX device path.")
     def test_packet_rejects_non_regular_evidence_files(self) -> None:
         packet = copy.deepcopy(self.packet)
@@ -1025,6 +1044,22 @@ class ReviewProtocolTest(unittest.TestCase):
         ).hexdigest()
         self._write_packet(self.packet_path, packet)
         with self.assertRaisesRegex(ProtocolError, "exit_status 0"):
+            self._validate_packet()
+
+    @unittest.skipIf(os.name == "nt", "Symlink creation requires platform privileges.")
+    def test_packet_rejects_aliased_credited_receipts(self) -> None:
+        self._write_json(self.receipt_path, self._receipt())
+        alias = self.root / "receipt-alias.json"
+        alias.symlink_to(self.receipt_path)
+        digest = hashlib.sha256(self.receipt_path.read_bytes()).hexdigest()
+        packet = copy.deepcopy(self.packet)
+        packet["verification"]["credited_receipts"] = [
+            {"path": str(self.receipt_path), "sha256": digest},
+            {"path": str(alias), "sha256": digest},
+        ]
+        self._write_packet(self.packet_path, packet)
+
+        with self.assertRaisesRegex(ProtocolError, "Duplicate credited receipt file identity"):
             self._validate_packet()
 
     def test_packet_rejects_receipt_for_unrelated_successful_command(self) -> None:
