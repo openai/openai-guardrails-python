@@ -176,6 +176,49 @@ class ValidateHandoffTests(unittest.TestCase):
         self.assertFalse(report["valid"])
         self.assertTrue(any("skip-worktree" in failure for failure in failures))
 
+    def test_ignored_dirty_submodule_is_not_a_clean_handoff(self) -> None:
+        source = self.root / "dependency-source"
+        source.mkdir()
+        subprocess.run(("git", "init", "-q", str(source)), check=True)
+        subprocess.run(
+            ("git", "-C", str(source), "config", "user.name", "Submodule Test"),
+            check=True,
+        )
+        subprocess.run(
+            ("git", "-C", str(source), "config", "user.email", "submodule@example.test"),
+            check=True,
+        )
+        (source / "tracked.txt").write_text("committed\n")
+        subprocess.run(("git", "-C", str(source), "add", "tracked.txt"), check=True)
+        subprocess.run(("git", "-C", str(source), "commit", "-qm", "initial"), check=True)
+        self._git(
+            "-c",
+            "protocol.file.allow=always",
+            "submodule",
+            "add",
+            "-q",
+            str(source),
+            "vendor/dependency",
+        )
+        self._git(
+            "config",
+            "-f",
+            ".gitmodules",
+            "submodule.vendor/dependency.ignore",
+            "all",
+        )
+        self._git("add", ".gitmodules", "vendor/dependency")
+        self._git("commit", "-qm", "add dependency")
+        manifest = self.root / "shipped.paths"
+        manifest.write_text(".gitmodules\nvendor/dependency\n")
+        (self.repo / "vendor" / "dependency" / "tracked.txt").write_text("dirty\n")
+
+        self.assertEqual(self._git("status", "--porcelain=v1").stdout, "")
+        report, failures = validate(self._args(manifest))
+
+        self.assertFalse(report["valid"])
+        self.assertIn("Worktree is not clean.", failures)
+
     def test_missing_repository_report_is_explicitly_invalid(self) -> None:
         args = self._args(self.root / "unused.paths")
         args.repo = self.root / "missing"
