@@ -36,19 +36,15 @@ def _digest(data: bytes) -> str:
 
 
 def _submodule_worktree_sha256(repo: Path) -> str:
+    head = _git(repo, "rev-parse", "HEAD^{commit}").decode().strip()
     tracked_diff = _git(repo, "diff", "--binary", "--full-index", "HEAD")
-    raw_untracked_paths = _git(repo, "ls-files", "--others", "--exclude-standard", "-z")
-    untracked_workspace = [
-        _workspace_entry(repo, os.fsdecode(raw_path))
-        for raw_path in sorted(raw_untracked_paths.split(b"\0"))
-        if raw_path
-    ]
+    workspace = _workspace_entries(repo, head, ())
     canonical = json.dumps(
         {
             "tracked_diff_sha256": _digest(tracked_diff),
-            "untracked_workspace": untracked_workspace,
+            "workspace": workspace,
         },
-        ensure_ascii=False,
+        ensure_ascii=True,
         sort_keys=True,
         separators=(",", ":"),
     )
@@ -123,15 +119,13 @@ def _workspace_entry(repo: Path, relative_path: str) -> dict[str, object]:
             submodule_status = _git(path, "status", "--porcelain=v1", "-z")
         except (subprocess.CalledProcessError, FileNotFoundError):
             return {"path": relative_path, "kind": "directory"}
-        entry: dict[str, object] = {
+        return {
             "path": relative_path,
             "kind": "gitlink",
             "head": submodule_head,
             "status_sha256": _digest(submodule_status),
+            "worktree_sha256": _submodule_worktree_sha256(path),
         }
-        if submodule_status:
-            entry["worktree_sha256"] = _submodule_worktree_sha256(path)
-        return entry
     return {"path": relative_path, "kind": "missing"}
 
 
@@ -248,7 +242,7 @@ def _complete_diff(repo: Path, base: str, pathspecs: tuple[str, ...]) -> bytes:
 def _content_fingerprint(base: str, workspace: list[dict[str, object]]) -> str:
     canonical = json.dumps(
         {"base": base, "workspace": workspace},
-        ensure_ascii=False,
+        ensure_ascii=True,
         sort_keys=True,
         separators=(",", ":"),
     )
@@ -290,6 +284,10 @@ def review_state(
     complete_diff_output: Path | None = None,
 ) -> dict[str, object]:
     repo = repo.resolve()
+    if complete_diff_output is not None:
+        complete_diff_output = complete_diff_output.expanduser().resolve()
+        if complete_diff_output.is_relative_to(repo):
+            raise ValueError("Complete diff output must be outside the repository.")
     pathspecs = _canonical_pathspecs(pathspecs)
     if components and not pathspecs:
         pathspecs = _canonical_pathspecs(
@@ -495,7 +493,7 @@ def main() -> None:
     print(
         json.dumps(
             state,
-            ensure_ascii=False,
+            ensure_ascii=True,
             indent=2 if args.pretty else None,
             sort_keys=True,
         )

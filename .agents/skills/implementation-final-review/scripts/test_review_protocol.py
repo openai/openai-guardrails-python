@@ -729,6 +729,7 @@ class ReviewProtocolTest(unittest.TestCase):
                 "kind": "gitlink",
                 "head": "c" * 40,
                 "status_sha256": "d" * 64,
+                "worktree_sha256": "e" * 64,
             },
             {"path": "directory", "kind": "directory"},
             {"path": "missing", "kind": "missing"},
@@ -738,6 +739,39 @@ class ReviewProtocolTest(unittest.TestCase):
                 entry_with_unknown = {**entry, "authority": "unsupported"}
                 with self.assertRaisesRegex(ProtocolError, r"unexpected=\['authority'\]"):
                     _workspace_entries([entry_with_unknown], "review_state.workspace")
+
+    def test_review_state_accepts_complete_gitlink_entry(self) -> None:
+        state = copy.deepcopy(self.review_state)
+        workspace = [
+            {
+                "path": "src/example.py",
+                "kind": "gitlink",
+                "head": "c" * 40,
+                "status_sha256": "d" * 64,
+                "worktree_sha256": "e" * 64,
+            }
+        ]
+        combined = _content_fingerprint(state["base"], workspace)
+        state["fingerprint"] = combined
+        state["content_fingerprint"] = combined
+        state["workspace"] = workspace
+        state["unfiltered"]["workspace"] = workspace
+        state["components"]["api-contract"]["content_fingerprint"] = combined
+        state["components"]["api-contract"]["workspace"] = workspace
+        state["repository_fingerprint"] = _repository_fingerprint(
+            content_fingerprint=combined,
+            head=state["head"],
+            status_sha256=state["status_sha256"],
+            tracked_diff_sha256=state["tracked_diff_sha256"],
+            complete_diff_sha256=state["complete_diff_sha256"],
+            unfiltered_status_sha256=state["unfiltered"]["status_sha256"],
+            unfiltered_content_fingerprint=combined,
+        )
+        self._write_review_state(state)
+
+        summary = self._validate_packet()
+
+        self.assertEqual(summary["combined_fingerprint"], combined)
 
     def test_review_state_artifact_rejects_unknown_workspace_fields(self) -> None:
         state = copy.deepcopy(self.review_state)

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -12,13 +13,15 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 
-from review_state import _component, _load_pathspec_file, review_state
+from review_state import _component, _content_fingerprint, _load_pathspec_file, review_state
 
 
 class ReviewStateTest(unittest.TestCase):
     def setUp(self) -> None:
         self.temporary_directory = tempfile.TemporaryDirectory()
-        self.repo = Path(self.temporary_directory.name)
+        self.root = Path(self.temporary_directory.name)
+        self.repo = self.root / "repo"
+        self.repo.mkdir()
         self._git("init", "-q")
         self._git("config", "user.email", "review-state@example.test")
         self._git("config", "user.name", "Review State Test")
@@ -103,7 +106,7 @@ class ReviewStateTest(unittest.TestCase):
     def test_complete_diff_includes_task_owned_untracked_files(self) -> None:
         new_test = self.repo / "tests" / "test_new.py"
         new_test.write_text("assert 2 == 2\n")
-        complete_diff = self.repo / "complete.diff"
+        complete_diff = self.root / "complete.diff"
 
         state = review_state(
             self.repo,
@@ -125,7 +128,7 @@ class ReviewStateTest(unittest.TestCase):
     def test_exact_manifest_path_includes_ignored_untracked_file(self) -> None:
         ignored = self.repo / "plans" / "private.md"
         ignored.write_text("shipped fixture\n")
-        complete_diff = self.repo / "complete.diff"
+        complete_diff = self.root / "complete.diff"
 
         state = review_state(
             self.repo,
@@ -239,9 +242,155 @@ class ReviewStateTest(unittest.TestCase):
         self.assertNotEqual(before["content_fingerprint"], after["content_fingerprint"])
         self.assertNotEqual(before["repository_fingerprint"], after["repository_fingerprint"])
 
+    def test_dirty_nested_submodule_content_changes_fingerprint(self) -> None:
+        """Recursively fingerprint dirty nested submodule content."""
+        leaf_source = self.repo / ".fixtures" / "leaf-source"
+        leaf_source.mkdir(parents=True)
+        subprocess.run(("git", "init", "-q", str(leaf_source)), check=True)
+        subprocess.run(
+            ("git", "-C", str(leaf_source), "config", "user.email", "leaf@example.test"),
+            check=True,
+        )
+        subprocess.run(
+            ("git", "-C", str(leaf_source), "config", "user.name", "Leaf Test"),
+            check=True,
+        )
+        (leaf_source / "tracked.txt").write_text("committed\n")
+        subprocess.run(("git", "-C", str(leaf_source), "add", "."), check=True)
+        subprocess.run(
+            ("git", "-C", str(leaf_source), "commit", "-qm", "initial"),
+            check=True,
+        )
+
+        parent_source = self.repo / ".fixtures" / "parent-source"
+        parent_source.mkdir()
+        subprocess.run(("git", "init", "-q", str(parent_source)), check=True)
+        subprocess.run(
+            ("git", "-C", str(parent_source), "config", "user.email", "parent@example.test"),
+            check=True,
+        )
+        subprocess.run(
+            ("git", "-C", str(parent_source), "config", "user.name", "Parent Test"),
+            check=True,
+        )
+        subprocess.run(
+            (
+                "git",
+                "-C",
+                str(parent_source),
+                "-c",
+                "protocol.file.allow=always",
+                "submodule",
+                "add",
+                "-q",
+                str(leaf_source),
+                "nested",
+            ),
+            check=True,
+        )
+        subprocess.run(("git", "-C", str(parent_source), "commit", "-qam", "initial"), check=True)
+
+        with (self.repo / ".gitignore").open("a") as gitignore:
+            gitignore.write(".fixtures/\n")
+        self._git(
+            "-c",
+            "protocol.file.allow=always",
+            "submodule",
+            "add",
+            "-q",
+            str(parent_source),
+            "vendor/dependency",
+        )
+        self._git(
+            "-C",
+            "vendor/dependency",
+            "-c",
+            "protocol.file.allow=always",
+            "submodule",
+            "update",
+            "--init",
+            "-q",
+        )
+        self._git("add", ".")
+        self._git("commit", "-qm", "add nested dependency")
+        self.base = self._git("rev-parse", "HEAD").strip()
+        tracked = self.repo / "vendor" / "dependency" / "nested" / "tracked.txt"
+        tracked.write_text("first dirty body\n")
+        before = review_state(self.repo, self.base, ("vendor/dependency",))
+
+        tracked.write_text("second dirty body\n")
+        after = review_state(self.repo, self.base, ("vendor/dependency",))
+
+        self.assertEqual(
+            before["workspace"][0]["status_sha256"],
+            after["workspace"][0]["status_sha256"],
+        )
+        self.assertNotEqual(
+            before["workspace"][0]["worktree_sha256"],
+            after["workspace"][0]["worktree_sha256"],
+        )
+        self.assertNotEqual(before["content_fingerprint"], after["content_fingerprint"])
+        self.assertNotEqual(before["repository_fingerprint"], after["repository_fingerprint"])
+
+    @unittest.skipIf(os.name == "nt", "Non-UTF-8 filenames require POSIX filesystem bytes.")
+    def test_non_utf8_filename_has_stable_fingerprint(self) -> None:
+        """Preserve surrogateescaped Git path bytes in review artifacts."""
+        raw_relative_path = b"tests/non-utf8-\xff.py"
+        git = (b"git", b"-C", os.fsencode(self.repo))
+        blob = subprocess.check_output(
+            (*git, b"hash-object", b"-w", b"--stdin"),
+            input=b"assert True\n",
+        ).strip()
+        subprocess.run(
+            (
+                *git,
+                b"update-index",
+                b"--add",
+                b"--cacheinfo",
+                b"100644," + blob + b"," + raw_relative_path,
+            ),
+            check=True,
+        )
+        self._git("commit", "-qm", "add non-UTF-8 filename")
+        self.base = self._git("rev-parse", "HEAD").strip()
+        subprocess.run(
+            (*git, b"update-index", b"--force-remove", b"--", raw_relative_path),
+            check=True,
+        )
+        relative_path = os.fsdecode(raw_relative_path)
+
+        state = review_state(self.repo, self.base, ("tests",))
+
+        self.assertEqual(state["complete_diff_paths"], [relative_path])
+        self.assertEqual(
+            _content_fingerprint(state["base"], state["workspace"]),
+            state["content_fingerprint"],
+        )
+        json.dumps(state, ensure_ascii=True)
+
+        completed = self._run_cli("--pathspec", "tests")
+
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        cli_state = json.loads(completed.stdout)
+        self.assertEqual(cli_state["complete_diff_paths"], [relative_path])
+        self.assertEqual(cli_state["content_fingerprint"], state["content_fingerprint"])
+
+    def test_complete_diff_output_must_be_outside_repository(self) -> None:
+        """Reject an operational diff artifact inside the worktree."""
+        complete_diff = self.repo / "complete.diff"
+
+        with self.assertRaisesRegex(ValueError, "outside the repository"):
+            review_state(
+                self.repo,
+                self.base,
+                complete_diff_output=complete_diff,
+            )
+
+        self.assertFalse(complete_diff.exists())
+
     def test_cli_writes_complete_diff_output(self) -> None:
         (self.repo / "tests" / "test_new.py").write_text("assert True\n")
-        complete_diff = self.repo / "complete.diff"
+        complete_diff = self.root / "complete.diff"
 
         completed = self._run_cli(
             "--pathspec",

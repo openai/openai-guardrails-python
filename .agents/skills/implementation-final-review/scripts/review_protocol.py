@@ -220,7 +220,13 @@ def _workspace_entries(value: Any, context: str) -> dict[str, dict[str, Any]]:
         required_fields = {
             "file": {"path", "kind", "executable", "sha256"},
             "symlink": {"path", "kind", "sha256"},
-            "gitlink": {"path", "kind", "head", "status_sha256"},
+            "gitlink": {
+                "path",
+                "kind",
+                "head",
+                "status_sha256",
+                "worktree_sha256",
+            },
             "directory": {"path", "kind"},
             "missing": {"path", "kind"},
         }
@@ -242,6 +248,7 @@ def _workspace_entries(value: Any, context: str) -> dict[str, dict[str, Any]]:
             if not re.fullmatch(r"[0-9a-f]{40,64}", head):
                 raise ProtocolError(f"{context}[{index}].head must be a Git object ID.")
             _sha256(entry["status_sha256"], f"{context}[{index}].status_sha256")
+            _sha256(entry["worktree_sha256"], f"{context}[{index}].worktree_sha256")
         entries[path] = entry
     if list(entries) != sorted(entries):
         raise ProtocolError(f"{context} must be sorted by path.")
