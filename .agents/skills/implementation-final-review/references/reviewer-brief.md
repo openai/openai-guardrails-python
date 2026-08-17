@@ -4,6 +4,8 @@ The ledger contains a `round_fingerprint` equal to the packet's combined content
 
 Every packet, ledger, manifest, receipt, reviewer-output, and evidence path must resolve to a finite regular file. Canonicalize each path before opening. Verify the file type after opening and read content from that same descriptor; a path-level `stat` must not authorize a later reopen. Evidence artifacts and credited receipts must have unique opened-file device and inode identities, and current and prior ledgers must have distinct identities. Materialize devices, FIFOs, sockets, or generated streams before validation.
 
+An evidence ID is new for a canonical root only when its content digest is absent from that root's prior evidence. A new root proposal requires an evidence digest absent from every canonical root or globally unowned inventory. Credited receipt content digests must be unique.
+
 Every JSON object must use unique keys. Duplicate keys are invalid even when their values match.
 
 Generate review state only from two consecutive identical repository observations. A changed HEAD, status, diff, task or repository workspace, or component workspace invalidates the capture. Task-owned FIFOs, sockets, devices, and other entries that Git cannot represent as finite blobs are invalid.

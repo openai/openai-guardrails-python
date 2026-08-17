@@ -205,6 +205,8 @@ class SkillContractTest(unittest.TestCase):
             "path-level `stat` must not authorize a later reopen", self.reviewer_brief
         )
         self.assertIn("unique opened-file device and inode identities", self.reviewer_brief)
+        self.assertIn("evidence digest absent from every canonical root", self.reviewer_brief)
+        self.assertIn("Credited receipt content digests must be unique", self.reviewer_brief)
 
     def test_verified_base_advance_closure_is_strict_and_keeps_final_verification(self) -> None:
         required_text = (
@@ -366,6 +368,8 @@ class SkillContractTest(unittest.TestCase):
             "read content from that same descriptor",
             "Canonicalize each path before opening",
             "opened descriptor's device and inode identity",
+            "digest is absent from that root's prior evidence",
+            "credited receipt to have a unique content digest",
         )
         for text in required_text:
             with self.subTest(text=text):

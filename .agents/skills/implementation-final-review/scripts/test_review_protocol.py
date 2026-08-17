@@ -798,6 +798,40 @@ class ReviewProtocolTest(unittest.TestCase):
         with self.assertRaisesRegex(ProtocolError, "Duplicate evidence artifact file identity"):
             self._validate_packet()
 
+    def test_copied_evidence_does_not_reopen_a_closed_root(self) -> None:
+        prior_path = self.root / "prior-ledger.json"
+        self._write_json(prior_path, self.packet["ledger"])
+        prior_digest = hashlib.sha256(prior_path.read_bytes()).hexdigest()
+        copied_evidence = self.root / "copied-root-evidence.txt"
+        copied_evidence.write_bytes(self.root_evidence.read_bytes())
+        packet = copy.deepcopy(self.packet)
+        packet["evidence_artifacts"].append(
+            {
+                "id": "E-COPY",
+                "path": str(copied_evidence),
+                "sha256": hashlib.sha256(copied_evidence.read_bytes()).hexdigest(),
+                "role": "supporting",
+                "purpose": "Byte copy of existing root-cause evidence.",
+            }
+        )
+        closed_root = next(
+            root for root in packet["ledger"]["root_causes"] if root["id"] == "ROOT_CLOSED"
+        )
+        closed_root["status"] = "open"
+        closed_root["contract_evidence_ids"].append("E-COPY")
+        packet["ledger"]["current_round"] = 2
+        packet["ledger"]["remaining_budget"] = 4
+        self._write_packet(self.packet_path, packet)
+
+        with self.assertRaisesRegex(ProtocolError, "without content-new evidence"):
+            validate_packet(
+                self.packet_path,
+                "task-123",
+                self.ledger_path,
+                prior_path,
+                prior_digest,
+            )
+
     @unittest.skipUnless(Path("/dev/null").exists(), "Requires a POSIX device path.")
     def test_packet_rejects_non_regular_evidence_files(self) -> None:
         packet = copy.deepcopy(self.packet)
@@ -1062,6 +1096,21 @@ class ReviewProtocolTest(unittest.TestCase):
         with self.assertRaisesRegex(ProtocolError, "Duplicate credited receipt file identity"):
             self._validate_packet()
 
+    def test_packet_rejects_copied_credited_receipts(self) -> None:
+        self._write_json(self.receipt_path, self._receipt())
+        copied_receipt = self.root / "copied-receipt.json"
+        copied_receipt.write_bytes(self.receipt_path.read_bytes())
+        digest = hashlib.sha256(self.receipt_path.read_bytes()).hexdigest()
+        packet = copy.deepcopy(self.packet)
+        packet["verification"]["credited_receipts"] = [
+            {"path": str(self.receipt_path), "sha256": digest},
+            {"path": str(copied_receipt), "sha256": digest},
+        ]
+        self._write_packet(self.packet_path, packet)
+
+        with self.assertRaisesRegex(ProtocolError, "Duplicate credited receipt digest"):
+            self._validate_packet()
+
     def test_packet_rejects_receipt_for_unrelated_successful_command(self) -> None:
         receipt = self._receipt()
         receipt["command"] = "true"
@@ -1166,13 +1215,37 @@ class ReviewProtocolTest(unittest.TestCase):
         output["findings"][0]["root_cause_id"] = "NEW:new-boundary"
         output["findings"][0]["root_cause_evidence"]["new_inventory_ids"] = ["INV-1"]
         self._write_json(self.output_path, output)
-        with self.assertRaisesRegex(ProtocolError, "without globally unowned evidence"):
+        with self.assertRaisesRegex(ProtocolError, "without content-new evidence"):
             self._validate_output("requirements")
 
         output["findings"][0]["root_cause_evidence"]["new_inventory_ids"] = []
         output["findings"][0]["root_cause_evidence"]["new_contract_evidence_ids"] = ["E-NEW"]
         self._write_json(self.output_path, output)
         self._validate_output("requirements")
+
+    def test_copied_evidence_does_not_support_a_new_root(self) -> None:
+        copied_evidence = self.root / "copied-root-evidence.txt"
+        copied_evidence.write_bytes(self.root_evidence.read_bytes())
+        packet = copy.deepcopy(self.packet)
+        packet["evidence_artifacts"].append(
+            {
+                "id": "E-COPY",
+                "path": str(copied_evidence),
+                "sha256": hashlib.sha256(copied_evidence.read_bytes()).hexdigest(),
+                "role": "supporting",
+                "purpose": "Byte copy of existing root-cause evidence.",
+            }
+        )
+        self._write_packet(self.packet_path, packet)
+        output = self._output()
+        output["verdict"] = "findings require fixes"
+        finding = self._finding("NEW:copied-evidence")
+        finding["root_cause_evidence"]["new_contract_evidence_ids"] = ["E-COPY"]
+        output["findings"] = [finding]
+        self._write_json(self.output_path, output)
+
+        with self.assertRaisesRegex(ProtocolError, "without content-new evidence"):
+            self._validate_output("requirements")
 
     def test_closed_root_requires_new_evidence(self) -> None:
         output = self._output()

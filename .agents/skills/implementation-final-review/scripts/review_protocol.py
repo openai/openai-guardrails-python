@@ -738,12 +738,23 @@ def validate_packet(
                 current_root["contract_evidence_ids"]
             ):
                 raise ProtocolError(f"ledger regressed ownership for prior root {prior_id}.")
+            prior_evidence_digests = {
+                artifacts[evidence_id]["digest"]
+                for evidence_id in prior_root["contract_evidence_ids"]
+            }
+            content_new_evidence = {
+                evidence_id
+                for evidence_id in new_evidence
+                if artifacts[evidence_id]["digest"] not in prior_evidence_digests
+            }
             if (
                 prior_root["status"] == "closed"
                 and current_root["status"] == "open"
-                and not (new_inventory or new_evidence)
+                and not (new_inventory or content_new_evidence)
             ):
-                raise ProtocolError(f"ledger reopened prior root {prior_id} without new evidence.")
+                raise ProtocolError(
+                    f"ledger reopened prior root {prior_id} without content-new evidence."
+                )
 
     selected_dimensions = set(
         _strings(packet.get("selected_high_risk_dimensions"), "selected_high_risk_dimensions")
@@ -807,16 +818,20 @@ def validate_packet(
         preflight_commands.add(result["command"])
     receipt_paths: set[Path] = set()
     receipt_identities: set[FileIdentity] = set()
+    receipt_digests: set[str] = set()
     for index, raw_receipt in enumerate(
         _array(verification.get("credited_receipts"), "verification.credited_receipts")
     ):
-        receipt_path, receipt_data, _, receipt_identity = _descriptor(
+        receipt_path, receipt_data, receipt_digest, receipt_identity = _descriptor(
             raw_receipt, f"verification.credited_receipts[{index}]"
         )
         if receipt_identity in receipt_identities:
             raise ProtocolError(f"Duplicate credited receipt file identity: {receipt_path}.")
+        if receipt_digest in receipt_digests:
+            raise ProtocolError(f"Duplicate credited receipt digest: {receipt_digest}.")
         receipt_paths.add(receipt_path)
         receipt_identities.add(receipt_identity)
+        receipt_digests.add(receipt_digest)
         validate_receipt_data(
             _json_bytes(receipt_data, str(receipt_path)),
             combined,
@@ -911,13 +926,17 @@ def validate_reviewer_output(
     if prior_ledger_path is not None:
         prior_ledger = _load_json(prior_ledger_path)
         prior_canonical_roots = {root["id"]: root for root in prior_ledger["root_causes"]}
-    indexed_evidence = {artifact["id"] for artifact in packet["evidence_artifacts"]}
+    evidence_digests = {
+        artifact["id"]: artifact["sha256"] for artifact in packet["evidence_artifacts"]
+    }
+    indexed_evidence = set(evidence_digests)
     indexed_inventory = {row["id"] for row in packet["inventory"]}
     owned_evidence = {
         evidence_id
         for root in canonical_roots.values()
         for evidence_id in root["contract_evidence_ids"]
     }
+    owned_evidence_digests = {evidence_digests[evidence_id] for evidence_id in owned_evidence}
     owned_inventory = {
         inventory_id for root in canonical_roots.values() for inventory_id in root["inventory_ids"]
     }
@@ -972,18 +991,35 @@ def validate_reviewer_output(
                 raise ProtocolError(
                     f"Finding {index} root evidence must be new in the current ledger round."
                 )
-            new_for_root = bool(new_evidence or new_inventory)
+            prior_evidence_digests = {
+                evidence_digests[evidence_id] for evidence_id in prior_evidence
+            }
+            content_new_evidence = {
+                evidence_id
+                for evidence_id in new_evidence
+                if evidence_digests[evidence_id] not in prior_evidence_digests
+            }
+            new_for_root = bool(content_new_evidence or new_inventory)
             if root["status"] == "closed" and not new_for_root:
                 raise ProtocolError(
-                    f"Finding {index} reopens closed root {root_id} without new evidence."
+                    f"Finding {index} reopens closed root {root_id} "
+                    "without content-new evidence."
                 )
         elif not NEW_ROOT_CAUSE_ID.fullmatch(root_id):
             raise ProtocolError(
                 f"Finding {index} must reuse a canonical root ID or propose NEW:<slug>."
             )
-        elif not (new_evidence - owned_evidence or new_inventory - owned_inventory):
+        elif not (
+            {
+                evidence_id
+                for evidence_id in new_evidence
+                if evidence_digests[evidence_id] not in owned_evidence_digests
+            }
+            or new_inventory - owned_inventory
+        ):
             raise ProtocolError(
-                f"Finding {index} proposes {root_id} without globally unowned evidence."
+                f"Finding {index} proposes {root_id} without content-new evidence "
+                "or globally unowned inventory."
             )
         else:
             proposed_roots.add(root_id)
