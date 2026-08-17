@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import re
 import string
-from time import perf_counter
+from statistics import median
+from timeit import repeat
 
 import pytest
 from hypothesis import given, strategies as st
@@ -64,16 +65,17 @@ def test_detect_domain_like_urls_matches_reference_pattern(text: str) -> None:
     assert _detect_domain_like_urls(text) == REFERENCE_DOMAIN_PATTERN.findall(text)  # noqa: S101
 
 
-def test_detect_urls_handles_large_invalid_domain_input_quickly() -> None:
-    """Invalid dotted input should not cause quadratic regex backtracking."""
-    text = "a." * 16_000 + "-"
+def test_detect_urls_scales_linearly_for_invalid_domain_input() -> None:
+    """Doubling invalid dotted input should not cause quadratic growth."""
+    small_text = "a." * 2_000 + "-"
+    large_text = "a." * 4_000 + "-"
 
-    started_at = perf_counter()
-    detected = _detect_urls(text)
-    duration_seconds = perf_counter() - started_at
+    small_duration = median(repeat(lambda: _detect_urls(small_text), number=1, repeat=7))
+    large_duration = median(repeat(lambda: _detect_urls(large_text), number=1, repeat=7))
 
-    assert detected == []  # noqa: S101
-    assert duration_seconds < 1.0  # noqa: S101
+    assert _detect_urls(small_text) == []  # noqa: S101
+    assert _detect_urls(large_text) == []  # noqa: S101
+    assert large_duration < small_duration * 3  # noqa: S101
 
 
 def test_detect_urls_preserves_unicode_casefolded_domain() -> None:
