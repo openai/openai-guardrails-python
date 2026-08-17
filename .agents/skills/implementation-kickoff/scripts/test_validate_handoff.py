@@ -219,6 +219,57 @@ class ValidateHandoffTests(unittest.TestCase):
         self.assertFalse(report["valid"])
         self.assertIn("Worktree is not clean.", failures)
 
+    def test_submodule_hidden_index_path_is_not_a_clean_handoff(self) -> None:
+        source = self.root / "dependency-source"
+        source.mkdir()
+        subprocess.run(("git", "init", "-q", str(source)), check=True)
+        subprocess.run(
+            ("git", "-C", str(source), "config", "user.name", "Submodule Test"),
+            check=True,
+        )
+        subprocess.run(
+            ("git", "-C", str(source), "config", "user.email", "submodule@example.test"),
+            check=True,
+        )
+        (source / "tracked.txt").write_text("committed\n")
+        subprocess.run(("git", "-C", str(source), "add", "tracked.txt"), check=True)
+        subprocess.run(("git", "-C", str(source), "commit", "-qm", "initial"), check=True)
+        self._git(
+            "-c",
+            "protocol.file.allow=always",
+            "submodule",
+            "add",
+            "-q",
+            str(source),
+            "vendor/dependency",
+        )
+        self._git("commit", "-qam", "add dependency")
+        manifest = self.root / "shipped.paths"
+        manifest.write_text(".gitmodules\nvendor/dependency\n")
+        self._git(
+            "-C",
+            "vendor/dependency",
+            "update-index",
+            "--assume-unchanged",
+            "tracked.txt",
+        )
+        (self.repo / "vendor" / "dependency" / "tracked.txt").write_text("hidden change\n")
+
+        self.assertEqual(
+            self._git("status", "--porcelain=v1", "--ignore-submodules=none").stdout,
+            "",
+        )
+        report, failures = validate(self._args(manifest))
+
+        self.assertFalse(report["valid"])
+        self.assertFalse(report["clean"])
+        self.assertTrue(
+            any(
+                "assume-unchanged=vendor/dependency/tracked.txt" in failure
+                for failure in failures
+            )
+        )
+
     def test_missing_repository_report_is_explicitly_invalid(self) -> None:
         args = self._args(self.root / "unused.paths")
         args.repo = self.root / "missing"

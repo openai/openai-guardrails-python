@@ -85,7 +85,26 @@ def load_shipped_paths(path: Path) -> set[str]:
     return shipped_paths
 
 
-def hidden_index_paths(repo: Path) -> list[str]:
+def is_repository_root(path: Path) -> bool:
+    if not path.is_dir():
+        return False
+    result = run_git(path, "rev-parse", "--show-toplevel", check=False)
+    return result.returncode == 0 and Path(result.stdout.strip()).resolve() == path.resolve()
+
+
+def hidden_index_paths(
+    repo: Path,
+    prefix: str = "",
+    seen_repositories: frozenset[Path] = frozenset(),
+) -> list[str]:
+    resolved_repo = repo.resolve()
+    if resolved_repo in seen_repositories:
+        return []
+    seen_repositories |= {resolved_repo}
+
+    def display_path(relative_path: str) -> str:
+        return f"{prefix}/{relative_path}" if prefix else relative_path
+
     hidden_paths: list[str] = []
     for entry in run_git(repo, "ls-files", "-v", "-z").stdout.split("\0"):
         if len(entry) < 3 or entry[1] != " ":
@@ -93,11 +112,27 @@ def hidden_index_paths(repo: Path) -> list[str]:
         tag = entry[0]
         relative_path = entry[2:]
         if tag.islower():
-            hidden_paths.append(f"assume-unchanged={relative_path}")
+            hidden_paths.append(f"assume-unchanged={display_path(relative_path)}")
         elif tag == "S":
             candidate = repo / relative_path
             if candidate.exists() or candidate.is_symlink():
-                hidden_paths.append(f"materialized skip-worktree={relative_path}")
+                hidden_paths.append(
+                    f"materialized skip-worktree={display_path(relative_path)}"
+                )
+    for entry in run_git(repo, "ls-files", "--stage", "-z").stdout.split("\0"):
+        metadata, separator, relative_path = entry.partition("\t")
+        fields = metadata.split()
+        if not separator or len(fields) != 3 or fields[0] != "160000" or fields[2] != "0":
+            continue
+        submodule_path = repo / relative_path
+        if is_repository_root(submodule_path):
+            hidden_paths.extend(
+                hidden_index_paths(
+                    submodule_path,
+                    display_path(relative_path),
+                    seen_repositories,
+                )
+            )
     return sorted(hidden_paths)
 
 
@@ -203,7 +238,7 @@ def validate(args: argparse.Namespace) -> tuple[dict[str, object], list[str]]:
         "branch": branch,
         "subject": subject,
         "ahead": ahead,
-        "clean": not status,
+        "clean": not status and not hidden_paths,
         "coauthor_trailer_emails": sorted(trailer_emails),
         "shipped_path_manifest": shipped_manifest,
         "shipped_paths": shipped_paths,
