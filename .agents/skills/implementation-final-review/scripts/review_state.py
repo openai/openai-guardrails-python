@@ -9,6 +9,7 @@ import json
 import os
 import re
 import subprocess
+import tempfile
 from pathlib import Path, PurePosixPath
 
 
@@ -35,20 +36,98 @@ def _digest(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
-def _submodule_worktree_sha256(repo: Path) -> str:
-    head = _git(repo, "rev-parse", "HEAD^{commit}").decode().strip()
-    tracked_diff = _git(repo, "diff", "--binary", "--full-index", "HEAD")
-    workspace = _workspace_entries(repo, head, ())
-    canonical = json.dumps(
-        {
-            "tracked_diff_sha256": _digest(tracked_diff),
-            "workspace": workspace,
-        },
-        ensure_ascii=True,
-        sort_keys=True,
-        separators=(",", ":"),
+def _hidden_index_paths(repo: Path) -> tuple[tuple[str, str], ...]:
+    raw_entries = _git(repo, "ls-files", "-v", "-z")
+    hidden_paths: list[tuple[str, str]] = []
+    for entry in raw_entries.split(b"\0"):
+        if len(entry) < 3 or entry[1:2] != b" ":
+            continue
+        tag = entry[:1]
+        relative_path = os.fsdecode(entry[2:])
+        if tag.islower():
+            hidden_paths.append(("assume-unchanged", relative_path))
+        elif tag == b"S":
+            candidate = repo / relative_path
+            if candidate.exists() or candidate.is_symlink():
+                hidden_paths.append(("materialized skip-worktree", relative_path))
+    return tuple(sorted(hidden_paths))
+
+
+def _require_visible_index_state(repo: Path, context: str = "repository") -> None:
+    hidden_paths = _hidden_index_paths(repo)
+    if hidden_paths:
+        details = ", ".join(f"{kind}={path}" for kind, path in hidden_paths)
+        raise ValueError(
+            f"The {context} contains unsupported hidden index paths: {details}"
+        )
+
+
+def _index_gitlinks(repo: Path) -> tuple[tuple[str, str], ...]:
+    raw_entries = _git(repo, "ls-files", "--stage", "-z")
+    gitlinks: list[tuple[str, str]] = []
+    for raw_entry in raw_entries.split(b"\0"):
+        metadata, separator, raw_path = raw_entry.partition(b"\t")
+        fields = metadata.split()
+        if separator and len(fields) == 3 and fields[0] == b"160000" and fields[2] == b"0":
+            gitlinks.append((os.fsdecode(raw_path), fields[1].decode()))
+    return tuple(gitlinks)
+
+
+def _is_repository_root(path: Path) -> bool:
+    try:
+        top_level = _git(path, "rev-parse", "--show-toplevel")
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        return False
+    return Path(os.fsdecode(top_level.rstrip(b"\n"))).resolve() == path.resolve()
+
+
+def _require_clean_submodule(repo: Path, display_path: str, expected_head: str) -> None:
+    _require_visible_index_state(repo, f"submodule {display_path}")
+    actual_head = _git(repo, "rev-parse", "HEAD^{commit}").decode().strip()
+    if actual_head != expected_head:
+        raise ValueError(
+            f"Submodule HEAD does not match the parent index: {display_path}"
+        )
+    for nested_relative_path, nested_head in _index_gitlinks(repo):
+        nested_path = repo / nested_relative_path
+        if _is_repository_root(nested_path):
+            _require_clean_submodule(
+                nested_path,
+                f"{display_path}/{nested_relative_path}",
+                nested_head,
+            )
+    if _git(
+        repo,
+        "status",
+        "--porcelain=v1",
+        "-z",
+        "--untracked-files=all",
+        "--ignore-submodules=none",
+    ):
+        raise ValueError(f"Dirty submodule worktrees are unsupported: {display_path}")
+
+
+def _require_clean_submodules(repo: Path) -> None:
+    for relative_path, expected_head in _index_gitlinks(repo):
+        submodule_path = repo / relative_path
+        if _is_repository_root(submodule_path):
+            _require_clean_submodule(submodule_path, relative_path, expected_head)
+
+
+def _write_bytes_atomically(path: Path, data: bytes) -> None:
+    descriptor, temporary_name = tempfile.mkstemp(
+        prefix=".review-state-diff-",
+        dir=path.parent,
     )
-    return _digest(canonical.encode())
+    try:
+        with os.fdopen(descriptor, "wb") as temporary_file:
+            temporary_file.write(data)
+        os.replace(temporary_name, path)
+    finally:
+        try:
+            os.unlink(temporary_name)
+        except FileNotFoundError:
+            pass
 
 
 def _canonical_pathspecs(pathspecs: tuple[str, ...]) -> tuple[str, ...]:
@@ -113,18 +192,24 @@ def _workspace_entry(repo: Path, relative_path: str) -> dict[str, object]:
             "executable": bool(path.stat().st_mode & 0o111),
             "sha256": _digest(content),
         }
+    indexed_head = dict(_index_gitlinks(repo)).get(relative_path)
     if path.is_dir():
-        try:
-            submodule_head = _git(path, "rev-parse", "HEAD^{commit}").decode().strip()
-            submodule_status = _git(path, "status", "--porcelain=v1", "-z")
-        except (subprocess.CalledProcessError, FileNotFoundError):
-            return {"path": relative_path, "kind": "directory"}
+        if indexed_head is not None:
+            return {
+                "path": relative_path,
+                "kind": "gitlink",
+                "head": indexed_head,
+            }
+        if _is_repository_root(path):
+            raise ValueError(
+                f"Untracked nested Git repositories are unsupported: {relative_path}"
+            )
+        return {"path": relative_path, "kind": "directory"}
+    if indexed_head is not None:
         return {
             "path": relative_path,
             "kind": "gitlink",
-            "head": submodule_head,
-            "status_sha256": _digest(submodule_status),
-            "worktree_sha256": _submodule_worktree_sha256(path),
+            "head": indexed_head,
         }
     return {"path": relative_path, "kind": "missing"}
 
@@ -138,6 +223,7 @@ def _workspace_entries(
         "diff",
         "--name-only",
         "--no-renames",
+        "--ignore-submodules=none",
         "-z",
         base,
         "--",
@@ -218,6 +304,7 @@ def _complete_diff(repo: Path, base: str, pathspecs: tuple[str, ...]) -> bytes:
             "diff",
             "--binary",
             "--full-index",
+            "--ignore-submodules=none",
             base,
             "--",
             *_git_pathspecs(repo, base, pathspecs),
@@ -288,6 +375,8 @@ def review_state(
         complete_diff_output = complete_diff_output.expanduser().resolve()
         if complete_diff_output.is_relative_to(repo):
             raise ValueError("Complete diff output must be outside the repository.")
+    _require_visible_index_state(repo)
+    _require_clean_submodules(repo)
     pathspecs = _canonical_pathspecs(pathspecs)
     if components and not pathspecs:
         pathspecs = _canonical_pathspecs(
@@ -308,6 +397,7 @@ def review_state(
         "diff",
         "--binary",
         "--full-index",
+        "--ignore-submodules=none",
         resolved_base,
         "--",
         *_git_pathspecs(repo, resolved_base, pathspecs),
@@ -319,6 +409,7 @@ def review_state(
         "--porcelain=v1",
         "-z",
         "--untracked-files=all",
+        "--ignore-submodules=none",
         "--",
         *_git_pathspecs(repo, resolved_base, pathspecs),
     )
@@ -329,6 +420,7 @@ def review_state(
         "--porcelain=v1",
         "-z",
         "--untracked-files=all",
+        "--ignore-submodules=none",
     )
     unfiltered_workspace = _workspace_entries(repo, resolved_base, ())
     unfiltered_by_path = {str(entry["path"]): entry for entry in unfiltered_workspace}
@@ -379,7 +471,7 @@ def review_state(
         unfiltered_content_fingerprint=_content_fingerprint(resolved_base, unfiltered_workspace),
     )
     if complete_diff_output is not None:
-        complete_diff_output.write_bytes(complete_diff)
+        _write_bytes_atomically(complete_diff_output, complete_diff)
     return {
         "fingerprint": content_fingerprint,
         "content_fingerprint": content_fingerprint,

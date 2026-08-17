@@ -728,8 +728,6 @@ class ReviewProtocolTest(unittest.TestCase):
                 "path": "gitlink",
                 "kind": "gitlink",
                 "head": "c" * 40,
-                "status_sha256": "d" * 64,
-                "worktree_sha256": "e" * 64,
             },
             {"path": "directory", "kind": "directory"},
             {"path": "missing", "kind": "missing"},
@@ -747,8 +745,6 @@ class ReviewProtocolTest(unittest.TestCase):
                 "path": "src/example.py",
                 "kind": "gitlink",
                 "head": "c" * 40,
-                "status_sha256": "d" * 64,
-                "worktree_sha256": "e" * 64,
             }
         ]
         combined = _content_fingerprint(state["base"], workspace)

@@ -13,7 +13,13 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 
-from review_state import _component, _content_fingerprint, _load_pathspec_file, review_state
+from review_state import (
+    _component,
+    _content_fingerprint,
+    _load_pathspec_file,
+    _workspace_entry,
+    review_state,
+)
 
 
 class ReviewStateTest(unittest.TestCase):
@@ -193,8 +199,8 @@ class ReviewStateTest(unittest.TestCase):
 
         self.assertEqual(state["complete_diff_paths"], ["plans/[a].md", "plans/a.md"])
 
-    def test_dirty_submodule_content_changes_fingerprint(self) -> None:
-        """Fingerprint dirty submodule content, not only its status."""
+    def test_submodule_changes_require_reviewable_gitlinks(self) -> None:
+        """Accept staged pointers and reject other submodule worktree changes."""
         source = self.repo / ".fixtures" / "dependency-source"
         source.mkdir(parents=True)
         subprocess.run(("git", "init", "-q", str(source)), check=True)
@@ -220,30 +226,49 @@ class ReviewStateTest(unittest.TestCase):
             str(source),
             "vendor/dependency",
         )
+        self._git(
+            "config",
+            "-f",
+            ".gitmodules",
+            "submodule.vendor/dependency.ignore",
+            "all",
+        )
         self._git("add", ".")
         self._git("commit", "-qm", "add dependency")
         self.base = self._git("rev-parse", "HEAD").strip()
-        tracked = self.repo / "vendor" / "dependency" / "tracked.txt"
-        tracked.write_text("first dirty body\n")
-        before = review_state(self.repo, self.base, ("vendor/dependency",))
+        (source / "tracked.txt").write_text("updated commit\n")
+        subprocess.run(("git", "-C", str(source), "commit", "-qam", "update"), check=True)
+        updated_head = subprocess.check_output(
+            ("git", "-C", str(source), "rev-parse", "HEAD"),
+            text=True,
+        ).strip()
+        self._git("-C", "vendor/dependency", "fetch", "-q", "origin")
+        self._git("-C", "vendor/dependency", "checkout", "-q", updated_head)
 
-        tracked.write_text("second dirty body\n")
-        after = review_state(self.repo, self.base, ("vendor/dependency",))
+        with self.assertRaisesRegex(ValueError, "HEAD does not match.*vendor/dependency"):
+            review_state(self.repo, self.base, ("vendor/dependency",))
+
+        self._git("add", "vendor/dependency")
+        clean_state = review_state(self.repo, self.base, ("vendor/dependency",))
 
         self.assertEqual(
-            before["workspace"][0]["status_sha256"],
-            after["workspace"][0]["status_sha256"],
+            clean_state["workspace"],
+            [
+                {
+                    "path": "vendor/dependency",
+                    "kind": "gitlink",
+                    "head": updated_head,
+                }
+            ],
         )
-        self.assertEqual(before["complete_diff_sha256"], after["complete_diff_sha256"])
-        self.assertNotEqual(
-            before["workspace"][0]["worktree_sha256"],
-            after["workspace"][0]["worktree_sha256"],
-        )
-        self.assertNotEqual(before["content_fingerprint"], after["content_fingerprint"])
-        self.assertNotEqual(before["repository_fingerprint"], after["repository_fingerprint"])
+        tracked = self.repo / "vendor" / "dependency" / "tracked.txt"
+        tracked.write_text("dirty body\n")
 
-    def test_dirty_nested_submodule_content_changes_fingerprint(self) -> None:
-        """Recursively fingerprint dirty nested submodule content."""
+        with self.assertRaisesRegex(ValueError, "Dirty submodule.*vendor/dependency"):
+            review_state(self.repo, self.base, ("vendor/dependency",))
+
+    def test_hidden_nested_submodule_changes_fail_closed(self) -> None:
+        """Reject nested pointer and content changes hidden by configuration."""
         leaf_source = self.repo / ".fixtures" / "leaf-source"
         leaf_source.mkdir(parents=True)
         subprocess.run(("git", "init", "-q", str(leaf_source)), check=True)
@@ -288,6 +313,20 @@ class ReviewStateTest(unittest.TestCase):
             ),
             check=True,
         )
+        subprocess.run(
+            (
+                "git",
+                "-C",
+                str(parent_source),
+                "config",
+                "-f",
+                ".gitmodules",
+                "submodule.nested.ignore",
+                "all",
+            ),
+            check=True,
+        )
+        subprocess.run(("git", "-C", str(parent_source), "add", ".gitmodules"), check=True)
         subprocess.run(("git", "-C", str(parent_source), "commit", "-qam", "initial"), check=True)
 
         with (self.repo / ".gitignore").open("a") as gitignore:
@@ -314,23 +353,55 @@ class ReviewStateTest(unittest.TestCase):
         self._git("add", ".")
         self._git("commit", "-qm", "add nested dependency")
         self.base = self._git("rev-parse", "HEAD").strip()
+        expected_nested_head = self._git(
+            "-C",
+            "vendor/dependency",
+            "rev-parse",
+            "HEAD:nested",
+        ).strip()
+        (leaf_source / "tracked.txt").write_text("updated commit\n")
+        subprocess.run(
+            ("git", "-C", str(leaf_source), "commit", "-qam", "update"),
+            check=True,
+        )
+        updated_nested_head = subprocess.check_output(
+            ("git", "-C", str(leaf_source), "rev-parse", "HEAD"),
+            text=True,
+        ).strip()
+        self._git("-C", "vendor/dependency/nested", "fetch", "-q", "origin")
+        self._git(
+            "-C",
+            "vendor/dependency/nested",
+            "checkout",
+            "-q",
+            updated_nested_head,
+        )
+        parent_status = self._git("-C", "vendor/dependency", "status", "--porcelain=v1")
+
+        self.assertEqual(parent_status, "")
+        with self.assertRaisesRegex(
+            ValueError,
+            "HEAD does not match.*vendor/dependency/nested",
+        ):
+            review_state(self.repo, self.base, ("vendor/dependency",))
+
+        self._git(
+            "-C",
+            "vendor/dependency/nested",
+            "checkout",
+            "-q",
+            expected_nested_head,
+        )
         tracked = self.repo / "vendor" / "dependency" / "nested" / "tracked.txt"
-        tracked.write_text("first dirty body\n")
-        before = review_state(self.repo, self.base, ("vendor/dependency",))
+        tracked.write_text("dirty body\n")
+        parent_status = self._git("-C", "vendor/dependency", "status", "--porcelain=v1")
 
-        tracked.write_text("second dirty body\n")
-        after = review_state(self.repo, self.base, ("vendor/dependency",))
-
-        self.assertEqual(
-            before["workspace"][0]["status_sha256"],
-            after["workspace"][0]["status_sha256"],
-        )
-        self.assertNotEqual(
-            before["workspace"][0]["worktree_sha256"],
-            after["workspace"][0]["worktree_sha256"],
-        )
-        self.assertNotEqual(before["content_fingerprint"], after["content_fingerprint"])
-        self.assertNotEqual(before["repository_fingerprint"], after["repository_fingerprint"])
+        self.assertEqual(parent_status, "")
+        with self.assertRaisesRegex(
+            ValueError,
+            "Dirty submodule.*vendor/dependency/nested",
+        ):
+            review_state(self.repo, self.base, ("vendor/dependency",))
 
     @unittest.skipIf(os.name == "nt", "Non-UTF-8 filenames require POSIX filesystem bytes.")
     def test_non_utf8_filename_has_stable_fingerprint(self) -> None:
@@ -387,6 +458,79 @@ class ReviewStateTest(unittest.TestCase):
             )
 
         self.assertFalse(complete_diff.exists())
+
+    def test_complete_diff_output_does_not_follow_hardlink_into_repository(self) -> None:
+        """Replace an outside hardlink without mutating its repository peer."""
+        runtime = self.repo / "src" / "runtime.py"
+        complete_diff = self.root / "complete.diff"
+        os.link(runtime, complete_diff)
+        (self.repo / "tests" / "test_runtime.py").write_text("assert 2 == 2\n")
+
+        state = review_state(
+            self.repo,
+            self.base,
+            complete_diff_output=complete_diff,
+        )
+
+        self.assertEqual(runtime.read_text(), "VALUE = 1\n")
+        self.assertEqual(
+            hashlib.sha256(complete_diff.read_bytes()).hexdigest(),
+            state["complete_diff_sha256"],
+        )
+
+    def test_external_complete_diff_output_keeps_state_stable(self) -> None:
+        """Keep consecutive review states stable when writing an artifact."""
+        complete_diff = self.root / "complete.diff"
+        (self.repo / "src" / "runtime.py").write_text("VALUE = 2\n")
+
+        first = review_state(
+            self.repo,
+            self.base,
+            complete_diff_output=complete_diff,
+        )
+        second = review_state(
+            self.repo,
+            self.base,
+            complete_diff_output=complete_diff,
+        )
+
+        self.assertEqual(first, second)
+        self.assertEqual(
+            hashlib.sha256(complete_diff.read_bytes()).hexdigest(),
+            second["complete_diff_sha256"],
+        )
+
+    def test_assume_unchanged_paths_fail_closed(self) -> None:
+        """Reject index flags that can hide worktree content changes."""
+        self._git("update-index", "--assume-unchanged", "src/runtime.py")
+        (self.repo / "src" / "runtime.py").write_text("VALUE = 2\n")
+
+        with self.assertRaisesRegex(ValueError, "assume-unchanged.*src/runtime.py"):
+            review_state(self.repo, self.base, ("src/runtime.py",))
+
+    def test_materialized_skip_worktree_paths_fail_closed(self) -> None:
+        """Reject materialized sparse paths that can hide worktree changes."""
+        self._git("update-index", "--skip-worktree", "src/runtime.py")
+        (self.repo / "src" / "runtime.py").write_text("VALUE = 2\n")
+
+        with self.assertRaisesRegex(ValueError, "skip-worktree.*src/runtime.py"):
+            review_state(self.repo, self.base, ("src/runtime.py",))
+
+    def test_ordinary_directory_is_not_a_gitlink(self) -> None:
+        """Do not discover the parent repository through a directory."""
+        self.assertEqual(
+            _workspace_entry(self.repo, "plans"),
+            {"path": "plans", "kind": "directory"},
+        )
+
+    def test_untracked_nested_repository_fails_closed(self) -> None:
+        """Reject embedded repositories that have no reviewable gitlink."""
+        nested = self.repo / "nested"
+        subprocess.run(("git", "init", "-q", str(nested)), check=True)
+        (nested / "untracked.txt").write_text("not represented by a gitlink\n")
+
+        with self.assertRaisesRegex(ValueError, "Untracked nested Git repositories.*nested"):
+            review_state(self.repo, self.base)
 
     def test_cli_writes_complete_diff_output(self) -> None:
         (self.repo / "tests" / "test_new.py").write_text("assert True\n")

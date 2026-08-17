@@ -186,6 +186,11 @@ class SkillContractTest(unittest.TestCase):
         self.assertIn(
             "directory or glob pathspec never promotes ignored operational files", self.skill
         )
+        self.assertIn(
+            "every initialized submodule, including nested submodules, to be clean", self.skill
+        )
+        self.assertIn("Stage reviewable gitlink pointer changes", self.skill)
+        self.assertIn("fail closed on dirty worktrees, hidden index flags", self.skill)
 
     def test_verified_base_advance_closure_is_strict_and_keeps_final_verification(self) -> None:
         required_text = (
