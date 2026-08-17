@@ -201,16 +201,21 @@ class SkillContractTest(unittest.TestCase):
         self.assertIn("Require unique keys and standard finite numbers", self.skill)
         self.assertIn("JavaScript-style `NaN` or infinity constants", self.skill)
         self.assertIn("numeric exponents that overflow to infinity", self.skill)
+        self.assertIn("numeric-size and nesting-limit failures", self.skill)
         self.assertIn(
             "Every JSON object must use unique keys and standard finite numbers",
             self.reviewer_brief,
         )
         self.assertIn("`NaN`, `Infinity`, and `-Infinity` constants", self.reviewer_brief)
         self.assertIn("numeric exponents that overflow to infinity", self.reviewer_brief)
+        self.assertIn("numeric-size and nesting-limit failures", self.reviewer_brief)
         self.assertIn("distinct normalized primary and high-risk specialties", self.skill)
         self.assertIn("require every preflight command to be unique", self.skill)
         self.assertIn("exact, unique `command` and `result` objects", self.reviewer_brief)
         self.assertIn("primary and high-risk specialties must not overlap", self.reviewer_brief)
+        self.assertIn("Reject unknown fields instead of ignoring", self.skill)
+        self.assertIn("Unknown receipt fields are invalid", self.reviewer_brief)
+        self.assertIn("Unknown fields are invalid rather than ignored", self.reviewer_brief)
         self.assertIn("two consecutive identical repository observations", self.reviewer_brief)
         self.assertIn(
             "path-level `stat` must not authorize a later reopen", self.reviewer_brief
@@ -245,7 +250,13 @@ class SkillContractTest(unittest.TestCase):
         self.assertIn("verified base-advance closure", self.implementation_kickoff)
         self.assertIn("rerun every mandatory final verification gate", self.implementation_kickoff)
         self.assertIn("exact base pathspecs", self.reviewer_brief)
-        self.assertIn("prose-only claim", self.reviewer_brief)
+        self.assertIn("prose-only or empty dependency claims", self.reviewer_brief)
+        self.assertIn("keys exactly match the component names", self.reviewer_brief)
+        self.assertIn(
+            "nonempty arrays of exact `pathspec` and `reason` records",
+            self.reviewer_brief,
+        )
+        self.assertIn("maps every component name to a nonempty array", self.skill)
 
     def test_operational_artifacts_are_excluded_from_the_handoff_manifest(self) -> None:
         required_kickoff_text = (

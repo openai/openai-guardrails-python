@@ -184,7 +184,14 @@ class ReviewProtocolTest(unittest.TestCase):
             "manifests": {
                 "task": str(self.task_manifest),
                 "components": {"api-contract": str(self.component_manifest)},
-                "dependency_map": "api-contract has no task-owned dependents.",
+                "dependency_map": {
+                    "api-contract": [
+                        {
+                            "pathspec": "src/example.py",
+                            "reason": "The source file defines the reviewed API contract.",
+                        }
+                    ]
+                },
             },
             "review_state": {
                 "evidence_id": "E-STATE",
@@ -395,6 +402,16 @@ class ReviewProtocolTest(unittest.TestCase):
                 with self.assertRaisesRegex(ProtocolError, "Non-finite JSON number"):
                     self._validate_packet()
 
+    def test_packet_reports_json_parser_limits_as_protocol_errors(self) -> None:
+        """Convert runtime parser limits into concise protocol failures."""
+        for error in (ValueError("integer limit"), RecursionError("nesting limit")):
+            with (
+                self.subTest(error=type(error).__name__),
+                mock.patch("review_protocol.json.loads", side_effect=error),
+                self.assertRaisesRegex(ProtocolError, "Cannot read JSON object"),
+            ):
+                self._validate_packet()
+
     def test_packet_defers_broad_final_gates_until_clean_review(self) -> None:
         packet = copy.deepcopy(self.packet)
         packet["verification"]["eligible_concurrent_gates"] = "make tests"
@@ -468,6 +485,35 @@ class ReviewProtocolTest(unittest.TestCase):
         self.ledger_path.write_text("{not json")
         with self.assertRaisesRegex(ProtocolError, "Cannot read JSON object"):
             self._validate_packet()
+
+    def test_dependency_map_requires_exact_component_entries(self) -> None:
+        """Require complete machine-readable component dependency boundaries."""
+        valid_entry = {
+            "pathspec": "src/example.py",
+            "reason": "The source file defines the reviewed API contract.",
+        }
+        cases = (
+            ("api-contract has no dependencies.", "dependency_map must be an object"),
+            ({}, "must cover the exact component names"),
+            ({"api-contract": []}, "must contain at least one dependency"),
+            (
+                {"api-contract": [{**valid_entry, "note": "unvalidated"}]},
+                "unexpected=\\['note'\\]",
+            ),
+            (
+                {"api-contract": [valid_entry, copy.deepcopy(valid_entry)]},
+                "contains duplicate pathspec",
+            ),
+        )
+
+        for dependency_map, expected in cases:
+            with self.subTest(expected=expected):
+                packet = copy.deepcopy(self.packet)
+                packet["manifests"]["dependency_map"] = dependency_map
+                self._write_packet(self.packet_path, packet)
+
+                with self.assertRaisesRegex(ProtocolError, expected):
+                    self._validate_packet()
 
     def test_ledger_task_identity_must_match_packet(self) -> None:
         packet = copy.deepcopy(self.packet)
@@ -880,7 +926,7 @@ class ReviewProtocolTest(unittest.TestCase):
         packet = copy.deepcopy(self.packet)
         packet["verification"]["preflight_results"][0]["details"] = "Unvalidated metadata."
         self._write_packet(self.packet_path, packet)
-        with self.assertRaisesRegex(ProtocolError, "must contain only command and result"):
+        with self.assertRaisesRegex(ProtocolError, "unexpected=\\['details'\\]"):
             self._validate_packet()
 
     def test_preflight_commands_must_be_unique(self) -> None:
@@ -1231,6 +1277,16 @@ class ReviewProtocolTest(unittest.TestCase):
                 receipt, self.combined, {"api-contract": self.component}, self.repository
             )
 
+    def test_receipt_rejects_unknown_fields(self) -> None:
+        """Reject conflicting evidence outside the receipt schema."""
+        receipt = self._receipt()
+        receipt["exit_code"] = 1
+
+        with self.assertRaisesRegex(ProtocolError, "Verification receipt.*unexpected"):
+            validate_receipt_data(
+                receipt, self.combined, {"api-contract": self.component}, self.repository
+            )
+
     def test_packet_validates_every_credited_receipt(self) -> None:
         self._write_json(self.receipt_path, self._receipt())
         packet = copy.deepcopy(self.packet)
@@ -1421,6 +1477,32 @@ class ReviewProtocolTest(unittest.TestCase):
         self._write_json(self.output_path, output)
         with self.assertRaisesRegex(ProtocolError, "inventory accounting differs"):
             self._validate_output("requirements")
+
+    def test_reviewer_output_rejects_unknown_fields(self) -> None:
+        """Reject reviewer conclusions outside the documented schema."""
+        output = self._output()
+        output["issues"] = [{"title": "Ignored finding"}]
+        self._write_json(self.output_path, output)
+
+        with self.assertRaisesRegex(ProtocolError, "Reviewer output.*unexpected"):
+            self._validate_output("requirements")
+
+    def test_finding_and_root_evidence_reject_unknown_fields(self) -> None:
+        """Reject finding data that the protocol would otherwise ignore."""
+        for field_path in ("finding", "root_evidence"):
+            with self.subTest(field_path=field_path):
+                output = self._output()
+                output["verdict"] = "findings require fixes"
+                finding = self._finding("ROOT_EXISTING")
+                if field_path == "finding":
+                    finding["alternative_root"] = "ROOT_CLOSED"
+                else:
+                    finding["root_cause_evidence"]["note"] = "Ignored evidence metadata."
+                output["findings"] = [finding]
+                self._write_json(self.output_path, output)
+
+                with self.assertRaisesRegex(ProtocolError, "unexpected"):
+                    self._validate_output("requirements")
 
     def test_reviewer_output_is_bound_to_the_exact_packet(self) -> None:
         output = self._output()

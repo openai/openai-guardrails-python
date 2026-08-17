@@ -42,7 +42,6 @@ REQUIRED_PACKET_TEXT = (
     "repository.complete_diff_command",
     "ledger.path",
     "manifests.task",
-    "manifests.dependency_map",
     "review_state.evidence_id",
     "review_state.revalidation_command",
     "verification.eligible_concurrent_gates",
@@ -113,6 +112,18 @@ def _object(value: Any, context: str) -> dict[str, Any]:
     if not isinstance(value, dict):
         raise ProtocolError(f"{context} must be an object.")
     return value
+
+
+def _require_exact_fields(
+    value: dict[str, Any], expected: set[str], context: str
+) -> None:
+    missing = sorted(expected - value.keys())
+    unexpected = sorted(value.keys() - expected)
+    if missing or unexpected:
+        raise ProtocolError(
+            f"{context} does not match the exact schema: "
+            f"missing={missing}, unexpected={unexpected}."
+        )
 
 
 def _array(value: Any, context: str) -> list[Any]:
@@ -196,7 +207,9 @@ def _json_bytes(data: bytes, context: str) -> dict[str, Any]:
             parse_constant=reject_constant,
             parse_float=finite_float,
         )
-    except (UnicodeError, json.JSONDecodeError) as error:
+    except ProtocolError:
+        raise
+    except (RecursionError, UnicodeError, ValueError) as error:
         raise ProtocolError(f"Cannot read JSON object from {context}: {error}") from error
     return _object(value, context)
 
@@ -236,10 +249,32 @@ def _pathspec_file(value: Any, context: str) -> list[str]:
     return lines
 
 
+def _dependency_map(value: Any, component_names: set[str]) -> None:
+    dependencies = _object(value, "manifests.dependency_map")
+    if set(dependencies) != component_names:
+        raise ProtocolError(
+            "manifests.dependency_map must cover the exact component names."
+        )
+    for component_name in sorted(component_names):
+        context = f"manifests.dependency_map[{component_name!r}]"
+        entries = _array(dependencies[component_name], context)
+        if not entries:
+            raise ProtocolError(f"{context} must contain at least one dependency.")
+        pathspecs: set[str] = set()
+        for index, raw_entry in enumerate(entries):
+            entry_context = f"{context}[{index}]"
+            entry = _object(raw_entry, entry_context)
+            _require_exact_fields(entry, {"pathspec", "reason"}, entry_context)
+            pathspec = _text(entry.get("pathspec"), f"{entry_context}.pathspec", concrete=True)
+            _text(entry.get("reason"), f"{entry_context}.reason", concrete=True)
+            if pathspec in pathspecs:
+                raise ProtocolError(f"{context} contains duplicate pathspec {pathspec!r}.")
+            pathspecs.add(pathspec)
+
+
 def _command_result(value: Any, context: str) -> None:
     record = _object(value, context)
-    if set(record) != {"command", "result"}:
-        raise ProtocolError(f"{context} must contain only command and result.")
+    _require_exact_fields(record, {"command", "result"}, context)
     command = _text(record.get("command"), f"{context}.command", concrete=True)
     _text(record.get("result"), f"{context}.result", concrete=True)
     if PLACEHOLDER_TOKEN.search(command):
@@ -468,9 +503,7 @@ def validate_receipt_data(
         "before",
         "after",
     }
-    missing = sorted(required - receipt.keys())
-    if missing:
-        raise ProtocolError(f"Verification receipt is missing fields: {missing}.")
+    _require_exact_fields(receipt, required, "Verification receipt")
     if type(receipt["schema_version"]) is not int or receipt["schema_version"] != 1:
         raise ProtocolError("Verification receipt schema_version must be integer 1.")
     if type(receipt["exit_status"]) is not int or receipt["exit_status"] != 0:
@@ -581,6 +614,7 @@ def validate_packet(
     component_manifests = _object(manifests.get("components"), "manifests.components")
     if set(component_manifests) != set(components):
         raise ProtocolError("Component manifest and review-state names must match exactly.")
+    _dependency_map(manifests.get("dependency_map"), set(components))
     for name, manifest_path in component_manifests.items():
         if (
             _pathspec_file(manifest_path, f"manifests.components[{name!r}]")
@@ -1025,9 +1059,7 @@ def validate_reviewer_output(
         summary,
     )
     output = _load_json(output_path)
-    missing = sorted(REVIEWER_OUTPUT_FIELDS - output.keys())
-    if missing:
-        raise ProtocolError(f"Reviewer output is missing fields: {missing}.")
+    _require_exact_fields(output, REVIEWER_OUTPUT_FIELDS, "Reviewer output")
     if output["verdict"] not in {
         "clean",
         "findings require fixes",
@@ -1055,6 +1087,11 @@ def validate_reviewer_output(
         _array(output["unchecked_inventory_ids"], "unchecked_inventory_ids")
     ):
         item = _object(raw_item, f"unchecked_inventory_ids[{index}]")
+        _require_exact_fields(
+            item,
+            {"id", "reason"},
+            f"unchecked_inventory_ids[{index}]",
+        )
         unchecked_id = _text(item.get("id"), f"unchecked_inventory_ids[{index}].id")
         if unchecked_id in unchecked:
             raise ProtocolError(f"Duplicate unchecked inventory ID: {unchecked_id}.")
@@ -1100,15 +1137,18 @@ def validate_reviewer_output(
     proposed_evidence_owners: dict[str, str] = {}
     for index, raw_finding in enumerate(findings):
         finding = _object(raw_finding, f"findings[{index}]")
-        missing_finding = sorted(FINDING_FIELDS - finding.keys())
-        if missing_finding:
-            raise ProtocolError(f"Finding {index} is missing fields: {missing_finding}.")
+        _require_exact_fields(finding, FINDING_FIELDS, f"Finding {index}")
         if finding["priority"] not in {"P0", "P1", "P2", "P3"}:
             raise ProtocolError(f"Finding {index} has an invalid priority.")
         for field in FINDING_FIELDS - {"priority", "root_cause_id", "root_cause_evidence"}:
             _text(finding[field], f"findings[{index}].{field}")
         root_id = _text(finding["root_cause_id"], f"findings[{index}].root_cause_id")
         evidence = _object(finding["root_cause_evidence"], f"findings[{index}].root_cause_evidence")
+        _require_exact_fields(
+            evidence,
+            {"new_contract_evidence_ids", "new_inventory_ids"},
+            f"findings[{index}].root_cause_evidence",
+        )
         new_evidence = set(
             _strings(evidence.get("new_contract_evidence_ids"), f"finding {index} evidence")
         )
@@ -1222,6 +1262,11 @@ def validate_reviewer_output(
         _array(output["sibling_scenario_scan"], "sibling_scenario_scan")
     ):
         scan = _object(raw_scan, f"sibling_scenario_scan[{index}]")
+        _require_exact_fields(
+            scan,
+            {"root_cause_id", "inventory_ids", "result"},
+            f"sibling_scenario_scan[{index}]",
+        )
         root_id = _text(scan.get("root_cause_id"), f"sibling_scenario_scan[{index}].root_cause_id")
         if root_id not in canonical_roots and root_id not in proposed_roots:
             raise ProtocolError(
