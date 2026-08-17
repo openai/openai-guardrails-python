@@ -2,7 +2,7 @@
 
 The ledger contains a `round_fingerprint` equal to the packet's combined content fingerprint. A same-round retry must preserve the immutable prior snapshot's `round_fingerprint` and authorized budget history; a changed fingerprint or newly authorized budget requires advancing exactly one round.
 
-Every packet, ledger, manifest, receipt, reviewer-output, and evidence path must resolve to a finite regular file. Materialize devices, FIFOs, sockets, or generated streams before validation.
+Every packet, ledger, manifest, receipt, reviewer-output, and evidence path must resolve to a finite regular file. Verify the file type after opening and read content from that same descriptor; a path-level `stat` must not authorize a later reopen. Materialize devices, FIFOs, sockets, or generated streams before validation.
 
 Every JSON object must use unique keys. Duplicate keys are invalid even when their values match.
 

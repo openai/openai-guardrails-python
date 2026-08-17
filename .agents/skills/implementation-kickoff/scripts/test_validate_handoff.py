@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import os
 import subprocess
 import tempfile
 import unittest
 from argparse import Namespace
 from pathlib import Path
+from unittest import mock
 
 from validate_handoff import load_shipped_paths, validate
 
@@ -101,6 +103,17 @@ class ValidateHandoffTests(unittest.TestCase):
         manifest.write_text("../outside.txt\n")
         with self.assertRaisesRegex(ValueError, "normalized repository-relative paths"):
             load_shipped_paths(manifest)
+
+    @unittest.skipUnless(hasattr(os, "mkfifo"), "Requires POSIX FIFO support.")
+    def test_manifest_file_type_is_verified_after_open(self) -> None:
+        fifo = self.root / "shipped.paths"
+        os.mkfifo(fifo)
+
+        with (
+            mock.patch.object(Path, "read_text", return_value="src/change.py\n"),
+            self.assertRaisesRegex(ValueError, "regular file"),
+        ):
+            load_shipped_paths(fifo)
 
     def test_body_line_is_not_accepted_as_coauthor_trailer(self) -> None:
         path = self.repo / "src" / "change.py"

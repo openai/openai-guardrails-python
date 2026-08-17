@@ -180,6 +180,9 @@ class SkillContractTest(unittest.TestCase):
         self.assertIn(
             "ordinary task-owned untracked files are present", self.implementation_kickoff
         )
+        self.assertIn(
+            "shipped-path manifest must be a finite regular file", self.implementation_kickoff
+        )
         self.assertIn("authoritative even when ignore rules match that file", self.skill)
         self.assertIn("literal precedence over Git pathspec metacharacters", self.skill)
         self.assertIn("use explicit `:(glob)` magic", self.skill)
@@ -198,6 +201,9 @@ class SkillContractTest(unittest.TestCase):
         self.assertIn("Require unique keys in every JSON object", self.skill)
         self.assertIn("Every JSON object must use unique keys", self.reviewer_brief)
         self.assertIn("two consecutive identical repository observations", self.reviewer_brief)
+        self.assertIn(
+            "path-level `stat` must not authorize a later reopen", self.reviewer_brief
+        )
 
     def test_verified_base_advance_closure_is_strict_and_keeps_final_verification(self) -> None:
         required_text = (
@@ -355,6 +361,8 @@ class SkillContractTest(unittest.TestCase):
             "exact packet SHA-256 and fingerprints",
             "no unresolved merge stages before fingerprinting",
             "resolve to finite regular files",
+            "Verify the file type after opening",
+            "read content from that same descriptor",
         )
         for text in required_text:
             with self.subTest(text=text):

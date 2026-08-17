@@ -5,7 +5,9 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
+import stat
 import subprocess
 import sys
 from pathlib import Path, PurePosixPath
@@ -64,8 +66,15 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+def _nonblocking_opener(path: str, flags: int) -> int:
+    return os.open(path, flags | getattr(os, "O_NONBLOCK", 0))
+
+
 def load_shipped_paths(path: Path) -> set[str]:
-    lines = path.read_text().splitlines()
+    with open(path, "rb", opener=_nonblocking_opener) as file:
+        if not stat.S_ISREG(os.fstat(file.fileno()).st_mode):
+            raise ValueError(f"Shipped-path manifest must be a regular file: {path}")
+        lines = file.read().decode().splitlines()
     if not lines:
         raise ValueError(f"Shipped-path manifest is empty: {path}")
 

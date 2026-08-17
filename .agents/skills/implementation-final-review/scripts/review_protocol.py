@@ -7,11 +7,15 @@ import argparse
 import hashlib
 import json
 import re
-import stat
 from pathlib import Path
 from typing import Any
 
-from review_state import _content_fingerprint, _repository_fingerprint
+from review_state import (
+    _content_fingerprint,
+    _NonRegularFileError,
+    _read_regular_file,
+    _repository_fingerprint,
+)
 
 PACKET_SOFT_LIMIT_BYTES = 12 * 1024
 SENTINELS = {"none", "not applicable"}
@@ -154,15 +158,12 @@ def _read_bytes(value: Any, context: str) -> tuple[Path, bytes]:
     if not path.is_absolute():
         raise ProtocolError(f"{context} must be an absolute path: {path}.")
     try:
-        mode = path.stat().st_mode
+        data, _ = _read_regular_file(path)
+    except _NonRegularFileError as error:
+        raise ProtocolError(f"{context} must be a regular file: {path}.") from error
     except (OSError, ValueError) as error:
         raise ProtocolError(f"Cannot read {context} {path}: {error}") from error
-    if not stat.S_ISREG(mode):
-        raise ProtocolError(f"{context} must be a regular file: {path}.")
-    try:
-        return path, path.read_bytes()
-    except (OSError, ValueError) as error:
-        raise ProtocolError(f"Cannot read {context} {path}: {error}") from error
+    return path, data
 
 
 def _json_bytes(data: bytes, context: str) -> dict[str, Any]:

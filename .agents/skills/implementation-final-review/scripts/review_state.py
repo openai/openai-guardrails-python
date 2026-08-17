@@ -8,6 +8,7 @@ import hashlib
 import json
 import os
 import re
+import stat
 import subprocess
 import tempfile
 from dataclasses import dataclass
@@ -46,6 +47,22 @@ class _Snapshot:
     unfiltered_status: bytes
     unfiltered_workspace: list[dict[str, object]]
     component_workspaces: dict[str, list[dict[str, object]]]
+
+
+class _NonRegularFileError(ValueError):
+    pass
+
+
+def _nonblocking_opener(path: str, flags: int) -> int:
+    return os.open(path, flags | getattr(os, "O_NONBLOCK", 0))
+
+
+def _read_regular_file(path: Path) -> tuple[bytes, int]:
+    with open(path, "rb", opener=_nonblocking_opener) as file:
+        mode = os.fstat(file.fileno()).st_mode
+        if not stat.S_ISREG(mode):
+            raise _NonRegularFileError(path)
+        return file.read(), mode
 
 
 def _unsafe_index_paths(repo: Path) -> tuple[tuple[str, str], ...]:
@@ -224,10 +241,20 @@ def _base_has_literal_path(repo: Path, base: str, pathspec: str) -> bool:
 
 def _load_pathspec_file(path: Path) -> tuple[str, ...]:
     try:
-        values = [line for line in path.read_text().splitlines() if line]
-    except (OSError, UnicodeError) as error:
+        data, _ = _read_regular_file(path)
+        values = [line for line in data.decode().splitlines() if line]
+    except (OSError, UnicodeError, ValueError) as error:
         raise ValueError(f"Cannot read pathspec file {path}: {error}") from error
     return _canonical_pathspecs(tuple(values))
+
+
+def _read_workspace_file(path: Path, relative_path: str) -> tuple[bytes, int]:
+    try:
+        return _read_regular_file(path)
+    except _NonRegularFileError as error:
+        raise ValueError(f"Unsupported workspace file type: {relative_path}") from error
+    except OSError as error:
+        raise ValueError(f"Cannot read workspace file: {relative_path}") from error
 
 
 def _workspace_entry(repo: Path, relative_path: str) -> dict[str, object]:
@@ -240,11 +267,12 @@ def _workspace_entry(repo: Path, relative_path: str) -> dict[str, object]:
             "sha256": _digest(content),
         }
     if path.is_file():
-        content = b"file\0" + path.read_bytes()
+        file_content, mode = _read_workspace_file(path, relative_path)
+        content = b"file\0" + file_content
         return {
             "path": relative_path,
             "kind": "file",
-            "executable": bool(path.stat().st_mode & 0o100),
+            "executable": bool(mode & 0o100),
             "sha256": _digest(content),
         }
     indexed_head = _index_gitlinks(repo).get(relative_path)

@@ -11,11 +11,13 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).parent))
 
 from review_protocol import (
     ProtocolError,
+    _read_bytes,
     _workspace_entries,
     validate_packet,
     validate_receipt_data,
@@ -786,6 +788,19 @@ class ReviewProtocolTest(unittest.TestCase):
 
         with self.assertRaisesRegex(ProtocolError, "must be a regular file"):
             self._validate_packet()
+
+    @unittest.skipUnless(hasattr(os, "mkfifo"), "Requires POSIX FIFO support.")
+    def test_artifact_file_type_is_verified_after_open(self) -> None:
+        fifo = self.root / "artifact.pipe"
+        os.mkfifo(fifo)
+        regular_stat = self.packet_path.stat()
+
+        with (
+            mock.patch.object(Path, "stat", return_value=regular_stat),
+            mock.patch.object(Path, "read_bytes", return_value=b"not from the FIFO"),
+            self.assertRaisesRegex(ProtocolError, "must be a regular file"),
+        ):
+            _read_bytes(str(fifo), "artifact")
 
     def test_complete_diff_must_match_review_state(self) -> None:
         partial_diff = self.root / "partial.diff"

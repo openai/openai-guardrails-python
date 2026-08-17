@@ -119,6 +119,31 @@ class ReviewStateTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "Unsupported workspace file type"):
             review_state(self.repo, self.base, ("artifact.pipe",))
 
+    @unittest.skipUnless(hasattr(os, "mkfifo"), "Requires POSIX FIFO support.")
+    def test_workspace_file_type_is_verified_after_open(self) -> None:
+        """Do not trust a stale file-type check when reading workspace content."""
+        fifo = self.repo / "artifact.pipe"
+        os.mkfifo(fifo)
+
+        with (
+            mock.patch.object(Path, "is_file", return_value=True),
+            mock.patch.object(Path, "read_bytes", return_value=b"not from the FIFO"),
+            self.assertRaisesRegex(ValueError, "Unsupported workspace file type"),
+        ):
+            _workspace_entry(self.repo, "artifact.pipe")
+
+    @unittest.skipUnless(hasattr(os, "mkfifo"), "Requires POSIX FIFO support.")
+    def test_pathspec_file_type_is_verified_after_open(self) -> None:
+        """Do not trust a path-based read when loading a task manifest."""
+        fifo = self.root / "task.paths"
+        os.mkfifo(fifo)
+
+        with (
+            mock.patch.object(Path, "read_text", return_value="src/runtime.py\n"),
+            self.assertRaisesRegex(ValueError, "Cannot read pathspec file"),
+        ):
+            _load_pathspec_file(fifo)
+
     @unittest.skipIf(os.name == "nt", "Executable mode normalization requires POSIX.")
     def test_executable_uses_git_owner_bit(self) -> None:
         runtime = self.repo / "src" / "runtime.py"
