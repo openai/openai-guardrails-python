@@ -157,6 +157,7 @@ class ReviewProtocolTest(unittest.TestCase):
             "ledger": {
                 "path": str(self.ledger_path),
                 "task_id": "task-123",
+                "round_fingerprint": self.combined,
                 "authorized_round_budgets": [6],
                 "current_round": 1,
                 "remaining_budget": 5,
@@ -454,6 +455,14 @@ class ReviewProtocolTest(unittest.TestCase):
         with self.assertRaisesRegex(ProtocolError, "must be a positive integer"):
             self._validate_packet()
 
+    def test_ledger_round_fingerprint_matches_packet(self) -> None:
+        packet = copy.deepcopy(self.packet)
+        packet["ledger"]["round_fingerprint"] = "0" * 64
+        self._write_packet(self.packet_path, packet)
+
+        with self.assertRaisesRegex(ProtocolError, "must match the packet fingerprint"):
+            self._validate_packet()
+
     def test_canonical_roots_cannot_alias_the_same_ownership(self) -> None:
         packet = copy.deepcopy(self.packet)
         alias = copy.deepcopy(packet["ledger"]["root_causes"][0])
@@ -535,6 +544,35 @@ class ReviewProtocolTest(unittest.TestCase):
                 prior_path,
                 prior_digest,
             )
+
+    def test_same_round_retry_requires_the_prior_fingerprint(self) -> None:
+        prior_path = self.root / "prior-ledger.json"
+        prior = copy.deepcopy(self.packet["ledger"])
+        prior["round_fingerprint"] = "0" * 64
+        self._write_json(prior_path, prior)
+        prior_digest = hashlib.sha256(prior_path.read_bytes()).hexdigest()
+
+        with self.assertRaisesRegex(ProtocolError, "same-round retry fingerprint"):
+            validate_packet(
+                self.packet_path,
+                "task-123",
+                self.ledger_path,
+                prior_path,
+                prior_digest,
+            )
+
+        advanced = copy.deepcopy(self.packet)
+        advanced["ledger"]["current_round"] = 2
+        advanced["ledger"]["remaining_budget"] = 4
+        self._write_packet(self.packet_path, advanced)
+
+        validate_packet(
+            self.packet_path,
+            "task-123",
+            self.ledger_path,
+            prior_path,
+            prior_digest,
+        )
 
     def test_later_round_requires_digest_bound_prior_ledger(self) -> None:
         packet = copy.deepcopy(self.packet)
@@ -783,7 +821,9 @@ class ReviewProtocolTest(unittest.TestCase):
             unfiltered_status_sha256=state["unfiltered"]["status_sha256"],
             unfiltered_content_fingerprint=combined,
         )
-        self._write_review_state(state)
+        packet = copy.deepcopy(self.packet)
+        packet["ledger"]["round_fingerprint"] = combined
+        self._write_review_state(state, packet)
 
         summary = self._validate_packet()
 

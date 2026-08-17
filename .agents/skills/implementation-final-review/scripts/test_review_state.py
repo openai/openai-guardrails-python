@@ -75,6 +75,23 @@ class ReviewStateTest(unittest.TestCase):
             explicit["content_fingerprint"], with_ignored_artifact["content_fingerprint"]
         )
 
+    @unittest.skipIf(os.name == "nt", "Executable mode normalization requires POSIX.")
+    def test_executable_uses_git_owner_bit(self) -> None:
+        runtime = self.repo / "src" / "runtime.py"
+        runtime.write_text("VALUE = 2\n")
+        runtime.chmod(0o744)
+        executable = review_state(self.repo, self.base, ("src/runtime.py",))
+
+        runtime.chmod(0o654)
+        non_executable = review_state(self.repo, self.base, ("src/runtime.py",))
+
+        self.assertTrue(executable["workspace"][0]["executable"])
+        self.assertFalse(non_executable["workspace"][0]["executable"])
+        self.assertNotEqual(
+            executable["content_fingerprint"],
+            non_executable["content_fingerprint"],
+        )
+
     def test_component_fingerprints_invalidate_only_changed_content(self) -> None:
         runtime = self.repo / "src" / "runtime.py"
         tests = self.repo / "tests" / "test_runtime.py"

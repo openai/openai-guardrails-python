@@ -343,6 +343,8 @@ class SkillContractTest(unittest.TestCase):
             "append the feedback cycle's default two-round budget to the same ledger without "
             "another authorization prompt",
             "Persist enough task identity, used and authorized round budgets",
+            "Persist the current combined content fingerprint as `ledger.round_fingerprint`",
+            "A same-round retry is valid only when that value matches",
         )
         for text in required_text:
             with self.subTest(text=text):
@@ -482,7 +484,7 @@ class SkillContractTest(unittest.TestCase):
             "extra copied fingerprint or state fields are invalid",
             "requires the complete-diff artifact digest to equal its `complete_diff_sha256`",
             "Supply the task ID and absolute task-global ledger path independently",
-            "requires `current_round` plus `remaining_budget` to equal the sum",
+                "`current_round` plus `remaining_budget` to equal the sum",
             "immediately preceding round's immutable ledger snapshot and its SHA-256 digest",
             "same-round retry or advance by exactly one",
             "immutable snapshot must be a distinct file",

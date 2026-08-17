@@ -32,6 +32,8 @@ Keep the same task identity and ledger, preserve its canonical root-cause histor
 
 ## Workflow
 
+Persist the current combined content fingerprint as `ledger.round_fingerprint` and bind it to the packet fingerprint. A same-round retry is valid only when that value matches the immutable prior ledger snapshot; a changed fingerprint advances the round.
+
 1. Finish the initial implementation and focused tests. Apply formatting before review when formatting can rewrite the diff. Inspect the actual final commit-hook configuration and run the exact safe, non-committing equivalent of every hook step that can rewrite task-owned content before freezing the first review fingerprint. Run each rewriting step until a second execution is content-idempotent. Normalize generated files before computing embedded hashes or provenance so the hook cannot invalidate them later. Record any hook step that cannot safely run before review; if that step later changes task content, apply the normal invalidation rules without exception.
 2. Re-read the original user request and the current implementation scope contract. If no contract exists, record the required behavior, compatibility requirements, intentionally unsupported cases and failure behavior, and supported alternative or `none`.
 3. Resolve the intended target and merge base. If a supplied target or base is not an ancestor of `HEAD`, compute their common merge base and treat `merge-base...HEAD` as the task-owned diff. Use the latest release tag separately when released compatibility is the relevant boundary. Include committed, staged, unstaged, and untracked changes that belong to the task.

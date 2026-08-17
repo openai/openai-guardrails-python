@@ -551,6 +551,12 @@ def validate_packet(
         raise ProtocolError("ledger.path content must match the packet ledger exactly.")
     if ledger.get("task_id") != expected_task_id:
         raise ProtocolError("ledger.task_id must match the control-plane task ID.")
+    round_fingerprint = _sha256(
+        ledger.get("round_fingerprint"),
+        "ledger.round_fingerprint",
+    )
+    if round_fingerprint != combined:
+        raise ProtocolError("ledger.round_fingerprint must match the packet fingerprint.")
     authorized_budgets = [
         _integer(value, f"ledger.authorized_round_budgets[{index}]", minimum=1)
         for index, value in enumerate(
@@ -638,6 +644,10 @@ def validate_packet(
             )
         ]
         prior_round = _integer(prior.get("current_round"), "prior ledger.current_round", minimum=1)
+        prior_round_fingerprint = _sha256(
+            prior.get("round_fingerprint"),
+            "prior ledger.round_fingerprint",
+        )
         prior_remaining = _integer(
             prior.get("remaining_budget"), "prior ledger.remaining_budget", minimum=0
         )
@@ -648,6 +658,10 @@ def validate_packet(
         if current_round not in {prior_round, prior_round + 1}:
             raise ProtocolError(
                 "ledger.current_round must match the prior round or advance by exactly one."
+            )
+        if current_round == prior_round and round_fingerprint != prior_round_fingerprint:
+            raise ProtocolError(
+                "A same-round retry fingerprint must match the prior ledger snapshot."
             )
         prior_roots: dict[str, dict[str, Any]] = {}
         for index, raw_root in enumerate(

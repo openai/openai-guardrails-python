@@ -195,7 +195,7 @@ def _workspace_entry(repo: Path, relative_path: str) -> dict[str, object]:
         return {
             "path": relative_path,
             "kind": "file",
-            "executable": bool(path.stat().st_mode & 0o111),
+            "executable": bool(path.stat().st_mode & 0o100),
             "sha256": _digest(content),
         }
     indexed_head = _index_gitlinks(repo).get(relative_path)
