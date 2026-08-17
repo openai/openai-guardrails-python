@@ -37,6 +37,12 @@ REFERENCE_DOMAIN_PATTERN = re.compile(
         ("foo.com-evil/path", ["foo.com"]),
         ("foo.com/path?x=1", ["foo.com/path?x=1"]),
         ("abc/example.com", ["example.com"]),
+        ("example.cİ", ["example.cİ"]),
+        ("example.cı", ["example.cı"]),
+        ("example.cſ", ["example.cſ"]),
+        ("example.cK", ["example.cK"]),
+        ("K.example.com", ["K.example.com"]),
+        ("foo.ſſ/path", ["foo.ſſ/path"]),
     ],
 )
 def test_detect_domain_like_urls_preserves_existing_matches(
@@ -49,7 +55,7 @@ def test_detect_domain_like_urls_preserves_existing_matches(
 
 @given(
     text=st.text(
-        alphabet=string.ascii_letters + string.digits + string.punctuation + " \t\n\r",
+        alphabet=string.ascii_letters + string.digits + string.punctuation + "İıſK \t\n\r",
         max_size=100,
     )
 )
@@ -68,6 +74,11 @@ def test_detect_urls_handles_large_invalid_domain_input_quickly() -> None:
 
     assert detected == []  # noqa: S101
     assert duration_seconds < 1.0  # noqa: S101
+
+
+def test_detect_urls_preserves_unicode_casefolded_domain() -> None:
+    """Unicode characters matched by the previous regex remain detectable."""
+    assert _detect_urls("Visit attacker.cK now") == ["attacker.cK"]  # noqa: S101
 
 
 def test_detect_urls_deduplicates_scheme_and_domain() -> None:

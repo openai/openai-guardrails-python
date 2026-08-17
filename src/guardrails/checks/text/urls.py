@@ -41,8 +41,9 @@ DEFAULT_PORTS = {
 }
 
 SCHEME_PREFIX_RE = re.compile(r"^[a-z][a-z0-9+.-]*://")
-DOMAIN_HOST_CANDIDATE_RE = re.compile(r"\b[a-zA-Z0-9][a-zA-Z0-9.-]*")
+DOMAIN_HOST_CANDIDATE_RE = re.compile(r"\b[a-zA-Z0-9][a-zA-Z0-9.-]*", re.IGNORECASE)
 ASCII_LETTERS = frozenset("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ")
+CASE_INSENSITIVE_ASCII_LETTERS = ASCII_LETTERS | frozenset("İıſK")
 
 
 @dataclass(frozen=True, slots=True)
@@ -124,7 +125,9 @@ def _find_domain_end(host_candidate: str) -> int | None:
             continue
 
         suffix_end = index + 1
-        while suffix_end < len(host_candidate) and host_candidate[suffix_end] in ASCII_LETTERS:
+        while suffix_end < len(host_candidate):
+            if host_candidate[suffix_end] not in CASE_INSENSITIVE_ASCII_LETTERS:
+                break
             suffix_end += 1
 
         if suffix_end - index > 2:
