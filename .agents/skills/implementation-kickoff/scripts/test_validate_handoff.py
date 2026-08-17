@@ -102,6 +102,92 @@ class ValidateHandoffTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "normalized repository-relative paths"):
             load_shipped_paths(manifest)
 
+    def test_body_line_is_not_accepted_as_coauthor_trailer(self) -> None:
+        path = self.repo / "src" / "change.py"
+        path.parent.mkdir()
+        path.write_text("value = 1\n")
+        self._git("add", "src/change.py")
+        self._git(
+            "commit",
+            "-qm",
+            "change workflow",
+            "-m",
+            "Co-authored-by: Example User <example@example.com>",
+            "-m",
+            "This paragraph makes the preceding line part of the body.",
+        )
+        manifest = self.root / "shipped.paths"
+        manifest.write_text("src/change.py\n")
+        args = self._args(manifest)
+        args.required_trailer_email = ["example@example.com"]
+
+        report, failures = validate(args)
+
+        self.assertFalse(report["valid"])
+        self.assertTrue(
+            any("Missing required Co-authored-by trailer" in failure for failure in failures)
+        )
+
+    def test_terminal_coauthor_trailer_is_accepted(self) -> None:
+        path = self.repo / "src" / "change.py"
+        path.parent.mkdir()
+        path.write_text("value = 1\n")
+        self._git("add", "src/change.py")
+        self._git(
+            "commit",
+            "-qm",
+            "change workflow",
+            "-m",
+            "Commit body.",
+            "-m",
+            "Co-authored-by: Example User <example@example.com>",
+        )
+        manifest = self.root / "shipped.paths"
+        manifest.write_text("src/change.py\n")
+        args = self._args(manifest)
+        args.required_trailer_email = ["EXAMPLE@example.com"]
+
+        report, failures = validate(args)
+
+        self.assertEqual(failures, [])
+        self.assertEqual(report["coauthor_trailer_emails"], ["example@example.com"])
+
+    def test_assume_unchanged_path_is_not_a_clean_handoff(self) -> None:
+        self._commit({"src/change.py": "value = 1\n"})
+        self._git("update-index", "--assume-unchanged", "README.md")
+        (self.repo / "README.md").write_text("hidden change\n")
+        manifest = self.root / "shipped.paths"
+        manifest.write_text("src/change.py\n")
+
+        report, failures = validate(self._args(manifest))
+
+        self.assertFalse(report["valid"])
+        self.assertTrue(any("assume-unchanged" in failure for failure in failures))
+
+    def test_materialized_skip_worktree_path_is_not_a_clean_handoff(self) -> None:
+        self._commit({"src/change.py": "value = 1\n"})
+        self._git("update-index", "--skip-worktree", "README.md")
+        (self.repo / "README.md").write_text("hidden change\n")
+        manifest = self.root / "shipped.paths"
+        manifest.write_text("src/change.py\n")
+
+        report, failures = validate(self._args(manifest))
+
+        self.assertFalse(report["valid"])
+        self.assertTrue(any("skip-worktree" in failure for failure in failures))
+
+    def test_missing_repository_report_is_explicitly_invalid(self) -> None:
+        args = self._args(self.root / "unused.paths")
+        args.repo = self.root / "missing"
+
+        report, failures = validate(args)
+
+        self.assertFalse(report["valid"])
+        self.assertEqual(
+            failures,
+            [f"Repository path does not exist: {args.repo.resolve()}"],
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

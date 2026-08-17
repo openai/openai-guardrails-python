@@ -22,6 +22,7 @@ def run_git(repo: Path, *args: str, check: bool = True) -> subprocess.CompletedP
         check=False,
         capture_output=True,
         text=True,
+        errors="surrogateescape",
     )
     if check and result.returncode != 0:
         command = "git " + " ".join(args)
@@ -84,20 +85,47 @@ def load_shipped_paths(path: Path) -> set[str]:
     return shipped_paths
 
 
+def hidden_index_paths(repo: Path) -> list[str]:
+    hidden_paths: list[str] = []
+    for entry in run_git(repo, "ls-files", "-v", "-z").stdout.split("\0"):
+        if len(entry) < 3 or entry[1] != " ":
+            continue
+        tag = entry[0]
+        relative_path = entry[2:]
+        if tag.islower():
+            hidden_paths.append(f"assume-unchanged={relative_path}")
+        elif tag == "S":
+            candidate = repo / relative_path
+            if candidate.exists() or candidate.is_symlink():
+                hidden_paths.append(f"materialized skip-worktree={relative_path}")
+    return sorted(hidden_paths)
+
+
 def validate(args: argparse.Namespace) -> tuple[dict[str, object], list[str]]:
     repo = args.repo.expanduser().resolve()
     failures: list[str] = []
 
     if not repo.is_dir():
-        return {"repo": str(repo)}, [f"Repository path does not exist: {repo}"]
+        return {"repo": str(repo), "valid": False}, [
+            f"Repository path does not exist: {repo}"
+        ]
 
     top_level = Path(run_git(repo, "rev-parse", "--show-toplevel").stdout.strip()).resolve()
     if top_level != repo:
         failures.append(f"--repo must be the worktree root: expected {top_level}, got {repo}")
 
-    status = run_git(repo, "status", "--porcelain=v1", "--untracked-files=all").stdout
+    status = run_git(
+        repo,
+        "status",
+        "--porcelain=v1",
+        "--untracked-files=all",
+        "--ignore-submodules=none",
+    ).stdout
     if status:
         failures.append("Worktree is not clean.")
+    hidden_paths = hidden_index_paths(repo)
+    if hidden_paths:
+        failures.append(f"Index flags can hide worktree changes: {hidden_paths}.")
 
     branch_result = run_git(repo, "symbolic-ref", "--quiet", "--short", "HEAD", check=False)
     branch = branch_result.stdout.strip() if branch_result.returncode == 0 else None
@@ -151,12 +179,18 @@ def validate(args: argparse.Namespace) -> tuple[dict[str, object], list[str]]:
     if not subject:
         failures.append("HEAD commit subject is empty.")
 
-    body = run_git(repo, "show", "-s", "--format=%B", "HEAD").stdout
-    trailer_pattern = re.compile(r"^Co-authored-by:\s*.+\s+<([^>]+)>\s*$", re.IGNORECASE)
+    trailer_values = run_git(
+        repo,
+        "show",
+        "-s",
+        "--format=%(trailers:key=Co-authored-by,valueonly,unfold,separator=%x00)",
+        "HEAD",
+    ).stdout.rstrip("\n")
+    email_pattern = re.compile(r"^.+\s+<([^>\n]+)>$")
     trailer_emails = {
         match.group(1).strip().casefold()
-        for line in body.splitlines()
-        if (match := trailer_pattern.match(line)) is not None
+        for value in trailer_values.split("\0")
+        if (match := email_pattern.match(value)) is not None
     }
     for email in args.required_trailer_email:
         if email.strip().casefold() not in trailer_emails:

@@ -267,6 +267,21 @@ class ReviewStateTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "Dirty submodule.*vendor/dependency"):
             review_state(self.repo, self.base, ("vendor/dependency",))
 
+    def test_materialized_uninitialized_gitlink_fails_closed(self) -> None:
+        """Reject arbitrary directory content hidden behind an index gitlink."""
+        self._git(
+            "update-index",
+            "--add",
+            "--cacheinfo",
+            f"160000,{self.base},vendor/dependency",
+        )
+        dependency = self.repo / "vendor" / "dependency"
+        dependency.mkdir(parents=True)
+        (dependency / "unreviewed.txt").write_text("first body\n")
+
+        with self.assertRaisesRegex(ValueError, "Materialized gitlink.*vendor/dependency"):
+            review_state(self.repo, self.base, ("vendor/dependency",))
+
     def test_hidden_nested_submodule_changes_fail_closed(self) -> None:
         """Reject nested pointer and content changes hidden by configuration."""
         leaf_source = self.repo / ".fixtures" / "leaf-source"

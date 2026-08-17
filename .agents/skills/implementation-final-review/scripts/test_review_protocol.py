@@ -5,6 +5,7 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -558,6 +559,25 @@ class ReviewProtocolTest(unittest.TestCase):
                 "task-123",
                 self.ledger_path,
                 self.ledger_path,
+                current_digest,
+            )
+
+    def test_prior_ledger_hardlink_cannot_alias_current_ledger(self) -> None:
+        packet = copy.deepcopy(self.packet)
+        packet["ledger"]["authorized_round_budgets"] = [2]
+        packet["ledger"]["current_round"] = 2
+        packet["ledger"]["remaining_budget"] = 0
+        self._write_packet(self.packet_path, packet)
+        prior_path = self.root / "prior-ledger.json"
+        os.link(self.ledger_path, prior_path)
+        current_digest = hashlib.sha256(self.ledger_path.read_bytes()).hexdigest()
+
+        with self.assertRaisesRegex(ProtocolError, "distinct from the current ledger"):
+            validate_packet(
+                self.packet_path,
+                "task-123",
+                self.ledger_path,
+                prior_path,
                 current_digest,
             )
 

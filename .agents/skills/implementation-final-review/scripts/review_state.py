@@ -62,15 +62,15 @@ def _require_visible_index_state(repo: Path, context: str = "repository") -> Non
         )
 
 
-def _index_gitlinks(repo: Path) -> tuple[tuple[str, str], ...]:
+def _index_gitlinks(repo: Path) -> dict[str, str]:
     raw_entries = _git(repo, "ls-files", "--stage", "-z")
-    gitlinks: list[tuple[str, str]] = []
+    gitlinks: dict[str, str] = {}
     for raw_entry in raw_entries.split(b"\0"):
         metadata, separator, raw_path = raw_entry.partition(b"\t")
         fields = metadata.split()
         if separator and len(fields) == 3 and fields[0] == b"160000" and fields[2] == b"0":
-            gitlinks.append((os.fsdecode(raw_path), fields[1].decode()))
-    return tuple(gitlinks)
+            gitlinks[os.fsdecode(raw_path)] = fields[1].decode()
+    return gitlinks
 
 
 def _is_repository_root(path: Path) -> bool:
@@ -88,14 +88,13 @@ def _require_clean_submodule(repo: Path, display_path: str, expected_head: str) 
         raise ValueError(
             f"Submodule HEAD does not match the parent index: {display_path}"
         )
-    for nested_relative_path, nested_head in _index_gitlinks(repo):
+    for nested_relative_path, nested_head in _index_gitlinks(repo).items():
         nested_path = repo / nested_relative_path
-        if _is_repository_root(nested_path):
-            _require_clean_submodule(
-                nested_path,
-                f"{display_path}/{nested_relative_path}",
-                nested_head,
-            )
+        _require_clean_gitlink(
+            nested_path,
+            f"{display_path}/{nested_relative_path}",
+            nested_head,
+        )
     if _git(
         repo,
         "status",
@@ -107,11 +106,18 @@ def _require_clean_submodule(repo: Path, display_path: str, expected_head: str) 
         raise ValueError(f"Dirty submodule worktrees are unsupported: {display_path}")
 
 
+def _require_clean_gitlink(path: Path, display_path: str, expected_head: str) -> None:
+    if _is_repository_root(path):
+        _require_clean_submodule(path, display_path, expected_head)
+    elif path.is_dir() and any(path.iterdir()):
+        raise ValueError(
+            f"Materialized gitlink is not an initialized submodule: {display_path}"
+        )
+
+
 def _require_clean_submodules(repo: Path) -> None:
-    for relative_path, expected_head in _index_gitlinks(repo):
-        submodule_path = repo / relative_path
-        if _is_repository_root(submodule_path):
-            _require_clean_submodule(submodule_path, relative_path, expected_head)
+    for relative_path, expected_head in _index_gitlinks(repo).items():
+        _require_clean_gitlink(repo / relative_path, relative_path, expected_head)
 
 
 def _write_bytes_atomically(path: Path, data: bytes) -> None:
@@ -192,7 +198,7 @@ def _workspace_entry(repo: Path, relative_path: str) -> dict[str, object]:
             "executable": bool(path.stat().st_mode & 0o111),
             "sha256": _digest(content),
         }
-    indexed_head = dict(_index_gitlinks(repo)).get(relative_path)
+    indexed_head = _index_gitlinks(repo).get(relative_path)
     if path.is_dir():
         if indexed_head is not None:
             return {

@@ -612,9 +612,9 @@ def validate_packet(
     if prior_ledger_path is not None or prior_ledger_sha256 is not None:
         if prior_ledger_path is None or prior_ledger_sha256 is None:
             raise ProtocolError("Prior ledger path and SHA-256 must be supplied together.")
-        if prior_ledger_path.resolve() == expected_ledger_path:
-            raise ProtocolError("Prior ledger snapshot must be distinct from the current ledger.")
         prior_path, prior_data = _read_bytes(str(prior_ledger_path), "prior ledger path")
+        if prior_path.samefile(ledger_path):
+            raise ProtocolError("Prior ledger snapshot must be distinct from the current ledger.")
         if not SHA256.fullmatch(prior_ledger_sha256):
             raise ProtocolError("Prior ledger SHA-256 must be a lowercase SHA-256 digest.")
         if hashlib.sha256(prior_data).hexdigest() != prior_ledger_sha256:
