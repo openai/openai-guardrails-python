@@ -83,7 +83,16 @@ def _is_repository_root(path: Path) -> bool:
     return Path(os.fsdecode(top_level.rstrip(b"\n"))).resolve() == path.resolve()
 
 
-def _require_clean_submodule(repo: Path, display_path: str, expected_head: str) -> None:
+def _require_clean_submodule(
+    repo: Path,
+    display_path: str,
+    expected_head: str,
+    ancestors: frozenset[Path],
+) -> None:
+    resolved_repo = repo.resolve()
+    if resolved_repo in ancestors:
+        raise ValueError(f"Cyclic submodule worktree is unsupported: {display_path}")
+    ancestors |= {resolved_repo}
     _require_reviewable_index(repo, f"submodule {display_path}")
     actual_head = _git(repo, "rev-parse", "HEAD^{commit}").decode().strip()
     if actual_head != expected_head:
@@ -96,6 +105,7 @@ def _require_clean_submodule(repo: Path, display_path: str, expected_head: str) 
             nested_path,
             f"{display_path}/{nested_relative_path}",
             nested_head,
+            ancestors,
         )
     if _git(
         repo,
@@ -108,9 +118,14 @@ def _require_clean_submodule(repo: Path, display_path: str, expected_head: str) 
         raise ValueError(f"Dirty submodule worktrees are unsupported: {display_path}")
 
 
-def _require_clean_gitlink(path: Path, display_path: str, expected_head: str) -> None:
+def _require_clean_gitlink(
+    path: Path,
+    display_path: str,
+    expected_head: str,
+    ancestors: frozenset[Path],
+) -> None:
     if _is_repository_root(path):
-        _require_clean_submodule(path, display_path, expected_head)
+        _require_clean_submodule(path, display_path, expected_head, ancestors)
     elif path.is_dir() and any(path.iterdir()):
         raise ValueError(
             f"Materialized gitlink is not an initialized submodule: {display_path}"
@@ -118,8 +133,14 @@ def _require_clean_gitlink(path: Path, display_path: str, expected_head: str) ->
 
 
 def _require_clean_submodules(repo: Path) -> None:
+    ancestors = frozenset({repo.resolve()})
     for relative_path, expected_head in _index_gitlinks(repo).items():
-        _require_clean_gitlink(repo / relative_path, relative_path, expected_head)
+        _require_clean_gitlink(
+            repo / relative_path,
+            relative_path,
+            expected_head,
+            ancestors,
+        )
 
 
 def _write_bytes_atomically(path: Path, data: bytes) -> None:

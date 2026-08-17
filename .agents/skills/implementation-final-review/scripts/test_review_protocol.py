@@ -343,6 +343,19 @@ class ReviewProtocolTest(unittest.TestCase):
             summary["packet_sha256"], hashlib.sha256(self.packet_path.read_bytes()).hexdigest()
         )
 
+    def test_packet_rejects_duplicate_json_keys(self) -> None:
+        packet_text = self.packet_path.read_text()
+        self.packet_path.write_text(
+            packet_text.replace(
+                '"task": {\n    "id": "task-123",',
+                '"task": {\n    "id": "task-123",\n    "id": "task-123",',
+                1,
+            )
+        )
+
+        with self.assertRaisesRegex(ProtocolError, "Duplicate JSON key.*id"):
+            self._validate_packet()
+
     def test_packet_defers_broad_final_gates_until_clean_review(self) -> None:
         packet = copy.deepcopy(self.packet)
         packet["verification"]["eligible_concurrent_gates"] = "make tests"

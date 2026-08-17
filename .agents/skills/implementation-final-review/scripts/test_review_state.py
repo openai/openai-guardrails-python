@@ -305,6 +305,25 @@ class ReviewStateTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "Materialized gitlink.*vendor/dependency"):
             review_state(self.repo, self.base, ("vendor/dependency",))
 
+    @unittest.skipIf(os.name == "nt", "Directory symlinks require platform privileges.")
+    def test_cyclic_gitlink_worktree_fails_closed(self) -> None:
+        """Reject a gitlink alias that resolves back to an ancestor repository."""
+        self._git(
+            "update-index",
+            "--add",
+            "--cacheinfo",
+            f"160000,{self.base},vendor/self",
+        )
+        vendor = self.repo / "vendor"
+        vendor.mkdir()
+        os.symlink("..", vendor / "self", target_is_directory=True)
+        original_limit = sys.getrecursionlimit()
+        sys.setrecursionlimit(120)
+        self.addCleanup(sys.setrecursionlimit, original_limit)
+
+        with self.assertRaisesRegex(ValueError, "Cyclic submodule worktree"):
+            review_state(self.repo, self.base, ("vendor/self",))
+
     def test_hidden_nested_submodule_changes_fail_closed(self) -> None:
         """Reject nested pointer and content changes hidden by configuration."""
         leaf_source = self.repo / ".fixtures" / "leaf-source"

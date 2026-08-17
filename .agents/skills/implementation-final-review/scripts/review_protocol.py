@@ -166,8 +166,16 @@ def _read_bytes(value: Any, context: str) -> tuple[Path, bytes]:
 
 
 def _json_bytes(data: bytes, context: str) -> dict[str, Any]:
+    def unique_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+        result: dict[str, Any] = {}
+        for key, value in pairs:
+            if key in result:
+                raise ProtocolError(f"Duplicate JSON key in {context}: {key!r}.")
+            result[key] = value
+        return result
+
     try:
-        value = json.loads(data)
+        value = json.loads(data, object_pairs_hook=unique_object)
     except (UnicodeError, json.JSONDecodeError) as error:
         raise ProtocolError(f"Cannot read JSON object from {context}: {error}") from error
     return _object(value, context)
