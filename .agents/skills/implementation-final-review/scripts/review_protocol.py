@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 import re
 from pathlib import Path
 from typing import Any
@@ -179,8 +180,22 @@ def _json_bytes(data: bytes, context: str) -> dict[str, Any]:
             result[key] = value
         return result
 
+    def reject_constant(value: str) -> None:
+        raise ProtocolError(f"Non-finite JSON number in {context}: {value}.")
+
+    def finite_float(value: str) -> float:
+        parsed = float(value)
+        if not math.isfinite(parsed):
+            raise ProtocolError(f"Non-finite JSON number in {context}: {value}.")
+        return parsed
+
     try:
-        value = json.loads(data, object_pairs_hook=unique_object)
+        value = json.loads(
+            data,
+            object_pairs_hook=unique_object,
+            parse_constant=reject_constant,
+            parse_float=finite_float,
+        )
     except (UnicodeError, json.JSONDecodeError) as error:
         raise ProtocolError(f"Cannot read JSON object from {context}: {error}") from error
     return _object(value, context)
@@ -223,6 +238,8 @@ def _pathspec_file(value: Any, context: str) -> list[str]:
 
 def _command_result(value: Any, context: str) -> None:
     record = _object(value, context)
+    if set(record) != {"command", "result"}:
+        raise ProtocolError(f"{context} must contain only command and result.")
     command = _text(record.get("command"), f"{context}.command", concrete=True)
     _text(record.get("result"), f"{context}.result", concrete=True)
     if PLACEHOLDER_TOKEN.search(command):
@@ -842,6 +859,8 @@ def validate_packet(
     reviewer_ids: set[str] = set()
     assigned_inventory: set[str] = set()
     assigned_dimensions: set[str] = set()
+    primary_specialty_owners: dict[str, str] = {}
+    high_risk_specialty_owners: dict[str, str] = {}
     for index, raw_assignment in enumerate(assignments):
         assignment = _object(raw_assignment, f"reviewer_assignments[{index}]")
         reviewer_id = _text(assignment.get("reviewer_id"), f"reviewer_assignments[{index}].id")
@@ -858,10 +877,28 @@ def validate_packet(
             raise ProtocolError(
                 f"Reviewer {reviewer_id} requires inventory and a primary specialty."
             )
+        for dimension in primary_dimensions:
+            normalized = dimension.strip().casefold()
+            existing_reviewer = primary_specialty_owners.get(normalized)
+            if existing_reviewer is not None:
+                raise ProtocolError(
+                    f"Reviewers {existing_reviewer} and {reviewer_id} have an overlapping "
+                    f"primary specialty: {dimension!r}."
+                )
+            primary_specialty_owners[normalized] = reviewer_id
         assigned_inventory.update(reviewer_inventory)
         reviewer_dimensions = set(
             _strings(assignment.get("high_risk_dimensions"), f"reviewer {reviewer_id} dimensions")
         )
+        for dimension in reviewer_dimensions:
+            normalized = dimension.strip().casefold()
+            existing_reviewer = high_risk_specialty_owners.get(normalized)
+            if existing_reviewer is not None:
+                raise ProtocolError(
+                    f"Reviewers {existing_reviewer} and {reviewer_id} have an overlapping "
+                    f"high-risk specialty: {dimension!r}."
+                )
+            high_risk_specialty_owners[normalized] = reviewer_id
         assigned_dimensions.update(reviewer_dimensions)
         reviewer_components = set(
             _strings(assignment.get("expected_components"), f"reviewer {reviewer_id} components")
@@ -892,7 +929,10 @@ def validate_packet(
         _array(verification.get("preflight_results"), "verification.preflight_results")
     ):
         _command_result(result, f"verification.preflight_results[{index}]")
-        preflight_commands.add(result["command"])
+        command = result["command"]
+        if command in preflight_commands:
+            raise ProtocolError(f"Duplicate preflight command: {command!r}.")
+        preflight_commands.add(command)
     receipt_identities: set[FileIdentity] = set()
     receipt_digests: set[str] = set()
     receipt_digests_by_path: dict[str, str] = {}

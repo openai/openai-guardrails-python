@@ -198,8 +198,19 @@ class SkillContractTest(unittest.TestCase):
         self.assertIn("two consecutive identical observations of HEAD", self.skill)
         self.assertIn("state changes during capture", self.skill)
         self.assertIn("including FIFOs, sockets, and devices", self.skill)
-        self.assertIn("Require unique keys in every JSON object", self.skill)
-        self.assertIn("Every JSON object must use unique keys", self.reviewer_brief)
+        self.assertIn("Require unique keys and standard finite numbers", self.skill)
+        self.assertIn("JavaScript-style `NaN` or infinity constants", self.skill)
+        self.assertIn("numeric exponents that overflow to infinity", self.skill)
+        self.assertIn(
+            "Every JSON object must use unique keys and standard finite numbers",
+            self.reviewer_brief,
+        )
+        self.assertIn("`NaN`, `Infinity`, and `-Infinity` constants", self.reviewer_brief)
+        self.assertIn("numeric exponents that overflow to infinity", self.reviewer_brief)
+        self.assertIn("distinct normalized primary and high-risk specialties", self.skill)
+        self.assertIn("require every preflight command to be unique", self.skill)
+        self.assertIn("exact, unique `command` and `result` objects", self.reviewer_brief)
+        self.assertIn("primary and high-risk specialties must not overlap", self.reviewer_brief)
         self.assertIn("two consecutive identical repository observations", self.reviewer_brief)
         self.assertIn(
             "path-level `stat` must not authorize a later reopen", self.reviewer_brief
@@ -510,7 +521,8 @@ class SkillContractTest(unittest.TestCase):
             "Every contract evidence ID must resolve to an `evidence_artifacts[].id`",
             "JSON booleans are not integers for protocol purposes",
             "Each sibling-scenario scan must reuse a canonical root ID",
-            "verification.preflight_results` as an array of exact `command` and `result` objects",
+            "verification.preflight_results` as an array of exact, unique `command` and "
+            "`result` objects",
             "ledger file's JSON object to match the packet ledger exactly",
             "not already owned by any canonical or distinct proposed root",
             "digest maps must bind exactly the currently owned IDs",

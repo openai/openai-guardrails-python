@@ -378,6 +378,23 @@ class ReviewProtocolTest(unittest.TestCase):
         with self.assertRaisesRegex(ProtocolError, "Duplicate JSON key.*id"):
             self._validate_packet()
 
+    def test_packet_rejects_non_finite_json_numbers(self) -> None:
+        """Reject numeric constants and exponents that parse as non-finite."""
+        for encoded_value in ("NaN", "1e999"):
+            with self.subTest(encoded_value=encoded_value):
+                packet = copy.deepcopy(self.packet)
+                packet["ignored_number"] = 0
+                self._write_packet(self.packet_path, packet)
+                packet_text = self.packet_path.read_text().replace(
+                    '"ignored_number": 0',
+                    f'"ignored_number": {encoded_value}',
+                    1,
+                )
+                self.packet_path.write_text(packet_text)
+
+                with self.assertRaisesRegex(ProtocolError, "Non-finite JSON number"):
+                    self._validate_packet()
+
     def test_packet_defers_broad_final_gates_until_clean_review(self) -> None:
         packet = copy.deepcopy(self.packet)
         packet["verification"]["eligible_concurrent_gates"] = "make tests"
@@ -860,6 +877,23 @@ class ReviewProtocolTest(unittest.TestCase):
         with self.assertRaisesRegex(ProtocolError, "command contains a placeholder token"):
             self._validate_packet()
 
+        packet = copy.deepcopy(self.packet)
+        packet["verification"]["preflight_results"][0]["details"] = "Unvalidated metadata."
+        self._write_packet(self.packet_path, packet)
+        with self.assertRaisesRegex(ProtocolError, "must contain only command and result"):
+            self._validate_packet()
+
+    def test_preflight_commands_must_be_unique(self) -> None:
+        """Reject repeated preflight records for the same exact command."""
+        packet = copy.deepcopy(self.packet)
+        duplicate = copy.deepcopy(packet["verification"]["preflight_results"][0])
+        duplicate["result"] = "The same command passed again."
+        packet["verification"]["preflight_results"].append(duplicate)
+        self._write_packet(self.packet_path, packet)
+
+        with self.assertRaisesRegex(ProtocolError, "Duplicate preflight command"):
+            self._validate_packet()
+
     def test_every_reviewer_receives_all_components_and_complete_diff(self) -> None:
         cases = []
         no_components = copy.deepcopy(self.packet)
@@ -875,6 +909,24 @@ class ReviewProtocolTest(unittest.TestCase):
                 self._write_packet(path, packet)
                 with self.assertRaisesRegex(ProtocolError, re_escape(expected)):
                     self._validate_packet(path)
+
+    def test_reviewer_assignments_require_distinct_specialties(self) -> None:
+        """Require the two reviewers to have complementary specialties."""
+        packet = copy.deepcopy(self.packet)
+        packet["reviewer_assignments"][1]["primary_dimensions"] = ["requirement and scope"]
+        self._write_packet(self.packet_path, packet)
+
+        with self.assertRaisesRegex(ProtocolError, "overlapping primary specialty"):
+            self._validate_packet()
+
+        packet = copy.deepcopy(self.packet)
+        packet["selected_high_risk_dimensions"] = ["persistence"]
+        for assignment in packet["reviewer_assignments"]:
+            assignment["high_risk_dimensions"] = ["persistence"]
+        self._write_packet(self.packet_path, packet)
+
+        with self.assertRaisesRegex(ProtocolError, "overlapping high-risk specialty"):
+            self._validate_packet()
 
     def test_packet_and_ledger_reject_json_booleans_as_integers(self) -> None:
         cases = []
