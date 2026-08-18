@@ -31,13 +31,15 @@ import re
 from functools import lru_cache
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from guardrails.registry import default_spec_registry
 from guardrails.spec import GuardrailSpecMetadata
 from guardrails.types import GuardrailResult
 
 __all__ = ["KeywordCfg", "keywords", "match_keywords"]
+
+_TRAILING_PUNCTUATION_RE = re.compile(r"[.,!?;:]+$")
 
 
 class KeywordCfg(BaseModel):
@@ -57,6 +59,25 @@ class KeywordCfg(BaseModel):
     )
 
     model_config = ConfigDict(extra="forbid")
+
+    @field_validator("keywords")
+    @classmethod
+    def reject_empty_sanitized_keywords(cls, keywords: list[str]) -> list[str]:
+        """Reject keywords that become empty after sanitization.
+
+        Args:
+            keywords: Configured keywords to validate.
+
+        Returns:
+            The validated keywords unchanged.
+
+        Raises:
+            ValueError: If any keyword becomes empty after trailing punctuation
+                is removed.
+        """
+        if any(_TRAILING_PUNCTUATION_RE.sub("", keyword) == "" for keyword in keywords):
+            raise ValueError("Keywords cannot be empty after trailing punctuation is removed")
+        return keywords
 
 
 # TODO: Use AhoCorasick algorithm instead
@@ -111,7 +132,7 @@ def match_keywords(
         GuardrailResult: Result containing match details and status.
     """
     # Sanitize keywords by stripping trailing punctuation
-    sanitized_keywords = [re.sub(r"[.,!?;:]+$", "", keyword) for keyword in config.keywords]
+    sanitized_keywords = [_TRAILING_PUNCTUATION_RE.sub("", keyword) for keyword in config.keywords]
 
     pat = _compile_pattern(tuple(sorted(sanitized_keywords)))
     matches = [m.group(0) for m in pat.finditer(data)]
