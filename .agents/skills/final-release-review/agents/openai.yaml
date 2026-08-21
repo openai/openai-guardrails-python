@@ -1,0 +1,4 @@
+interface:
+  display_name: "Final Release Review"
+  short_description: "Plan and review Guardrails Python releases"
+  default_prompt: "Use $final-release-review to plan the next release or review a final release candidate."

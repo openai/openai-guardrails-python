@@ -8,14 +8,19 @@ This guide defines the required workflow for agents and contributors working in 
 
 Repository skills live under `.agents/skills/`. A reference such as `$<skill-name>` is a repository instruction reference, not a request for manual user invocation. When a rule requires a skill, read `.agents/skills/<skill-name>/SKILL.md` completely before taking task actions, follow it, and resolve referenced files relative to that skill directory.
 
-This repository intentionally provides only these six skills:
+This repository defines these repository skills:
 
 - `$code-change-verification`
+- `$final-release-review`
 - `$implementation-final-review`
 - `$implementation-kickoff`
 - `$implementation-strategy`
 - `$maintainer-review`
 - `$pr-draft-summary`
+
+#### `$final-release-review`
+
+Use `$final-release-review` when the user asks for pre-release planning or a final release-candidate review. Compare the target with the previous remote release tag, determine the minimum compatible release type, audit runtime and packaging risk, inspect current CI, and issue the English ship-or-block report required by the skill. Documentation coverage is intentionally out of scope. This is a read-only workflow and never authorizes GitHub mutation.
 
 #### `$implementation-kickoff`
 
