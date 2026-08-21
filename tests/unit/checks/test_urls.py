@@ -27,6 +27,8 @@ from guardrails.checks.text.urls import (
     _find_ambiguous_url_candidates,
     _is_url_allowed,
     _mark_unmatched_closing_delimiters,
+    _token_end,
+    _truncate_before_adjacent_scheme_less_url,
     _validate_url_security,
     urls,
 )
@@ -115,6 +117,53 @@ def test_detect_urls_scales_linearly_for_invalid_domain_input() -> None:
     assert _detect_urls(small_text) == []  # noqa: S101
     assert _detect_urls(large_text) == []  # noqa: S101
     assert large_duration < small_duration * 3  # noqa: S101
+
+
+def test_adjacent_scanner_validates_malformed_authority_once(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Many suffix candidates cannot repeatedly parse one bad authority."""
+    parse_count = 0
+
+    def reject_authority(_url: str) -> bool:
+        nonlocal parse_count
+        parse_count += 1
+        return False
+
+    monkeypatch.setattr(
+        "guardrails.checks.text.urls._has_valid_http_authority",
+        reject_authority,
+    )
+    text = "https://[bad/" + ",a.example" * 2_000
+
+    assert _truncate_before_adjacent_scheme_less_url(text) == text  # noqa: S101
+    assert parse_count == 1  # noqa: S101
+
+
+def test_detect_urls_reuses_whitespace_token_end(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Owned candidates in one token share a single token-end scan."""
+    scan_count = 0
+
+    def count_token_end(text: str, start: int) -> int:
+        nonlocal scan_count
+        scan_count += 1
+        return _token_end(text, start)
+
+    monkeypatch.setattr("guardrails.checks.text.urls._token_end", count_token_end)
+    text = ",".join(f"https://h{index}.example/?next=,inner.example#frag" for index in range(500))
+
+    _detect_urls(text)
+
+    assert scan_count == 1  # noqa: S101
+
+
+def test_adjacent_query_scanner_scales_linearly() -> None:
+    """Adjacent query candidates do not rescan growing prefixes."""
+    small_text = "https://valid/?q=x" + ",a.example" * 1_000
+    large_text = "https://valid/?q=x" + ",a.example" * 4_000
+
+    small_duration = median(repeat(lambda: _detect_urls(small_text), number=1, repeat=7))
+    large_duration = median(repeat(lambda: _detect_urls(large_text), number=1, repeat=7))
+
+    assert large_duration < small_duration * 6  # noqa: S101
 
 
 def test_detect_urls_preserves_unicode_casefolded_domain() -> None:
@@ -310,6 +359,1250 @@ def test_detect_urls_deduplicates_scheme_and_domain() -> None:
     assert "http://example.com/path" in detected  # noqa: S101
     assert "example.com" not in detected  # noqa: S101
     assert "192.168.1.10:8080" in detected  # noqa: S101
+
+
+@pytest.mark.parametrize("separator", [",", "("])
+def test_detect_urls_splits_presentation_separated_scheme_urls(separator: str) -> None:
+    """A later scheme starts a new URL after presentation punctuation."""
+    first_url = "https://example.com/?token=sk-ABCDEFGHIJ1"
+    second_url = "https://example.com/x"
+
+    detected = _detect_urls(f"{first_url}{separator}{second_url}")
+
+    assert detected == [first_url, second_url]  # noqa: S101
+
+
+def test_detect_urls_recognizes_bracketed_ipv6_hosts() -> None:
+    """A valid bracketed IPv6 host remains one explicit URL."""
+    url = "https://[::1]/?token=sk-AAAABBBBCCCCDDDD"
+
+    assert _detect_urls(url) == [url]  # noqa: S101
+
+
+def test_detect_urls_stops_before_bracketed_presentation_text() -> None:
+    """Ordinary URLs retain the released bracket presentation boundary."""
+    url = "https://allow.example/path"
+
+    assert _detect_urls(f"{url}[annotation]") == [url]  # noqa: S101
+
+
+@pytest.mark.parametrize("suffix", ["", ",", ")", "."])
+def test_detect_urls_preserves_bare_bracketed_ipv6_host(suffix: str) -> None:
+    """Presentation cleanup preserves the structural authority bracket."""
+    url = "https://[::1]"
+
+    assert _detect_urls(f"{url}{suffix}") == [url]  # noqa: S101
+
+
+@pytest.mark.parametrize(
+    "explicit_url",
+    [
+        "https://normal.example",
+        "https://normal.example:8443/path",
+        "https://normal.example/path?x=1",
+        "https://normal.example/path#fragment",
+        "https://[::1]",
+        "https://[::1]:8443/path",
+        "https://[::1]/path?x=1",
+        "https://[::1]/path#fragment",
+    ],
+)
+@pytest.mark.parametrize(
+    "scheme_less_url",
+    [
+        "blocked.example/path",
+        "192.0.2.1:8080/path",
+    ],
+)
+def test_detect_urls_splits_scheme_less_candidate_after_explicit_url(
+    explicit_url: str,
+    scheme_less_url: str,
+) -> None:
+    """An explicit URL cannot absorb an adjacent scheme-less candidate."""
+    assert _detect_urls(f"{explicit_url},{scheme_less_url}") == [  # noqa: S101
+        explicit_url,
+        scheme_less_url,
+    ]
+
+
+@pytest.mark.parametrize("separator", [",", "("])
+@pytest.mark.parametrize("destination", ["blocked.example/path", "192.0.2.1/path"])
+def test_nonempty_query_value_ending_in_equals_does_not_own_url(
+    separator: str,
+    destination: str,
+) -> None:
+    """A trailing equals inside value content does not imply emptiness."""
+    outer_url = "https://outer.example/?token=sk-ABCDEFGHIJ="
+
+    assert _detect_urls(f"{outer_url}{separator}{destination}") == [  # noqa: S101
+        outer_url,
+        destination,
+    ]
+
+
+def test_nested_query_ownership_resets_at_next_field() -> None:
+    """An owned empty value cannot authorize a later query field."""
+    outer_url = "https://outer.example/?next=,inner.example/path&token=x"
+    destination = "blocked.example/path"
+
+    assert _detect_urls(f"{outer_url},{destination}") == [  # noqa: S101
+        outer_url,
+        destination,
+    ]
+
+
+@pytest.mark.parametrize(
+    "nested_value",
+    [
+        "inner.example/path",
+        "inner.example/path,second.example/path",
+        "192.0.2.1/path,second.example/path",
+    ],
+)
+def test_detect_urls_keeps_scheme_less_url_in_owned_query_value(nested_value: str) -> None:
+    """An active empty query value retains nested scheme-less descendants."""
+    text = f"https://outer.example/?next=,{nested_value}"
+
+    assert _detect_urls(text) == [text]  # noqa: S101
+
+
+def test_detect_urls_keeps_domain_text_inside_data_url() -> None:
+    """HTTP adjacency rules cannot split a data URL payload."""
+    url = "data:text/plain,example.com"
+
+    assert _detect_urls(url) == [url]  # noqa: S101
+
+
+@pytest.mark.parametrize("host", ["allow.example", "[::1]"])
+def test_detect_urls_splits_period_delimited_domain_after_fragment(host: str) -> None:
+    """A hostname suffix after fragment punctuation starts a new URL."""
+    explicit_url = f"https://{host}/path?x=1#frag"
+    scheme_less_url = "blocked.example/path"
+
+    assert _detect_urls(f"{explicit_url}.{scheme_less_url}") == [  # noqa: S101
+        explicit_url,
+        scheme_less_url,
+    ]
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://allow.example/path/foo.blocked.example/archive",
+        "https://allow.example/?label=foo.blocked.example/path",
+        "https://[::1]/path/foo.blocked.example/archive",
+        "https://[::1]/?label=foo.blocked.example/path",
+    ],
+)
+def test_detect_urls_keeps_dotted_path_and_query_components(url: str) -> None:
+    """Domain-shaped path and query text stays inside its explicit URL."""
+    assert _detect_urls(url) == [url]  # noqa: S101
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://example.com/items/alpha,foo.com/detail",
+        "https://example.com/?labels=alpha,foo.com",
+        "https://example.com/#labels=alpha,foo.com",
+    ],
+)
+def test_detect_urls_preserves_domain_text_after_component_punctuation(url: str) -> None:
+    """Valid URL components retain punctuation followed by domain text."""
+    assert _detect_urls(  # noqa: S101
+        url,
+        preserved_component_urls=frozenset((url,)),
+    ) == [url]
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://example.com/items/alpha,foo.com/detail",
+        "https://example.com/?labels=alpha,foo.com",
+        "https://example.com/#labels=alpha,foo.com",
+    ],
+)
+def test_exact_component_url_prefix_survives_wrappers_and_adjacency(url: str) -> None:
+    """Presentation text cannot expose punctuation inside an exact URL."""
+    preserved_urls = frozenset((url,))
+    blocked_url = "blocked.example/path"
+
+    assert _detect_urls(  # noqa: S101
+        f"({url})",
+        preserved_component_urls=preserved_urls,
+    ) == [url]
+    assert _detect_urls(  # noqa: S101
+        f"{url},{blocked_url}",
+        preserved_component_urls=preserved_urls,
+    ) == [url, blocked_url]
+
+
+@pytest.mark.parametrize(
+    "url, source",
+    [
+        ("https://allow.example/?", "https://allow.example/?,blocked.example/path"),
+        (
+            "https://allow.example/path/foo.com)",
+            "(https://allow.example/path/foo.com)),blocked.example/path",
+        ),
+    ],
+)
+def test_exact_component_url_skips_presentation_cleanup(url: str, source: str) -> None:
+    """Exact source punctuation remains part of the preserved URL."""
+    assert _detect_urls(  # noqa: S101
+        source,
+        preserved_component_urls=frozenset((url,)),
+    ) == [url, "blocked.example/path"]
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://allow.example/path?",
+        "https://allow.example/path)",
+        "https://allow.example/path]",
+    ],
+)
+@pytest.mark.parametrize(
+    "sibling",
+    [
+        "https://blocked.example/path",
+        "ftp://blocked.example/path",
+        "blocked.example/path",
+        "192.0.2.1/path",
+    ],
+)
+def test_exact_terminal_component_preserves_zero_bridge_sibling(
+    url: str,
+    sibling: str,
+) -> None:
+    """Exact terminal punctuation and an adjacent URL retain source spans."""
+    assert _detect_urls(  # noqa: S101
+        f"{url}{sibling}",
+        frozenset(("https", "ftp")),
+        preserved_component_urls=frozenset((url,)),
+    ) == [url, sibling]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://example.com/items/alpha,foo.com/detail",
+        "https://example.com/?labels=alpha,foo.com",
+    ],
+)
+async def test_urls_guardrail_exactly_allows_component_punctuation(url: str) -> None:
+    """Exact allow-list entries preserve path and query punctuation."""
+    result = await urls(
+        ctx=None,
+        data=url,
+        config=URLConfig(url_allow_list=[url], allowed_schemes={"https"}),
+    )
+
+    assert result.tripwire_triggered is False  # noqa: S101
+    assert result.info["detected"] == [url]  # noqa: S101
+    assert result.info["allowed"] == [url]  # noqa: S101
+    assert result.info["blocked"] == []  # noqa: S101
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://example.com/items/alpha,foo.com/detail",
+        "https://example.com/?labels=alpha,foo.com",
+        "https://example.com/#labels=alpha,foo.com",
+    ],
+)
+async def test_exact_component_url_remains_allowed_before_adjacent_url(url: str) -> None:
+    """An exact URL stays allowed while a separate destination is blocked."""
+    blocked_url = "blocked.example/path"
+    result = await urls(
+        ctx=None,
+        data=f"({url}),{blocked_url}",
+        config=URLConfig(url_allow_list=[url], allowed_schemes={"https"}),
+    )
+
+    assert result.tripwire_triggered is True  # noqa: S101
+    assert result.info["detected"] == [url, blocked_url]  # noqa: S101
+    assert result.info["allowed"] == [url]  # noqa: S101
+    assert result.info["blocked"] == [blocked_url]  # noqa: S101
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://example.com/items/alpha,foo.com/detail",
+        "https://example.com/?labels=alpha,foo.com",
+        "https://example.com/#labels=alpha,foo.com",
+    ],
+)
+async def test_normalized_exact_url_remains_allowed_before_adjacent_url(url: str) -> None:
+    """Allow-list normalization applies before component preservation."""
+    blocked_url = "blocked.example/path"
+    result = await urls(
+        ctx=None,
+        data=f"({url}),{blocked_url}",
+        config=URLConfig(
+            url_allow_list=[f"  {url.replace('example.com', 'EXAMPLE.COM')}  "],
+            allowed_schemes={"https"},
+        ),
+    )
+
+    assert result.tripwire_triggered is True  # noqa: S101
+    assert result.info["detected"] == [url, blocked_url]  # noqa: S101
+    assert result.info["allowed"] == [url]  # noqa: S101
+    assert result.info["blocked"] == [blocked_url]  # noqa: S101
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "url, configured_url",
+    [
+        (
+            "https://example.com/items/ALPHA,foo.com/detail",
+            "https://example.com/items/alpha,foo.com/detail",
+        ),
+        (
+            "https://example.com/?labels=ALPHA,foo.com",
+            "https://example.com/?labels=alpha,foo.com",
+        ),
+        (
+            "https://example.com/#labels=ALPHA,foo.com",
+            "https://example.com/#labels=alpha,foo.com",
+        ),
+    ],
+)
+async def test_component_preservation_keeps_case_sensitive_source_identity(
+    url: str,
+    configured_url: str,
+) -> None:
+    """Preservation cannot rewrite case-sensitive URL components."""
+    blocked_url = "blocked.example/path"
+    result = await urls(
+        ctx=None,
+        data=f"({url}),{blocked_url}",
+        config=URLConfig(
+            url_allow_list=[configured_url],
+            allowed_schemes={"https"},
+        ),
+    )
+
+    assert result.tripwire_triggered is True  # noqa: S101
+    assert url not in result.info["allowed"]  # noqa: S101
+    assert blocked_url in result.info["blocked"]  # noqa: S101
+    assert configured_url not in result.info["detected"]  # noqa: S101
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://example.com/items/ALPHA,foo.com/detail",
+        "https://example.com/?labels=ALPHA,foo.com",
+        "https://example.com/#labels=ALPHA,foo.com",
+    ],
+)
+async def test_exact_component_allow_list_preserves_matching_case(url: str) -> None:
+    """An exact allow-list entry retains case-sensitive components."""
+    result = await urls(
+        ctx=None,
+        data=url,
+        config=URLConfig(
+            url_allow_list=[url],
+            allowed_schemes={"https"},
+        ),
+    )
+
+    assert result.tripwire_triggered is False  # noqa: S101
+    assert result.info["detected"] == [url]  # noqa: S101
+    assert result.info["allowed"] == [url]  # noqa: S101
+    assert result.info["blocked"] == []  # noqa: S101
+
+
+@pytest.mark.asyncio
+async def test_exact_component_allow_list_normalizes_scheme_and_host_case() -> None:
+    """Scheme and host case do not change exact component identity."""
+    url = "https://example.com/?labels=ALPHA,foo.com"
+    result = await urls(
+        ctx=None,
+        data=url,
+        config=URLConfig(
+            url_allow_list=["HTTPS://EXAMPLE.COM/?labels=ALPHA,foo.com"],
+            allowed_schemes={"https"},
+        ),
+    )
+
+    assert result.tripwire_triggered is False  # noqa: S101
+    assert result.info["detected"] == [url]  # noqa: S101
+    assert result.info["allowed"] == [url]  # noqa: S101
+    assert result.info["blocked"] == []  # noqa: S101
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "source_userinfo, configured_userinfo",
+    [
+        ("alice", "bobby"),
+        ("alice:secret", "alice:other"),
+    ],
+)
+async def test_component_preservation_requires_exact_userinfo(
+    source_userinfo: str,
+    configured_userinfo: str,
+) -> None:
+    """Exact prefix preservation includes username and password identity."""
+    suffix = "example.com/items/alpha,foo.com/detail"
+    source_url = f"https://{source_userinfo}@{suffix}"
+    configured_url = f"https://{configured_userinfo}@{suffix}"
+    result = await urls(
+        ctx=None,
+        data=source_url,
+        config=URLConfig(
+            url_allow_list=[configured_url],
+            allowed_schemes={"https"},
+            block_userinfo=False,
+        ),
+    )
+
+    assert result.tripwire_triggered is True  # noqa: S101
+    assert configured_url not in result.info["detected"]  # noqa: S101
+    assert source_url not in result.info["allowed"]  # noqa: S101
+
+
+@pytest.mark.asyncio
+async def test_preserved_open_query_cannot_hide_adjacent_url() -> None:
+    """A separated URL cannot become content of an exact empty query value."""
+    allowed_url = "https://allow.example/?next="
+    blocked_url = "blocked.example/path"
+    result = await urls(
+        ctx=None,
+        data=f"{allowed_url},{blocked_url}",
+        config=URLConfig(
+            url_allow_list=[allowed_url],
+            allowed_schemes={"https"},
+        ),
+    )
+
+    assert result.tripwire_triggered is True  # noqa: S101
+    assert result.info["detected"] == [allowed_url, blocked_url]  # noqa: S101
+    assert result.info["allowed"] == [allowed_url]  # noqa: S101
+    assert result.info["blocked"] == [blocked_url]  # noqa: S101
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "blocked_url, allowed_schemes",
+    [
+        ("https://blocked.example/path", {"https"}),
+        ("ftp://blocked.example/path", {"https", "ftp"}),
+    ],
+)
+async def test_preserved_open_query_cannot_hide_adjacent_explicit_url(
+    blocked_url: str,
+    allowed_schemes: set[str],
+) -> None:
+    """A preserved empty value cannot own a separated explicit URL."""
+    allowed_url = "https://allow.example/?next="
+    result = await urls(
+        ctx=None,
+        data=f"{allowed_url},{blocked_url}",
+        config=URLConfig(
+            url_allow_list=[allowed_url],
+            allowed_schemes=allowed_schemes,
+        ),
+    )
+
+    assert result.tripwire_triggered is True  # noqa: S101
+    assert result.info["detected"] == [allowed_url, blocked_url]  # noqa: S101
+    assert result.info["allowed"] == [allowed_url]  # noqa: S101
+    assert result.info["blocked"] == [blocked_url]  # noqa: S101
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "blocked_url, mismatched_allow_url",
+    [
+        ("http://blocked.example/path", "https://blocked.example/path"),
+        ("https://blocked.example/path", "http://blocked.example/path"),
+    ],
+)
+async def test_colon_adjacent_url_preserves_explicit_scheme(
+    blocked_url: str,
+    mismatched_allow_url: str,
+) -> None:
+    """A separated explicit URL retains scheme-qualified validation."""
+    allowed_url = "https://allow.example/?next="
+    result = await urls(
+        ctx=None,
+        data=f"{allowed_url}:{blocked_url}",
+        config=URLConfig(
+            url_allow_list=[allowed_url, mismatched_allow_url],
+            allowed_schemes={"http", "https"},
+        ),
+    )
+
+    assert result.tripwire_triggered is True  # noqa: S101
+    assert result.info["detected"] == [allowed_url, blocked_url]  # noqa: S101
+    assert result.info["allowed"] == [allowed_url]  # noqa: S101
+    assert result.info["blocked"] == [blocked_url]  # noqa: S101
+
+
+@pytest.mark.asyncio
+async def test_colon_adjacent_url_preserves_userinfo_validation() -> None:
+    """A separated explicit URL retains userinfo validation."""
+    allowed_url = "https://allow.example/?next="
+    blocked_url = "https://user:pass@allowed.example/path"
+    result = await urls(
+        ctx=None,
+        data=f"{allowed_url}:{blocked_url}",
+        config=URLConfig(
+            url_allow_list=[allowed_url, "allowed.example"],
+            allowed_schemes={"https"},
+            block_userinfo=True,
+        ),
+    )
+
+    assert result.tripwire_triggered is True  # noqa: S101
+    assert result.info["detected"] == [allowed_url, blocked_url]  # noqa: S101
+    assert result.info["allowed"] == [allowed_url]  # noqa: S101
+    assert result.info["blocked"] == [blocked_url]  # noqa: S101
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "allowed_url",
+    [
+        "https://allow.example/path:",
+        "https://allow.example/?label=value:",
+        "https://allow.example/#label:",
+    ],
+)
+async def test_terminal_boundary_preserves_adjacent_explicit_url(allowed_url: str) -> None:
+    """A boundary owned by an exact URL cannot erase its adjacent sibling."""
+    blocked_url = "https://user:pass@blocked.example/path"
+    result = await urls(
+        ctx=None,
+        data=f"{allowed_url}{blocked_url}",
+        config=URLConfig(
+            url_allow_list=[allowed_url, "blocked.example"],
+            allowed_schemes={"https"},
+            block_userinfo=True,
+        ),
+    )
+
+    assert result.tripwire_triggered is True  # noqa: S101
+    assert result.info["detected"] == [allowed_url, blocked_url]  # noqa: S101
+    assert result.info["allowed"] == [allowed_url]  # noqa: S101
+    assert result.info["blocked"] == [blocked_url]  # noqa: S101
+
+
+def test_detect_urls_keeps_distinct_same_host_path() -> None:
+    """Host deduplication cannot discard a distinct adjacent path."""
+    explicit_url = "https://example.com/allowed"
+    scheme_less_url = "example.com/blocked"
+
+    assert _detect_urls(f"{explicit_url},{scheme_less_url}") == [  # noqa: S101
+        explicit_url,
+        scheme_less_url,
+    ]
+
+
+@pytest.mark.parametrize("scheme_less_url", ["example.com", "www.example.com"])
+def test_detect_urls_keeps_adjacent_bare_same_host(scheme_less_url: str) -> None:
+    """A source-distinct bare host remains a separate destination."""
+    explicit_url = "https://example.com/allowed"
+
+    assert _detect_urls(f"{explicit_url},{scheme_less_url}") == [  # noqa: S101
+        explicit_url,
+        scheme_less_url,
+    ]
+
+
+def test_detect_urls_preserves_released_candidate_category_order() -> None:
+    """HTTP candidates remain ahead of scheme-less candidates."""
+    first_url = "https://allowed.example/a"
+    second_url = "blocked.example/x"
+    third_url = "https://second.example/y"
+
+    assert _detect_urls(f"{first_url},{second_url} {third_url}") == [  # noqa: S101
+        first_url,
+        third_url,
+        second_url,
+    ]
+
+
+def test_detect_urls_splits_adjacent_ipv4_after_explicit_ipv4() -> None:
+    """An explicit IPv4 path cannot absorb an adjacent IPv4 URL."""
+    explicit_url = "https://192.0.2.1/allowed"
+    scheme_less_url = "203.0.113.2/blocked"
+
+    assert _detect_urls(f"{explicit_url},{scheme_less_url}") == [  # noqa: S101
+        explicit_url,
+        scheme_less_url,
+    ]
+
+
+@pytest.mark.parametrize("separator", [",", "("])
+@pytest.mark.parametrize(
+    ("first_url", "second_url", "expected"),
+    [
+        (
+            "first.example/path",
+            "second.example/path",
+            ["first.example/path", "second.example/path"],
+        ),
+        (
+            "first.example/path",
+            "203.0.113.2/path",
+            ["first.example/path", "203.0.113.2/path"],
+        ),
+        (
+            "192.0.2.1/path",
+            "second.example/path",
+            ["second.example/path", "192.0.2.1/path"],
+        ),
+        (
+            "192.0.2.1/path",
+            "203.0.113.2/path",
+            ["192.0.2.1/path", "203.0.113.2/path"],
+        ),
+    ],
+)
+def test_detect_urls_splits_adjacent_scheme_less_paths(
+    separator: str,
+    first_url: str,
+    second_url: str,
+    expected: list[str],
+) -> None:
+    """Presentation boundaries split every scheme-less producer pair."""
+    assert _detect_urls(f"{first_url}{separator}{second_url}") == expected  # noqa: S101
+
+
+def test_detect_urls_preserves_released_fallback_category_order() -> None:
+    """Domain candidates remain ahead of IPv4 candidates."""
+    explicit_url = "https://outer.example"
+    ipv4_url = "192.0.2.1"
+    domain_url = "blocked.example"
+
+    assert _detect_urls(f"{explicit_url},{ipv4_url},{domain_url}") == [  # noqa: S101
+        explicit_url,
+        domain_url,
+        ipv4_url,
+    ]
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        (
+            "blocked.example https://later.example",
+            ["https://later.example", "blocked.example"],
+        ),
+        (
+            "192.0.2.1 https://later.example",
+            ["https://later.example", "192.0.2.1"],
+        ),
+        (
+            "ftp://ftp.example https://later.example",
+            ["https://later.example", "ftp://ftp.example"],
+        ),
+        (
+            "data:text/plain,x https://later.example ftp://ftp.example javascript:alert",
+            [
+                "https://later.example",
+                "ftp://ftp.example",
+                "data:text/plain,x",
+                "javascript:alert",
+            ],
+        ),
+    ],
+)
+def test_detect_urls_preserves_released_mixed_category_order(
+    text: str,
+    expected: list[str],
+) -> None:
+    """Unrelated inputs retain the released detector ordering."""
+    assert _detect_urls(text) == expected  # noqa: S101
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        (
+            "trusted.co\tm data:text/plain,x",
+            ["trusted.co\tm", "data:text/plain,x"],
+        ),
+        (
+            "trusted.co\tm normal.example https://later.example",
+            ["https://later.example", "trusted.co\tm", "normal.example"],
+        ),
+        (
+            "trusted.co\tm ftp://later.example javascript:alert blocked.example 192.0.2.1",
+            [
+                "ftp://later.example",
+                "trusted.co\tm",
+                "javascript:alert",
+                "blocked.example",
+                "192.0.2.1",
+            ],
+        ),
+    ],
+)
+def test_detect_urls_preserves_released_ambiguous_candidate_order(
+    text: str,
+    expected: list[str],
+) -> None:
+    """Ambiguous scheme-less candidates lead the fallback pass."""
+    assert _detect_urls(text) == expected  # noqa: S101
+
+
+def test_ambiguous_explicit_url_keeps_source_distinct_same_host_fallback() -> None:
+    """Ambiguous hierarchical URLs do not hide separate same-host input."""
+    ambiguous_url = "https://allowed.example/pa\tth"
+
+    assert _detect_urls(f"{ambiguous_url} allowed.example") == [  # noqa: S101
+        ambiguous_url,
+        "allowed.example",
+    ]
+
+
+def test_host_deduplication_removes_only_a_leading_www_label() -> None:
+    """Embedded www labels cannot hide a source-distinct bare host."""
+    explicit_url = "https://notwww.example.com/path"
+    bare_host = "notexample.com"
+
+    assert _detect_urls(f"{explicit_url} {bare_host}") == [  # noqa: S101
+        explicit_url,
+        bare_host,
+    ]
+
+
+def test_scheme_less_path_scanner_scales_linearly() -> None:
+    """Adjacent scheme-less paths do not rescan the remaining suffix."""
+    small_text = ",".join(f"d{index}.example/path" for index in range(1_000))
+    large_text = ",".join(f"d{index}.example/path" for index in range(4_000))
+
+    small_duration = median(repeat(lambda: _detect_urls(small_text), number=1, repeat=5))
+    large_duration = median(repeat(lambda: _detect_urls(large_text), number=1, repeat=5))
+
+    assert large_duration < small_duration * 6  # noqa: S101
+
+
+@pytest.mark.parametrize("bridge", ['"inner.example/path,', ",(inner.example/path,"])
+def test_detect_urls_keeps_nested_scheme_after_scheme_less_descendant(bridge: str) -> None:
+    """An open query value owns chained URLs throughout its source token."""
+    text = f"https://outer.example/?next={bridge}https://inner.example/path"
+
+    assert _detect_urls(text) == ["https://outer.example/?next="]  # noqa: S101
+
+
+@pytest.mark.parametrize(
+    ("opening", "closing"),
+    [("[", "]"), ("(", ")"), ("{", "}"), ("<", ">"), ("'", "'"), ('"', '"')],
+)
+@pytest.mark.parametrize(
+    "sibling_url",
+    [
+        "https://[::1]/path",
+        "blocked.example/path",
+        "192.0.2.1/path",
+    ],
+)
+def test_wrapped_open_query_does_not_own_a_sibling_url(
+    opening: str,
+    closing: str,
+    sibling_url: str,
+) -> None:
+    """A matching presentation closer ends nested query ownership."""
+    outer_url = "https://outer.example/?next="
+    text = f"{opening}{outer_url}{closing},{sibling_url}"
+
+    assert _detect_urls(text) == [outer_url, sibling_url]  # noqa: S101
+
+
+def test_matched_single_quotes_do_not_extend_a_detected_url() -> None:
+    """A matched single quote remains outside the detected URL span."""
+    url = "https://outer.example/?token=sk-ABCDEFGHIJ1"
+
+    assert _detect_urls(f"'{url}'") == [url]  # noqa: S101
+
+
+@pytest.mark.parametrize(
+    "nested_value",
+    [
+        "https://inner.example/",
+        "inner.example/path",
+        "192.0.2.1/path",
+    ],
+)
+def test_nested_query_ownership_resumes_at_the_next_field(nested_value: str) -> None:
+    """A raw field separator resumes the accepted outer URL."""
+    text = f"https://outer.example/?next=,{nested_value}&token=value"
+
+    assert _detect_urls(text) == [text]  # noqa: S101
+
+
+@pytest.mark.parametrize("host", ["outer.example", "[::1]"])
+def test_nested_query_ownership_ends_before_fragment_destination(host: str) -> None:
+    """Query ownership cannot suppress a later fragment-adjacent URL."""
+    outer_url = f"https://{host}/?next=,inner.example/path#frag"
+    blocked_url = "blocked.example/path"
+
+    assert _detect_urls(f"{outer_url}.{blocked_url}") == [  # noqa: S101
+        outer_url,
+        blocked_url,
+    ]
+
+
+@pytest.mark.parametrize(
+    "suffix",
+    [
+        "ftp://blocked.example/path",
+        "data:text/plain,x",
+        "javascript:alert",
+        "vbscript:x",
+    ],
+)
+def test_detect_urls_splits_adjacent_non_http_scheme(suffix: str) -> None:
+    """A presentation-adjacent explicit scheme starts a new URL span."""
+    outer_url = "https://allow.example/#frag"
+
+    assert _detect_urls(f"{outer_url},{suffix}") == [outer_url, suffix]  # noqa: S101
+
+
+@pytest.mark.parametrize(
+    "authority",
+    [
+        "example.com:blocked.example/path",
+        "example.com:192.0.2.1/path",
+        "example.com:https://good.example/path",
+        "[::1]:https://good.example/path",
+    ],
+)
+def test_detect_urls_preserves_malformed_port_candidate(authority: str) -> None:
+    """Invalid authority ports remain intact for fail-closed validation."""
+    url = f"https://{authority}"
+
+    assert _detect_urls(url) == [url]  # noqa: S101
+
+
+@pytest.mark.parametrize("prefix", ["data:text/plain,payload", "javascript:alert", "vbscript:x"])
+@pytest.mark.parametrize("suffix", ["blocked.example/path", "192.0.2.1/path"])
+def test_detect_urls_splits_destination_after_hostless_payload(prefix: str, suffix: str) -> None:
+    """A hostless payload cannot mask a later destination."""
+    assert _detect_urls(f"{prefix},{suffix}") == [prefix, suffix]  # noqa: S101
+
+
+@pytest.mark.parametrize("host", ["localhost", "intranet", "devbox"])
+def test_detect_urls_splits_destination_after_single_label_host(host: str) -> None:
+    """Every released-valid HTTP host supports adjacency splitting."""
+    explicit_url = f"https://{host}/ok"
+    blocked_url = "blocked.example/path"
+
+    assert _detect_urls(f"{explicit_url},{blocked_url}") == [  # noqa: S101
+        explicit_url,
+        blocked_url,
+    ]
+
+
+@pytest.mark.parametrize("descendant", ["inner.example/path", "192.0.2.1/path"])
+def test_query_owner_covers_scheme_less_then_explicit_descendant(descendant: str) -> None:
+    """A scheme-less descendant cannot end empty-query ownership."""
+    text = f"https://outer.example/?next=,{descendant},https://inner.example/?token=value"
+
+    assert _detect_urls(text) == [f"https://outer.example/?next=,{descendant}"]  # noqa: S101
+
+
+def test_detect_urls_preserves_source_order_for_bracketed_hosts() -> None:
+    """Bracketed-host matches remain ordered by their source offsets."""
+    first_url = "https://normal.example/a"
+    second_url = "https://[::1]/b"
+
+    assert _detect_urls(f"{first_url} {second_url}") == [first_url, second_url]  # noqa: S101
+
+
+@pytest.mark.parametrize("prefix", ["label=(", "label=,"])
+def test_detect_urls_preserves_top_level_urls_after_assignment_text(prefix: str) -> None:
+    """Assignment-like prose cannot claim ownership of a following URL."""
+    url = "https://[::1]/path"
+
+    assert _detect_urls(f"{prefix}{url}") == [url]  # noqa: S101
+
+
+@pytest.mark.parametrize(
+    "first_url",
+    [
+        "https://outer.example/path=",
+        "https://outer.example/#label=",
+        "https://outer.example:bad/?next=",
+        "https://outer.example/?next==",
+    ],
+)
+def test_detect_urls_requires_valid_query_ownership(first_url: str) -> None:
+    """Unsupported components and malformed URLs cannot own a sibling URL."""
+    second_url = "https://[::1]/?token=value"
+
+    assert _detect_urls(f"{first_url},{second_url}") == [first_url, second_url]  # noqa: S101
+
+
+@pytest.mark.parametrize(
+    "authority",
+    [
+        "outer.example:bad",
+        "outer.example:70000",
+        "outer.example:https://good.example",
+        "[bad]",
+    ],
+)
+@pytest.mark.parametrize("bridge", ["inner.example/path", "192.0.2.1/path"])
+def test_malformed_query_owner_cannot_bridge_to_sibling_url(
+    authority: str,
+    bridge: str,
+) -> None:
+    """A malformed authority cannot suppress a later valid URL."""
+    malformed_url = f"https://{authority}/?next="
+    valid_url = "https://inner.example/?token=sk-AAAABBBBCCCCDDDD"
+    text = f"{malformed_url},{bridge},{valid_url}"
+
+    assert _detect_urls(text) == [f"{malformed_url},{bridge}", valid_url]  # noqa: S101
+
+
+@pytest.mark.parametrize("closer", [")", "]", "}", ">"])
+@pytest.mark.parametrize(
+    "sibling_url",
+    [
+        "blocked.example/path",
+        "192.0.2.1/path",
+        "https://blocked.example/path",
+    ],
+)
+def test_unmatched_closer_terminates_open_query_ownership(
+    closer: str,
+    sibling_url: str,
+) -> None:
+    """An unmatched closer leaves the following URL independently visible."""
+    outer_url = "https://allow.example/?next="
+
+    assert _detect_urls(f"{outer_url}{closer},{sibling_url}") == [  # noqa: S101
+        outer_url,
+        sibling_url,
+    ]
+
+
+@pytest.mark.parametrize(
+    "text, expected",
+    [
+        (
+            "https://outer.example/?next=https://[::1]/?token=value",
+            ["https://outer.example/?next=https://[::1]/?token=value"],
+        ),
+        (
+            "https://outer.example/x/https://[fe80::1%25eth0]:8443/?token=value",
+            ["https://outer.example/x/https://[fe80::1%25eth0]:8443/?token=value"],
+        ),
+        (
+            "https://outer.example/?next=,https://inner.example/?token=value",
+            ["https://outer.example/?next="],
+        ),
+        (
+            "https://outer.example/?next=,https://inner.example/,https://[::1]/?token=value",
+            ["https://outer.example/?next="],
+        ),
+        (
+            "https://outer.example/?next=(https://inner.example/),(https://[::1]/?token=value)",
+            ["https://outer.example/?next="],
+        ),
+        (
+            "https://outer.example/?next=,https://127.0.0.1/?token=value",
+            ["https://outer.example/?next="],
+        ),
+        (
+            "https://outer.example/?next=,https://192.168.1.10:8080/?token=value",
+            ["https://outer.example/?next="],
+        ),
+    ],
+)
+def test_detect_urls_does_not_promote_nested_urls(
+    text: str,
+    expected: list[str],
+) -> None:
+    """Nested schemes do not become independent top-level URL spans."""
+    assert _detect_urls(text) == expected  # noqa: S101
+
+
+@pytest.mark.asyncio
+async def test_urls_guardrail_ignores_bracketed_presentation_suffix() -> None:
+    """Presentation text cannot invalidate an exact-path allow-list entry."""
+    url = "https://allow.example/path"
+    config = URLConfig(
+        url_allow_list=[url],
+        allowed_schemes={"https"},
+    )
+
+    result = await urls(ctx=None, data=f"{url}[annotation]", config=config)
+
+    assert result.tripwire_triggered is False  # noqa: S101
+    assert result.info["detected"] == [url]  # noqa: S101
+    assert result.info["allowed"] == [url]  # noqa: S101
+    assert result.info["blocked"] == []  # noqa: S101
+
+
+@pytest.mark.asyncio
+async def test_urls_guardrail_allows_allowlisted_bracketed_ipv6_host() -> None:
+    """Normal bracketed IPv6 URLs reach the shared validation path."""
+    url = "https://[::1]/docs"
+    config = URLConfig(
+        url_allow_list=["[::1]"],
+        allowed_schemes={"https"},
+    )
+
+    result = await urls(ctx=None, data=url, config=config)
+
+    assert result.tripwire_triggered is False  # noqa: S101
+    assert result.info["detected"] == [url]  # noqa: S101
+    assert result.info["allowed"] == [url]  # noqa: S101
+    assert result.info["blocked"] == []  # noqa: S101
+
+
+@pytest.mark.asyncio
+async def test_urls_guardrail_allows_bare_allowlisted_bracketed_ipv6_host() -> None:
+    """A bare bracketed IPv6 authority reaches allow-list validation intact."""
+    url = "https://[::1]"
+    config = URLConfig(
+        url_allow_list=["[::1]"],
+        allowed_schemes={"https"},
+    )
+
+    result = await urls(ctx=None, data=f"{url},", config=config)
+
+    assert result.tripwire_triggered is False  # noqa: S101
+    assert result.info["detected"] == [url]  # noqa: S101
+    assert result.info["allowed"] == [url]  # noqa: S101
+    assert result.info["blocked"] == []  # noqa: S101
+
+
+@pytest.mark.asyncio
+async def test_urls_guardrail_does_not_promote_nested_ipv4_fallback() -> None:
+    """Scheme-less fallback cannot reintroduce an owned nested IPv4 URL."""
+    outer_url = "https://outer.example/?next="
+    text = f"{outer_url},https://127.0.0.1/?token=value"
+    config = URLConfig(
+        url_allow_list=["outer.example"],
+        allowed_schemes={"https"},
+    )
+
+    result = await urls(ctx=None, data=text, config=config)
+
+    assert result.tripwire_triggered is False  # noqa: S101
+    assert result.info["detected"] == [outer_url]  # noqa: S101
+    assert result.info["allowed"] == [outer_url]  # noqa: S101
+    assert result.info["blocked"] == []  # noqa: S101
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "explicit_url, allow_entry",
+    [
+        ("https://normal.example", "normal.example"),
+        ("https://normal.example:8443/path", "normal.example"),
+        ("https://normal.example/path?x=1", "normal.example"),
+        ("https://normal.example/path#fragment", "normal.example"),
+        ("https://[::1]", "[::1]"),
+        ("https://[::1]:8443/path", "[::1]"),
+        ("https://[::1]/path?x=1", "[::1]"),
+        ("https://[::1]/path#fragment", "[::1]"),
+    ],
+)
+@pytest.mark.parametrize(
+    "scheme_less_url",
+    [
+        "blocked.example/path",
+        "192.0.2.1:8080/path",
+    ],
+)
+async def test_urls_guardrail_blocks_scheme_less_url_after_allowlisted_url(
+    explicit_url: str,
+    allow_entry: str,
+    scheme_less_url: str,
+) -> None:
+    """An allowlisted URL cannot hide an adjacent blocked candidate."""
+    config = URLConfig(
+        url_allow_list=[allow_entry],
+        allowed_schemes={"https"},
+    )
+
+    result = await urls(
+        ctx=None,
+        data=f"{explicit_url},{scheme_less_url}",
+        config=config,
+    )
+
+    assert result.tripwire_triggered is True  # noqa: S101
+    assert result.info["detected"] == [explicit_url, scheme_less_url]  # noqa: S101
+    assert result.info["allowed"] == [explicit_url]  # noqa: S101
+    assert result.info["blocked"] == [scheme_less_url]  # noqa: S101
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("closer", [")", "]", "}", ">"])
+async def test_urls_guardrail_blocks_sibling_after_unmatched_closer(
+    closer: str,
+) -> None:
+    """An allowlisted open query cannot own past an unmatched closer."""
+    outer_url = "https://allow.example/?next="
+    blocked_url = "blocked.example/path"
+
+    result = await urls(
+        ctx=None,
+        data=f"{outer_url}{closer},{blocked_url}",
+        config=URLConfig(
+            url_allow_list=["allow.example"],
+            allowed_schemes={"https"},
+        ),
+    )
+
+    assert result.tripwire_triggered is True  # noqa: S101
+    assert result.info["detected"] == [outer_url, blocked_url]  # noqa: S101
+    assert result.info["allowed"] == [outer_url]  # noqa: S101
+    assert result.info["blocked"] == [blocked_url]  # noqa: S101
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "text, allow_entry, blocked_url",
+    [
+        (
+            "https://example.com/allowed,example.com/blocked",
+            "https://example.com/allowed",
+            "example.com/blocked",
+        ),
+        (
+            "https://192.0.2.1/allowed,203.0.113.2/blocked",
+            "192.0.2.1",
+            "203.0.113.2/blocked",
+        ),
+    ],
+)
+async def test_urls_guardrail_blocks_distinct_adjacent_destination(
+    text: str,
+    allow_entry: str,
+    blocked_url: str,
+) -> None:
+    """An allowlisted URL cannot hide a distinct adjacent destination."""
+    result = await urls(
+        ctx=None,
+        data=text,
+        config=URLConfig(url_allow_list=[allow_entry], allowed_schemes={"https"}),
+    )
+
+    assert result.tripwire_triggered is True  # noqa: S101
+    assert result.info["blocked"] == [blocked_url]  # noqa: S101
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "blocked_url, allowed_schemes",
+    [
+        ("ftp://blocked.example/path", {"https", "ftp"}),
+    ],
+)
+async def test_urls_guardrail_blocks_adjacent_non_http_url(
+    blocked_url: str,
+    allowed_schemes: set[str],
+) -> None:
+    """An allowlisted HTTP URL cannot hide another explicit scheme."""
+    outer_url = "https://allow.example/#frag"
+    result = await urls(
+        ctx=None,
+        data=f"{outer_url},{blocked_url}",
+        config=URLConfig(
+            url_allow_list=["allow.example"],
+            allowed_schemes=allowed_schemes,
+        ),
+    )
+
+    assert result.tripwire_triggered is True  # noqa: S101
+    assert result.info["allowed"] == [outer_url]  # noqa: S101
+    assert result.info["blocked"] == [blocked_url]  # noqa: S101
+
+
+@pytest.mark.asyncio
+async def test_urls_guardrail_preserves_userinfo_for_validation() -> None:
+    """Domain-shaped userinfo cannot be reinterpreted as adjacent URLs."""
+    text = "https://user:allowed.example@user/path"
+    result = await urls(
+        ctx=None,
+        data=text,
+        config=URLConfig(
+            url_allow_list=["user", "allowed.example"],
+            allowed_schemes={"https"},
+            block_userinfo=True,
+        ),
+    )
+
+    assert result.tripwire_triggered is True  # noqa: S101
+    assert result.info["detected"] == [text]  # noqa: S101
+    assert result.info["blocked"] == [text]  # noqa: S101
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("scheme_less_url", ["example.com", "www.example.com"])
+async def test_urls_guardrail_validates_adjacent_bare_same_host(scheme_less_url: str) -> None:
+    """A path-restricted allowlist cannot discard an adjacent bare host."""
+    explicit_url = "https://example.com/allowed"
+    result = await urls(
+        ctx=None,
+        data=f"{explicit_url},{scheme_less_url}",
+        config=URLConfig(
+            url_allow_list=[explicit_url],
+            allowed_schemes={"https"},
+        ),
+    )
+
+    assert result.tripwire_triggered is True  # noqa: S101
+    assert result.info["allowed"] == [explicit_url]  # noqa: S101
+    assert result.info["blocked"] == [scheme_less_url]  # noqa: S101
+
+
+@pytest.mark.asyncio
+async def test_ambiguous_url_does_not_hide_source_distinct_blocked_host() -> None:
+    """A distinct bare host remains visible to allowlist validation."""
+    ambiguous_url = "https://allowed.example/pa\tth"
+    bare_host = "allowed.example"
+    result = await urls(
+        ctx=None,
+        data=f"{ambiguous_url} {bare_host}",
+        config=URLConfig(
+            url_allow_list=["https://allowed.example/safe"],
+            allowed_schemes={"https"},
+        ),
+    )
+
+    assert result.tripwire_triggered is True  # noqa: S101
+    assert result.info["detected"] == [ambiguous_url, bare_host]  # noqa: S101
+    assert result.info["blocked"] == [ambiguous_url, bare_host]  # noqa: S101
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("prefix", ["label=(", "label=,"])
+async def test_urls_guardrail_blocks_top_level_url_after_assignment_text(prefix: str) -> None:
+    """Assignment-like prose cannot suppress a blocked bracketed URL."""
+    url = "https://[::1]/path"
+    config = URLConfig(
+        url_allow_list=[],
+        allowed_schemes={"https"},
+    )
+
+    result = await urls(ctx=None, data=f"{prefix}{url}", config=config)
+
+    assert result.tripwire_triggered is True  # noqa: S101
+    assert result.info["detected"] == [url]  # noqa: S101
+    assert result.info["allowed"] == []  # noqa: S101
+    assert result.info["blocked"] == [url]  # noqa: S101
 
 
 @ASCII_URL_CONTROLS
@@ -1754,6 +3047,28 @@ def test_is_url_allowed_supports_subdomains_and_cidr() -> None:
     assert _is_url_allowed(ip_result, config.url_allow_list, config.allow_subdomains, had_scheme2) is True  # noqa: S101
 
 
+@pytest.mark.parametrize(
+    ("url", "allowed_host", "expected"),
+    [
+        ("https://www.example.com", "example.com", True),
+        ("https://example.com", "www.example.com", True),
+        ("https://notwww.example.com", "notexample.com", False),
+        ("https://sub.www.example.com", "sub.example.com", False),
+    ],
+)
+def test_is_url_allowed_removes_only_a_leading_www_label(
+    url: str,
+    allowed_host: str,
+    expected: bool,
+) -> None:
+    """Only the conventional leading www label is normalized."""
+    config = URLConfig(url_allow_list=[allowed_host], allowed_schemes={"https"})
+    parsed_url, _, had_scheme = _validate_url_security(url, config)
+
+    assert parsed_url is not None  # noqa: S101
+    assert _is_url_allowed(parsed_url, config.url_allow_list, False, had_scheme) is expected  # noqa: S101
+
+
 @pytest.mark.asyncio
 async def test_urls_guardrail_reports_allowed_and_blocked() -> None:
     """Urls guardrail should classify detected URLs based on config."""
@@ -2216,6 +3531,21 @@ async def test_urls_guardrail_handles_malformed_ports_gracefully() -> None:
     assert len(result.info["blocked"]) == 3  # noqa: S101
     # All three URLs should be blocked (the key is they don't crash the guardrail)
     assert len(result.info["blocked_reasons"]) == 3  # noqa: S101
+
+
+@pytest.mark.asyncio
+async def test_urls_guardrail_rejects_scheme_shaped_malformed_port() -> None:
+    """An invalid authority cannot become two independently allowed URLs."""
+    text = "https://example.com:https://good.example/path"
+    config = URLConfig(
+        url_allow_list=["example.com", "good.example"],
+        allowed_schemes={"https"},
+    )
+
+    result = await urls(ctx=None, data=text, config=config)
+
+    assert result.tripwire_triggered is True  # noqa: S101
+    assert result.info["blocked"] == [text]  # noqa: S101
 
 
 def test_is_url_allowed_handles_trailing_slash_in_path() -> None:
