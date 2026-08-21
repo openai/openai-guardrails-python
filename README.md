@@ -198,11 +198,15 @@ python examples/basic/agents_sdk.py
 
 The Python implementation includes the following built-in guardrails:
 
+- **Keyword Filter**: Detects configured banned keywords and phrases
+- **Competitors**: Detects mentions of configured competitors
 - **Moderation**: Content moderation using OpenAI's moderation API
 - **URL Filter**: URL filtering and domain allowlist/blocklist
+- **Secret Keys**: Detects potential API keys, secrets, and credentials
 - **Contains PII**: Personally Identifiable Information detection
 - **Hallucination Detection**: Detects hallucinated content using vector stores
 - **Jailbreak**: Detects jailbreak attempts
+- **Prompt Injection Detection**: Detects malicious instructions in tool calls and tool outputs
 - **NSFW Text**: Detects workplace-inappropriate content in model outputs
 - **Off Topic Prompts**: Ensures responses stay within business scope
 - **Custom Prompt Check**: Custom LLM-based guardrails

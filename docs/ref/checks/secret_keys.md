@@ -26,6 +26,8 @@ Identifies potential API keys, secrets, and credentials in text using entropy an
 
 - **Pre-configured Sensitivity**: Threshold values automatically set appropriate entropy, length, and diversity requirements
 - **Pattern Matching**: Looks for common secret prefixes and formats
+- **URL and File Handling**: The `balanced` and `permissive` thresholds avoid classifying tokens containing HTTP(S) URLs or ending in recognized file extensions as secrets based only on generic entropy. These containers are not blanket exemptions: supported provider-prefixed secrets are still detected in once-decoded URL query values and final filename basenames.
+- **Embedded Detection Boundary**: URL paths, fragments, userinfo, nested URLs, intermediate path segments, and malformed URL recovery are not inspected as embedded secret candidates. Use `custom_regex` for project-specific patterns that should be evaluated before these exemptions.
 
 ## What It Returns
 

@@ -4,8 +4,8 @@ This guardrail detects URLs in text and validates them against an allow list of
 permitted domains, IP addresses, and full URLs. It provides security features
 to prevent credential injection, typosquatting attacks, and unauthorized schemes.
 
-The guardrail uses regex patterns for URL detection and Pydantic for robust
-URL parsing and validation.
+The detection pipeline combines linear scanning with targeted regex patterns.
+Pydantic validates configuration, while ``urllib.parse`` handles URL parsing.
 
 Example Usage:
     Default configuration:
@@ -1573,7 +1573,7 @@ def _detect_urls(
     *,
     preserved_component_urls: frozenset[str] = frozenset(),
 ) -> list[str]:
-    """Detect URLs using regex patterns with deduplication.
+    """Detect URLs with a mixed scanning pipeline and deduplication.
 
     Detects URLs with explicit schemes (http, https, ftp, data, javascript,
     vbscript), domain-like patterns without schemes, and IP addresses.
@@ -2004,7 +2004,7 @@ def _is_url_allowed(
 
 
 async def urls(ctx: Any, data: str, config: URLConfig) -> GuardrailResult:
-    """Detects URLs using regex patterns, validates them with Pydantic, and checks against the allow list.
+    """Detect URLs, validate their security properties, and apply the allow list.
 
     Args:
         ctx: Context object.
@@ -2013,7 +2013,7 @@ async def urls(ctx: Any, data: str, config: URLConfig) -> GuardrailResult:
     """
     _ = ctx
 
-    # Detect URLs using regex patterns
+    # Detect URLs while preserving exact configured URL components.
     normalized_allow_list_urls = (allowed_url.strip() for allowed_url in config.url_allow_list)
     explicit_allow_list_urls = frozenset(
         allowed_url for allowed_url in normalized_allow_list_urls if _EXPLICIT_URL_SCHEME_RE.match(allowed_url) is not None
@@ -2077,7 +2077,7 @@ async def urls(ctx: Any, data: str, config: URLConfig) -> GuardrailResult:
 default_spec_registry.register(
     name="URL Filter",
     check_fn=urls,
-    description="URL filtering using regex + Pydantic with direct configuration.",
+    description="Detects URLs and filters them using direct allow-list and security configuration.",
     media_type="text/plain",
     metadata=GuardrailSpecMetadata(engine="RegEx"),
 )

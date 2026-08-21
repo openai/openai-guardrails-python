@@ -1,10 +1,11 @@
 # URL Filter
 
-Advanced URL detection and filtering guardrail that prevents access to unauthorized domains. Uses comprehensive regex patterns and robust URL parsing to detect various URL formats, validates them against security policies, and filters based on a configurable allow list.
+Advanced URL detection and filtering guardrail that prevents access to unauthorized domains. Uses a combination of linear scanning, targeted regular expressions, and standard-library URL parsing to detect various URL formats, validate them against security policies, and filter them using a configurable allow list.
 
 **Key Security Features:**
 
 - Prevents credential injection attacks (`user:pass@domain`)
+- Blocks ambiguous URLs containing ASCII tabs, line feeds, or carriage returns
 - Blocks typosquatting and look-alike domains  
 - Restricts dangerous schemes (`javascript:`, `data:`)
 - Supports IP addresses and CIDR ranges
@@ -43,7 +44,8 @@ Advanced URL detection and filtering guardrail that prevents access to unauthori
 
 ## Implementation Notes
 
-- Detects URLs, domains, and IP addresses using regex patterns
+- Detects explicit URLs, scheme-less domains, and IP addresses using linear scanners and targeted regex patterns
+- Rejects ambiguous control-bearing URLs even when their apparent destination is allow-listed
 - Validates URL schemes and security policies  
 - Supports exact domain matching or subdomain inclusion
 - Handles IP addresses and CIDR ranges
@@ -54,7 +56,7 @@ Returns a `GuardrailResult` with the following `info` dictionary:
 
 ```json
 {
-    "guardrail_name": "URL Filter (Direct Config)",
+    "guardrail_name": "URL Filter",
     "config": {
         "allowed_schemes": ["https"],
         "block_userinfo": true,
@@ -72,7 +74,7 @@ Returns a `GuardrailResult` with the following `info` dictionary:
 
 - **`guardrail_name`**: Name of the guardrail that was executed
 - **`config`**: Applied configuration including allow list, schemes, userinfo blocking, and subdomain settings
-- **`detected`**: All URLs detected in the text using regex patterns
+- **`detected`**: All URLs identified by the detection pipeline
 - **`allowed`**: URLs that passed all security checks and allow list validation
 - **`blocked`**: URLs that were blocked due to security policies or allow list restrictions
 - **`blocked_reasons`**: Detailed explanations for why each URL was blocked

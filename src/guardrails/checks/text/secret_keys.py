@@ -2,8 +2,11 @@
 
 This module provides functions and configuration for detecting potential API keys,
 secrets, and credentials in text. It includes entropy and diversity checks, pattern
-recognition, and a guardrail check_fn for runtime enforcement. File extensions and
-URLs are optionally excluded, and custom detection criteria are supported.
+recognition, and a guardrail check_fn for runtime enforcement. Balanced and permissive
+thresholds exempt tokens containing HTTP(S) URLs or ending in recognized file
+extensions from generic entropy detection while still inspecting supported URL query
+values and final filename basenames for provider-specific secret shapes. Custom
+detection criteria are also supported.
 
 Classes:
     SecretKeysCfg: Pydantic configuration for specifying secret key detection rules.
