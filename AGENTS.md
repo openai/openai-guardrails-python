@@ -96,6 +96,12 @@ Skip it for repository metadata, editorial docs, conversation-only work, or when
 - When a second related review finding would add another condition, protocol hop, compatibility case, or test permutation to the same abstraction, stop patching and run the complexity-reset workflow in `$implementation-strategy`.
 - Keep unrelated refactors and pre-existing failures out of the patch.
 
+### Documentation release timing
+
+When a feature or bug fix introduces behavior that is not yet available in the latest published release, do not include `docs/` changes that describe that unreleased behavior in the feature or bug-fix pull request, and do not expect those changes as part of that pull request. Handle them in a separate docs-only pull request so maintainers can coordinate its merge timing with the release that makes the documentation accurate. This exception applies only when the documentation would be incorrect for the latest published release; documentation already accurate for released behavior remains part of the normal change scope.
+
+Determine whether documentation is required separately from deciding which pull request should carry it. When required `docs/` content would describe behavior unavailable in the latest published release, classify it as separately timed documentation work rather than a missing deliverable or blocking finding. This timing rule takes precedence over general documentation-completeness requirements in review rules and repository skills. It applies to `docs/` content, not automatically to examples or code-level documentation that ships with the changed API.
+
 ### Documentation verification tiers
 
 Use the narrowest tier that covers the complete diff:
@@ -104,7 +110,43 @@ Use the narrowest tier that covers the complete diff:
 - Content: new or materially changed behavior guidance or runnable snippets without structural changes. Verify claims against code and authoritative sources, validate changed snippets when practical, and run `make build-docs` after content is stable.
 - Structural: added, removed, renamed, or moved pages; changes to `mkdocs.yml`, documentation scripts, plugins, or generated reference inputs. Run focused generators and `make build-docs` after structure is stable. Use `$code-change-verification` when build or test configuration is affected.
 
+Existing warnings from a successful documentation build are not findings for an unrelated docs change. Evaluate the exit status and identify new errors, broken references, or warnings caused by the diff instead of reviewing the complete warning stream line by line.
+
 Do not edit generated output. Use `make build-full-docs` only for translation-tooling changes, explicit localization work, or a requested broad localization audit.
+
+## Code review rules
+
+### Finding threshold and supported scope
+
+- Report a runtime defect only when changed code causes concrete incorrect behavior on a supported path. State the trigger and the caller-visible, compatibility, security, persistence, or lifecycle consequence; omit the finding when no such consequence can be established.
+- Treat added abstractions, state, validation, compatibility handling, fallback behavior, dependencies, or parallel paths as actionable only when the machinery does not map to the task, a released contract, supported durable state, or a verified runtime or platform risk. Identify the exact unnecessary machinery and recommend the smallest safe removal or direct replacement.
+- Flag validation, compatibility handling, fallback behavior, or tests added only for synthetic or unsupported values when no ordinary supported producer, released contract, durable boundary, or actual untrusted-input path can produce the value with a concrete consequence. Constructibility in Python, manually corrupted typed objects, monkeypatched state, and direct helper calls that bypass the owning public or wire boundary are not sufficient justification.
+- Do not duplicate client-side runtime validation solely for values already excluded by the public type contract or authoritatively rejected by the upstream provider. Add fail-fast library validation only when delayed rejection creates a concrete library-owned problem before the authoritative rejection, such as an irreversible side effect, persistent corruption, security or privacy exposure, avoidable billable work, repeated resource consumption, or an error that arrives too late or is too opaque for reasonable correction.
+- Do not report a defect merely because another semantic choice appears cleaner, more symmetric, or easier to explain. When repository evidence does not select one contract, report only a concrete inconsistency with an already supported path or established caller-visible expectation.
+- Flag a new public option, callback, class, compatibility branch, or parallel execution path when the exact required outcome, including lifecycle and compatibility constraints, is already available through a reasonable supported API or composition path. Name that path and recommend removal or narrower reuse of the existing source of truth.
+- Report compatibility findings only against behavior shipped in the latest release, an explicitly supported public contract, or a durable external state or protocol boundary. Do not require compatibility shims for unreleased branch-local helpers, same-branch tests, or intentionally unsupported intermediate persisted formats.
+
+### Contract and lifecycle coverage
+
+- For every added or modified public field, configuration value, event, serialized value, or wire value, inspect all supported construction, forwarding, adapter, and consumption paths. Flag partial implementations where normal, specialized, default, missing-value, or error paths silently drop, reshape, or reject the value inconsistently. Include intended public imports and generated package surfaces when they are part of the changed contract.
+- Require parity across streaming and non-streaming, sync and async, Chat Completions and Responses, OpenAI and Azure, or direct and Agents SDK paths only when the accepted requirement or existing contract covers those paths. Do not report missing parity solely for API symmetry or conceptual similarity.
+- When changed code mutates shared state across an `await`, callback, retry, cancellation, cleanup, or rollback boundary, check whether stale or failing work can overwrite, revert, or dispose state owned by surviving work. Report the concrete interleaving and the missing ownership, generation, identity, transaction, revalidation, or serialization invariant at the actual mutation boundary; sequential happy-path tests are insufficient.
+- When a new validation or failure path can run after resources or observable state are acquired, verify cleanup explicitly and preserve the primary failure. Report concrete leaked resources, stale state, lost handlers, or survivor corruption rather than assuming normal teardown runs after failed construction or context entry.
+- Flag persisted, resumed, serialized, provider-controlled, or manifest data that is treated as authority for a host-owned runtime, security, identity, or cleanup decision unless the supported trust boundary explicitly grants that authority. Preserve trusted current configuration and validate untrusted state before it can affect side effects, replay, or resource ownership.
+
+### Test and documentation evidence
+
+- Treat tests as contract evidence only when they exercise the highest stable caller-visible boundary that controls the observable result and derive expected behavior from the requirement, released behavior, a worked example, a baseline, or another independent oracle. Do not accept helper-only call-shape assertions or expected values recomputed with the implementation's own logic when another layer owns the outcome.
+- Require representative regression coverage for accepted behavior and intentionally unsupported categories. For concurrency findings, require controlled completion ordering plus assertions about the surviving operation and final shared state. Do not request exhaustive tests for every constructible permutation.
+- Report missing documentation or examples only when the patch makes existing guidance materially false, unsafe, or misleading; correct use depends on a non-obvious migration, compatibility boundary, constraint, or operational warning; or the accepted feature would otherwise be practically unusable. Do not report optional completeness or discoverability improvements as blocking findings.
+- Decide `docs/` delivery timing separately from documentation necessity. If required `docs/` content would describe behavior unavailable in the latest published release, apply the documentation release timing policy: record it as separately timed work and do not report its absence as a blocking finding for the feature or bug-fix pull request.
+- Do not report formatting, lint, full-suite status, commit history, or pull-request description quality as code findings; those are CI or repository-readiness conditions.
+
+### Review scope
+
+- Review the complete diff from the merge base of the intended target branch, or from the latest release tag when it is the compatibility baseline, not only the latest incremental fix. Passing tests do not justify branch-local machinery that no longer matches the original requirement.
+- Keep findings scoped to consequences introduced, exposed, or worsened by the patch. Do not block on unrelated cleanup, pre-existing bugs, optional refactors, or speculative extensibility merely discovered while reading adjacent code. A pre-existing condition is in scope when the patch newly reaches it on a supported path, relies on it for correctness, or otherwise makes its consequence part of the changed behavior.
+- Require a broader refactor only when concrete evidence shows the focused change would otherwise remain incorrect, unsafe, incompatible, or dependent on duplicated sources of truth that can observably diverge.
 
 ## Project structure
 

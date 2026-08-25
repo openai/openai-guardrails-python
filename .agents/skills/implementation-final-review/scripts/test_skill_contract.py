@@ -45,6 +45,8 @@ class SkillContractTest(unittest.TestCase):
             "contract-surface inventory",
             "every consumer, forwarding branch, and adapter",
             "Search adjacent contract surfaces even when they are absent from the diff",
+            "do not add it to the current task manifest, report it as a "
+            "current-pull-request finding, or let it block clean review",
             "await-boundary matrix",
             "a newer operation that starts and completes while suspended",
             "current active state is insufficient",
@@ -544,7 +546,7 @@ class SkillContractTest(unittest.TestCase):
             "extra copied fingerprint or state fields are invalid",
             "requires the complete-diff artifact digest to equal its `complete_diff_sha256`",
             "Supply the task ID and absolute task-global ledger path independently",
-                "`current_round` plus `remaining_budget` to equal the sum",
+            "`current_round` plus `remaining_budget` to equal the sum",
             "immediately preceding round's immutable ledger snapshot and its SHA-256 digest",
             "same-round retry or advance by exactly one",
             "immutable snapshot must be a distinct file",
