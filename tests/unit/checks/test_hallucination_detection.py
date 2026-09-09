@@ -2,6 +2,11 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING, cast
+
+if TYPE_CHECKING:
+    from guardrails.types import GuardrailLLMContextProto
+
 from typing import Any
 
 import pytest
@@ -68,7 +73,7 @@ async def test_hallucination_detection_includes_reasoning_when_enabled() -> None
         include_reasoning=True,
     )
 
-    result = await hallucination_detection(context, "Test claim", config)
+    result = await hallucination_detection(cast("GuardrailLLMContextProto", context), "Test claim", config)
 
     assert result.tripwire_triggered is True  # noqa: S101
     assert result.info["flagged"] is True  # noqa: S101
@@ -100,7 +105,7 @@ async def test_hallucination_detection_excludes_reasoning_when_disabled() -> Non
         include_reasoning=False,
     )
 
-    result = await hallucination_detection(context, "Test claim", config)
+    result = await hallucination_detection(cast("GuardrailLLMContextProto", context), "Test claim", config)
 
     assert result.tripwire_triggered is False  # noqa: S101
     assert result.info["flagged"] is False  # noqa: S101
@@ -124,7 +129,7 @@ async def test_hallucination_detection_requires_valid_vector_store() -> None:
     )
 
     with pytest.raises(ValueError, match="knowledge_source must be a valid vector store ID starting with 'vs_'"):
-        await hallucination_detection(context, "Test", config)
+        await hallucination_detection(cast("GuardrailLLMContextProto", context), "Test", config)
 
     # Empty string
     config_empty = HallucinationDetectionConfig(
@@ -134,4 +139,4 @@ async def test_hallucination_detection_requires_valid_vector_store() -> None:
     )
 
     with pytest.raises(ValueError, match="knowledge_source must be a valid vector store ID starting with 'vs_'"):
-        await hallucination_detection(context, "Test", config_empty)
+        await hallucination_detection(cast("GuardrailLLMContextProto", context), "Test", config_empty)

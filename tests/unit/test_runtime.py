@@ -46,13 +46,13 @@ def stub_openai_module(monkeypatch: pytest.MonkeyPatch) -> Iterator[types.Module
     monkeypatch.setitem(sys.modules, "openai", module)
     # Also patch already-imported symbols on guardrails modules
     try:
-        import guardrails.runtime as gr_runtime  # type: ignore
+        import guardrails.runtime as gr_runtime
 
         monkeypatch.setattr(gr_runtime, "AsyncOpenAI", AsyncOpenAI, raising=False)
     except Exception:
         pass
     try:
-        import guardrails.types as gr_types  # type: ignore
+        import guardrails.types as gr_types
 
         monkeypatch.setattr(gr_types, "AsyncOpenAI", AsyncOpenAI, raising=False)
     except Exception:
@@ -131,7 +131,7 @@ def test_load_config_bundle_errors_on_invalid_dict() -> None:
 def test_load_config_bundle_plain_string_invalid(text: str) -> None:
     """Plain strings are rejected."""
     with pytest.raises(ConfigError):
-        load_config_bundle(text)  # type: ignore[arg-type]
+        load_config_bundle(text)
 
 
 def test_load_pipeline_bundles_dict_roundtrip() -> None:
@@ -198,7 +198,7 @@ def test_pipeline_bundles_reject_stage_name_override() -> None:
 def test_load_pipeline_bundles_plain_string_invalid(text: str) -> None:
     """Plain strings are rejected."""
     with pytest.raises(ConfigError):
-        load_pipeline_bundles(text)  # type: ignore[arg-type]
+        load_pipeline_bundles(text)
 
 
 def test_instantiate_guardrails_happy_path() -> None:

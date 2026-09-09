@@ -13,13 +13,13 @@ from __future__ import annotations
 import logging
 from collections.abc import Awaitable, Callable, Iterable
 from dataclasses import dataclass, field
-from typing import Any, Protocol, TypeVar, runtime_checkable
+from typing import Any, Protocol, TypeVar, cast, runtime_checkable
 
 from openai import AsyncOpenAI, OpenAI
 
 try:
     # Available in OpenAI Python SDK when Azure features are installed
-    from openai import AsyncAzureOpenAI, AzureOpenAI  # type: ignore
+    from openai import AsyncAzureOpenAI, AzureOpenAI
 except Exception:  # pragma: no cover - optional dependency
     AsyncAzureOpenAI = object  # type: ignore
     AzureOpenAI = object  # type: ignore
@@ -64,9 +64,9 @@ class GuardrailLLMContextProto(Protocol):
         conversation_history (list, optional): Full conversation history for conversation-aware guardrails.
     """
 
-    guardrail_llm: AsyncOpenAI | OpenAI | AsyncAzureOpenAI | AzureOpenAI
+    guardrail_llm: AsyncOpenAI | OpenAI
 
-    def get_conversation_history(self) -> list | None:
+    def get_conversation_history(self) -> list[Any] | None:
         """Get conversation history if available, None otherwise."""
         return getattr(self, "conversation_history", None)
 
@@ -285,12 +285,12 @@ def total_guardrail_token_usage(result: Any) -> dict[str, Any]:
     # Check for GuardrailsResponse (has guardrail_results with total_token_usage)
     guardrail_results = getattr(result, "guardrail_results", None)
     if guardrail_results is not None and hasattr(guardrail_results, "total_token_usage"):
-        return guardrail_results.total_token_usage
+        return cast(dict[str, Any], guardrail_results.total_token_usage)
 
     # Check for GuardrailResults directly (has total_token_usage property/descriptor)
     class_attr = getattr(type(result), "total_token_usage", None)
     if class_attr is not None and hasattr(class_attr, "__get__"):
-        return result.total_token_usage
+        return cast(dict[str, Any], result.total_token_usage)
 
     # Check for Agents SDK RunResult (has *_guardrail_results attributes)
     infos: list[dict[str, Any] | None] = []

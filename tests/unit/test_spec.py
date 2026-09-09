@@ -4,6 +4,7 @@ import sys
 import types
 from collections.abc import Iterator
 from dataclasses import FrozenInstanceError
+from typing import Any, cast
 
 import pytest
 from pydantic import BaseModel
@@ -77,10 +78,10 @@ def test_schema_delegates_to_config_schema() -> None:
 
 def test_metadata_allows_extra_fields() -> None:
     """Extra fields are preserved in ``GuardrailSpecMetadata``."""
-    data = {"engine": "regex", "custom": CUSTOM_VALUE}
+    data: dict[str, Any] = {"engine": "regex", "custom": CUSTOM_VALUE}
     meta = GuardrailSpecMetadata(**data)
     assert meta.engine == "regex"
-    assert meta.custom == CUSTOM_VALUE  # type: ignore[reportAttributeAccessIssue]
+    assert cast(Any, meta).custom == CUSTOM_VALUE
 
 
 @pytest.mark.asyncio

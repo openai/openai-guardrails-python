@@ -2,6 +2,11 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING, cast
+
+if TYPE_CHECKING:
+    from guardrails.types import GuardrailLLMContextProto
+
 import json
 from types import SimpleNamespace
 from typing import Any
@@ -183,7 +188,7 @@ async def test_create_llm_check_fn_triggers_on_confident_flag(monkeypatch: pytes
     config = DetailedConfig(model="gpt-test", confidence_threshold=0.9)
     context = SimpleNamespace(guardrail_llm="fake-client")
 
-    result = await guardrail_fn(context, "content", config)
+    result = await guardrail_fn(cast("GuardrailLLMContextProto", context), "content", config)
 
     assert isinstance(result, GuardrailResult)  # noqa: S101
     assert result.tripwire_triggered is True  # noqa: S101
@@ -224,7 +229,7 @@ async def test_create_llm_check_fn_handles_llm_error(monkeypatch: pytest.MonkeyP
 
     config = LLMConfig(model="gpt-test", confidence_threshold=0.5)
     context = SimpleNamespace(guardrail_llm="fake-client")
-    result = await guardrail_fn(context, "text", config)
+    result = await guardrail_fn(cast("GuardrailLLMContextProto", context), "text", config)
 
     assert result.tripwire_triggered is False  # noqa: S101
     assert result.execution_failed is True  # noqa: S101
@@ -353,6 +358,7 @@ async def test_run_llm_single_turn_without_conversation() -> None:
     )
 
     # Should use single-turn format "# Text\n\n..."
+    assert client.captured_messages is not None
     user_message = client.captured_messages[1]["content"]
     assert user_message.startswith("# Text")  # noqa: S101
     assert "Test input" in user_message  # noqa: S101
@@ -380,6 +386,7 @@ async def test_run_llm_single_turn_with_max_turns_one() -> None:
     )
 
     # Should use single-turn format "# Text\n\n..."
+    assert client.captured_messages is not None
     user_message = client.captured_messages[1]["content"]
     assert user_message.startswith("# Text")  # noqa: S101
     assert "Test input" in user_message  # noqa: S101
@@ -407,6 +414,7 @@ async def test_run_llm_multi_turn_with_conversation() -> None:
     )
 
     # Should use multi-turn format "# Analysis Input\n\n..."
+    assert client.captured_messages is not None
     user_message = client.captured_messages[1]["content"]
     assert user_message.startswith("# Analysis Input")  # noqa: S101
     # Should have JSON payload format
@@ -435,6 +443,7 @@ async def test_run_llm_empty_conversation_uses_single_turn() -> None:
     )
 
     # Should use single-turn format
+    assert client.captured_messages is not None
     user_message = client.captured_messages[1]["content"]
     assert user_message.startswith("# Text")  # noqa: S101
     assert "latest_input" not in user_message  # noqa: S101
@@ -475,11 +484,11 @@ async def test_create_llm_check_fn_extracts_conversation_history(monkeypatch: py
     class ContextWithHistory:
         guardrail_llm = "fake-client"
 
-        def get_conversation_history(self) -> list:
+        def get_conversation_history(self) -> list[Any]:
             return conversation
 
     config = LLMConfig(model="gpt-test", max_turns=5)
-    await guardrail_fn(ContextWithHistory(), "text", config)
+    await guardrail_fn(cast("GuardrailLLMContextProto", ContextWithHistory()), "text", config)
 
     # Verify conversation history was passed to run_llm
     assert captured_args["conversation_history"] == conversation  # noqa: S101
@@ -514,7 +523,7 @@ async def test_create_llm_check_fn_handles_missing_conversation_history(monkeypa
     # Context without get_conversation_history method
     context = SimpleNamespace(guardrail_llm="fake-client")
     config = LLMConfig(model="gpt-test")
-    await guardrail_fn(context, "text", config)
+    await guardrail_fn(cast("GuardrailLLMContextProto", context), "text", config)
 
     # Should pass empty list when no conversation history
     assert captured_args["conversation_history"] == []  # noqa: S101
@@ -536,6 +545,7 @@ async def test_run_llm_strips_whitespace_in_single_turn_mode() -> None:
     )
 
     # Should strip whitespace in single-turn mode
+    assert client.captured_messages is not None
     user_message = client.captured_messages[1]["content"]
     assert "# Text\n\nTest input with whitespace" in user_message  # noqa: S101
     assert "  Test input" not in user_message  # noqa: S101
@@ -560,6 +570,7 @@ async def test_run_llm_strips_whitespace_in_multi_turn_mode() -> None:
     )
 
     # Should strip whitespace in multi-turn mode
+    assert client.captured_messages is not None
     user_message = client.captured_messages[1]["content"]
     json_start = user_message.find("{")
     payload = json.loads(user_message[json_start:])
@@ -602,7 +613,7 @@ async def test_create_llm_check_fn_uses_reasoning_output_when_enabled(monkeypatc
     # Test with include_reasoning=True explicitly enabled
     config = LLMConfig(model="gpt-test", confidence_threshold=0.5, include_reasoning=True)
     context = SimpleNamespace(guardrail_llm="fake-client")
-    result = await guardrail_fn(context, "test", config)
+    result = await guardrail_fn(cast("GuardrailLLMContextProto", context), "test", config)
 
     assert recorded_output_model == LLMReasoningOutput  # noqa: S101
     assert result.info["reason"] == "Test reason"  # noqa: S101
@@ -641,7 +652,7 @@ async def test_create_llm_check_fn_uses_base_model_without_reasoning(monkeypatch
     # Test with include_reasoning=False
     config = LLMConfig(model="gpt-test", confidence_threshold=0.5, include_reasoning=False)
     context = SimpleNamespace(guardrail_llm="fake-client")
-    result = await guardrail_fn(context, "test", config)
+    result = await guardrail_fn(cast("GuardrailLLMContextProto", context), "test", config)
 
     assert recorded_output_model == LLMOutput  # noqa: S101
     assert "reason" not in result.info  # noqa: S101

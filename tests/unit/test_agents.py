@@ -4,10 +4,10 @@ from __future__ import annotations
 
 import sys
 import types
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, cast
 
 import pytest
 
@@ -75,7 +75,7 @@ class ToolGuardrailFunctionOutput:
         return cls(message=message, output_info=output_info, tripwire_triggered=True)
 
 
-def _decorator_passthrough(func: Callable) -> Callable:
+def _decorator_passthrough(func: Callable[..., Any]) -> Callable[..., Any]:
     """Return the function unchanged (stand-in for agents decorators)."""
     return func
 
@@ -94,8 +94,8 @@ class Agent:
 
     name: str
     instructions: str
-    input_guardrails: list[Callable] | None = None
-    output_guardrails: list[Callable] | None = None
+    input_guardrails: list[Callable[..., Any]] | None = None
+    output_guardrails: list[Callable[..., Any]] | None = None
     tools: list[Any] | None = None
 
 
@@ -107,24 +107,24 @@ class AgentRunner:
         return SimpleNamespace()
 
 
-agents_module.ToolGuardrailFunctionOutput = ToolGuardrailFunctionOutput
-agents_module.ToolInputGuardrailData = ToolInputGuardrailData
-agents_module.ToolOutputGuardrailData = ToolOutputGuardrailData
-agents_module.tool_input_guardrail = _decorator_passthrough
-agents_module.tool_output_guardrail = _decorator_passthrough
-agents_module.RunContextWrapper = RunContextWrapper
-agents_module.Agent = Agent
-agents_module.GuardrailFunctionOutput = GuardrailFunctionOutput
-agents_module.input_guardrail = _decorator_passthrough
-agents_module.output_guardrail = _decorator_passthrough
-agents_module.AgentRunner = AgentRunner
+agents_module.__dict__["ToolGuardrailFunctionOutput"] = ToolGuardrailFunctionOutput
+agents_module.__dict__["ToolInputGuardrailData"] = ToolInputGuardrailData
+agents_module.__dict__["ToolOutputGuardrailData"] = ToolOutputGuardrailData
+agents_module.__dict__["tool_input_guardrail"] = _decorator_passthrough
+agents_module.__dict__["tool_output_guardrail"] = _decorator_passthrough
+agents_module.__dict__["RunContextWrapper"] = RunContextWrapper
+agents_module.__dict__["Agent"] = Agent
+agents_module.__dict__["GuardrailFunctionOutput"] = GuardrailFunctionOutput
+agents_module.__dict__["input_guardrail"] = _decorator_passthrough
+agents_module.__dict__["output_guardrail"] = _decorator_passthrough
+agents_module.__dict__["AgentRunner"] = AgentRunner
 
 sys.modules.setdefault("agents", agents_module)
 
 agents_run_module = types.ModuleType("agents.run")
-agents_run_module.AgentRunner = AgentRunner
+agents_run_module.__dict__["AgentRunner"] = AgentRunner
 sys.modules.setdefault("agents.run", agents_run_module)
-agents_module.run = agents_run_module
+agents_module.__dict__["run"] = agents_run_module
 
 import guardrails.agents as agents  # noqa: E402  (import after stubbing)
 import guardrails.runtime as runtime_module  # noqa: E402
@@ -169,7 +169,7 @@ async def test_conversation_with_tool_call_updates_fallback_history() -> None:
     assert conversation[-1]["type"] == "function_call"  # noqa: S101
     assert conversation[-1]["tool_name"] == "math"  # noqa: S101
     stored = agents._agent_conversation.get()
-    assert stored is not None and stored[-1]["call_id"] == "call-1"  # type: ignore[index]  # noqa: S101
+    assert stored is not None and stored[-1]["call_id"] == "call-1"  # noqa: S101
 
 
 @pytest.mark.asyncio
@@ -203,7 +203,7 @@ async def test_conversation_with_tool_call_uses_session_history() -> None:
     assert conversation[0]["content"] == "Remember me"  # noqa: S101
     assert conversation[-1]["call_id"] == "call-2"  # noqa: S101
     cached = agents._agent_conversation.get()
-    assert cached is not None and cached[-1]["call_id"] == "call-2"  # type: ignore[index]  # noqa: S101
+    assert cached is not None and cached[-1]["call_id"] == "call-2"  # noqa: S101
 
 
 @pytest.mark.asyncio
@@ -238,7 +238,7 @@ def test_create_default_tool_context_provides_async_client(monkeypatch: pytest.M
         def __init__(self, **kwargs: Any) -> None:
             pass
 
-    openai_mod.AsyncOpenAI = StubAsyncOpenAI
+    openai_mod.__dict__["AsyncOpenAI"] = StubAsyncOpenAI
     monkeypatch.setitem(sys.modules, "openai", openai_mod)
 
     context = agents._create_default_tool_context()
@@ -254,8 +254,8 @@ def test_attach_guardrail_to_tools_initializes_lists() -> None:
     agents._attach_guardrail_to_tools([tool], fn, "input")
     agents._attach_guardrail_to_tools([tool], fn, "output")
 
-    assert tool.tool_input_guardrails == [fn]  # type: ignore[attr-defined]  # noqa: S101
-    assert tool.tool_output_guardrails == [fn]  # type: ignore[attr-defined]  # noqa: S101
+    assert tool.tool_input_guardrails == [fn]  # noqa: S101
+    assert tool.tool_output_guardrails == [fn]  # noqa: S101
 
 
 def test_separate_tool_level_from_agent_level() -> None:
@@ -291,7 +291,7 @@ async def test_create_tool_guardrail_rejects_on_tripwire(monkeypatch: pytest.Mon
     )
 
     data = agents_module.ToolInputGuardrailData(context=ToolContext(tool_name="weather", tool_arguments={"city": "Paris"}))
-    result = await tool_fn(data)
+    result = await cast(Callable[..., Awaitable[Any]], tool_fn)(data)
 
     assert result.tripwire_triggered is True  # noqa: S101
     assert result.output_info == expected_info  # noqa: S101
@@ -319,7 +319,7 @@ async def test_create_tool_guardrail_blocks_on_violation(monkeypatch: pytest.Mon
     )
 
     data = agents_module.ToolInputGuardrailData(context=ToolContext(tool_name="weather", tool_arguments={}))
-    result = await tool_fn(data)
+    result = await cast(Callable[..., Awaitable[Any]], tool_fn)(data)
 
     assert result.message == "raise"  # noqa: S101
 
@@ -345,7 +345,7 @@ async def test_create_tool_guardrail_propagates_errors(monkeypatch: pytest.Monke
     )
 
     data = agents_module.ToolInputGuardrailData(context=ToolContext(tool_name="weather", tool_arguments={}))
-    result = await tool_fn(data)
+    result = await cast(Callable[..., Awaitable[Any]], tool_fn)(data)
 
     assert result.message == "raise"  # noqa: S101
 
@@ -376,7 +376,7 @@ async def test_create_tool_guardrail_handles_empty_conversation(monkeypatch: pyt
         context=ToolContext(tool_name="math", tool_arguments={"value": 1}),
         output="ok",
     )
-    result = await tool_fn(data)
+    result = await cast(Callable[..., Awaitable[Any]], tool_fn)(data)
 
     assert result.tripwire_triggered is False  # noqa: S101
 
@@ -585,7 +585,7 @@ def test_guardrail_agent_attaches_tool_guardrails(monkeypatch: pytest.MonkeyPatc
     )
 
     assert isinstance(agent_instance, agents_module.Agent)  # noqa: S101
-    assert len(tool.tool_input_guardrails) == 1  # type: ignore[attr-defined]  # noqa: S101
+    assert len(tool.tool_input_guardrails) == 1  # noqa: S101
     # Agent-level guardrails should be attached (one for Sensitive Data Check)
     assert len(agent_instance.input_guardrails or []) >= 1  # noqa: S101
 
@@ -1133,9 +1133,11 @@ async def test_agent_guardrail_receives_conversation_history(monkeypatch: pytest
     await guardrails[0](agents_module.RunContextWrapper(None), Agent("a", "b"), "Can you hack something?")
 
     # Verify the context has the get_conversation_history method
+    assert captured_context is not None
     assert hasattr(captured_context, "get_conversation_history")  # noqa: S101
 
     # Verify conversation_history is accessible as an attribute (per GuardrailLLMContextProto)
+    assert captured_context is not None
     assert hasattr(captured_context, "conversation_history")  # noqa: S101
 
     # Verify conversation history is present via method
@@ -1186,9 +1188,11 @@ async def test_agent_guardrail_with_empty_conversation_history(monkeypatch: pyte
     await guardrails[0](agents_module.RunContextWrapper(None), Agent("a", "b"), "Hello world")
 
     # Verify the context has the get_conversation_history method
+    assert captured_context is not None
     assert hasattr(captured_context, "get_conversation_history")  # noqa: S101
 
     # Verify conversation_history is accessible as an attribute (per GuardrailLLMContextProto)
+    assert captured_context is not None
     assert hasattr(captured_context, "conversation_history")  # noqa: S101
 
     # Verify conversation history is empty but accessible via method
@@ -1229,7 +1233,7 @@ async def test_tool_guardrail_uses_correct_stage_name_input(monkeypatch: pytest.
     )
 
     data = agents_module.ToolInputGuardrailData(context=ToolContext(tool_name="weather", tool_arguments={"city": "Paris"}))
-    await tool_fn(data)
+    await cast(Callable[..., Awaitable[Any]], tool_fn)(data)
 
     # Should use "tool_input", not a guardrail-specific name
     assert captured_stage_name == "tool_input"  # noqa: S101
@@ -1263,7 +1267,7 @@ async def test_tool_guardrail_uses_correct_stage_name_output(monkeypatch: pytest
         context=ToolContext(tool_name="math", tool_arguments={"x": 1}),
         output="Result: 42",
     )
-    await tool_fn(data)
+    await cast(Callable[..., Awaitable[Any]], tool_fn)(data)
 
     # Should use "tool_output", not a guardrail-specific name
     assert captured_stage_name == "tool_output"  # noqa: S101

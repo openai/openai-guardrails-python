@@ -44,5 +44,11 @@ jobs:
       - name: Lint with ruff
         run: make lint
 
+      - name: Check types with mypy
+        run: make mypy
+
+      - name: Check types with pyright
+        run: make pyright
+
       - name: Run tests
         run: make tests

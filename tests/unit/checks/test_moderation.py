@@ -19,9 +19,11 @@ class _StubModerationClient:
     async def create(self, model: str, input: str) -> Any:
         _ = (model, input)
 
+        categories = self._categories
+
         class _Result:
-            def model_dump(self_inner) -> dict[str, Any]:
-                return {"categories": self._categories}
+            def model_dump(self) -> dict[str, Any]:
+                return {"categories": categories}
 
         return SimpleNamespace(results=[_Result()])
 
@@ -59,7 +61,7 @@ async def test_moderation_handles_empty_results(monkeypatch: pytest.MonkeyPatch)
 
 
 @pytest.mark.asyncio
-async def test_moderation_uses_context_client() -> None:
+async def test_moderation_uses_context_client(monkeypatch: pytest.MonkeyPatch) -> None:
     """Moderation should use the client from context when available."""
     from openai import AsyncOpenAI
 
@@ -78,7 +80,7 @@ async def test_moderation_uses_context_client() -> None:
 
     # Create a context with a guardrail_llm client
     context_client = AsyncOpenAI(api_key="test-context-key", base_url="https://api.openai.com/v1")
-    context_client.moderations = SimpleNamespace(create=track_create)  # type: ignore[assignment]
+    monkeypatch.setattr(context_client, "moderations", SimpleNamespace(create=track_create))
 
     ctx = SimpleNamespace(guardrail_llm=context_client)
 
@@ -125,7 +127,7 @@ async def test_moderation_falls_back_for_third_party_provider(monkeypatch: pytes
         raise NotFoundError("404 page not found", response=mock_response, body=None)  # type: ignore[arg-type]
 
     third_party_client = AsyncOpenAI(api_key="third-party-key", base_url="https://localhost:8080/v1")
-    third_party_client.moderations = SimpleNamespace(create=raise_not_found)  # type: ignore[assignment]
+    monkeypatch.setattr(third_party_client, "moderations", SimpleNamespace(create=raise_not_found))
     ctx = SimpleNamespace(guardrail_llm=third_party_client)
 
     cfg = ModerationCfg(categories=[Category.HATE])
@@ -137,7 +139,7 @@ async def test_moderation_falls_back_for_third_party_provider(monkeypatch: pytes
 
 
 @pytest.mark.asyncio
-async def test_moderation_uses_sync_context_client() -> None:
+async def test_moderation_uses_sync_context_client(monkeypatch: pytest.MonkeyPatch) -> None:
     """Moderation should support synchronous OpenAI clients from context."""
     from openai import OpenAI
 
@@ -156,7 +158,7 @@ async def test_moderation_uses_sync_context_client() -> None:
 
     # Create a sync context client
     sync_client = OpenAI(api_key="test-sync-key", base_url="https://api.openai.com/v1")
-    sync_client.moderations = SimpleNamespace(create=track_sync_create)  # type: ignore[assignment]
+    monkeypatch.setattr(sync_client, "moderations", SimpleNamespace(create=track_sync_create))
 
     ctx = SimpleNamespace(guardrail_llm=sync_client)
 
@@ -210,7 +212,7 @@ async def test_moderation_falls_back_for_azure_clients(monkeypatch: pytest.Monke
         api_version="2024-02-01",
         azure_endpoint="https://test.openai.azure.com",
     )
-    azure_client.moderations = SimpleNamespace(create=raise_not_found)  # type: ignore[assignment]
+    monkeypatch.setattr(azure_client, "moderations", SimpleNamespace(create=raise_not_found))
 
     ctx = SimpleNamespace(guardrail_llm=azure_client)
 

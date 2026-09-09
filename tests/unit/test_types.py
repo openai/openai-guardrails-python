@@ -1,9 +1,15 @@
 """Unit tests for types module."""
 
+from typing import TYPE_CHECKING, cast
+
+if TYPE_CHECKING:
+    from guardrails.types import GuardrailLLMContextProto
+
 import sys
 import types
 from collections.abc import Iterator
 from dataclasses import FrozenInstanceError
+from typing import Any
 
 import pytest
 
@@ -26,7 +32,7 @@ def stub_openai_module(monkeypatch: pytest.MonkeyPatch) -> Iterator[types.Module
     monkeypatch.setitem(sys.modules, "openai", module)
     # Patch already-imported symbol in guardrails.types if present
     try:
-        import guardrails.types as gr_types  # type: ignore
+        import guardrails.types as gr_types
 
         monkeypatch.setattr(gr_types, "AsyncOpenAI", AsyncOpenAI, raising=False)
     except Exception:
@@ -44,7 +50,7 @@ def test_guardrail_result_is_frozen() -> None:
 
     result = GuardrailResult(tripwire_triggered=True)
     with pytest.raises(FrozenInstanceError):
-        result.tripwire_triggered = False  # type: ignore[assignment]
+        result.__setattr__("tripwire_triggered", False)
 
 
 def test_guardrail_result_default_info_is_unique() -> None:
@@ -73,13 +79,19 @@ def test_check_fn_typing_roundtrip() -> None:
         return GuardrailResult(tripwire_triggered=value == "fail")
 
     fn: CheckFn[object, str, Cfg] = check
-    assert fn(None, "fail", Cfg()).tripwire_triggered
-    assert not fn(None, "ok", Cfg()).tripwire_triggered
+    failed = fn(None, "fail", Cfg())
+    passed = fn(None, "ok", Cfg())
+    assert isinstance(failed, GuardrailResult)
+    assert isinstance(passed, GuardrailResult)
+    assert failed.tripwire_triggered
+    assert not passed.tripwire_triggered
 
 
 def test_guardrail_llm_context_proto_usage() -> None:
     """Objects with ``guardrail_llm`` attribute satisfy the protocol."""
-    from guardrails.types import AsyncOpenAI, GuardrailLLMContextProto
+    from openai import AsyncOpenAI
+
+    from guardrails.types import GuardrailLLMContextProto
 
     class DummyLLM(AsyncOpenAI):
         pass
@@ -93,7 +105,7 @@ def test_guardrail_llm_context_proto_usage() -> None:
     def use(ctx: GuardrailLLMContextProto) -> object:
         return ctx.guardrail_llm
 
-    assert isinstance(use(DummyCtx()), DummyLLM)
+    assert isinstance(use(cast("GuardrailLLMContextProto", DummyCtx())), DummyLLM)
 
 
 # ----- TokenUsage Tests -----
@@ -105,7 +117,7 @@ def test_token_usage_is_frozen() -> None:
 
     usage = TokenUsage(prompt_tokens=10, completion_tokens=5, total_tokens=15)
     with pytest.raises(FrozenInstanceError):
-        usage.prompt_tokens = 20  # type: ignore[assignment]
+        usage.__setattr__("prompt_tokens", 20)
 
 
 def test_token_usage_with_all_values() -> None:
@@ -252,7 +264,7 @@ def test_total_guardrail_token_usage_with_guardrails_response() -> None:
 
     class MockGuardrailResults:
         @property
-        def total_token_usage(self) -> dict:
+        def total_token_usage(self) -> dict[str, Any]:
             return {"prompt_tokens": 100, "completion_tokens": 50, "total_tokens": 150}
 
     class MockResponse:
@@ -314,9 +326,9 @@ def test_total_guardrail_token_usage_with_agents_sdk_result() -> None:
 
     class MockRunResult:
         input_guardrail_results = [MockGuardrailResult()]
-        output_guardrail_results = []
-        tool_input_guardrail_results = []
-        tool_output_guardrail_results = []
+        output_guardrail_results: list[Any] = []
+        tool_input_guardrail_results: list[Any] = []
+        tool_output_guardrail_results: list[Any] = []
 
     result = total_guardrail_token_usage(MockRunResult())
 
@@ -330,18 +342,18 @@ def test_total_guardrail_token_usage_with_multiple_agents_stages() -> None:
     from guardrails.types import total_guardrail_token_usage
 
     class MockOutput:
-        def __init__(self, tokens: dict) -> None:
+        def __init__(self, tokens: dict[str, Any]) -> None:
             self.output_info = {"token_usage": tokens}
 
     class MockGuardrailResult:
-        def __init__(self, tokens: dict) -> None:
+        def __init__(self, tokens: dict[str, Any]) -> None:
             self.output = MockOutput(tokens)
 
     class MockRunResult:
         input_guardrail_results = [MockGuardrailResult({"prompt_tokens": 100, "completion_tokens": 50, "total_tokens": 150})]
         output_guardrail_results = [MockGuardrailResult({"prompt_tokens": 200, "completion_tokens": 75, "total_tokens": 275})]
-        tool_input_guardrail_results = []
-        tool_output_guardrail_results = []
+        tool_input_guardrail_results: list[Any] = []
+        tool_output_guardrail_results: list[Any] = []
 
     result = total_guardrail_token_usage(MockRunResult())
 
@@ -376,9 +388,9 @@ def test_total_guardrail_token_usage_with_none_output_info() -> None:
 
     class MockRunResult:
         input_guardrail_results = [MockGuardrailResult()]
-        output_guardrail_results = []
-        tool_input_guardrail_results = []
-        tool_output_guardrail_results = []
+        output_guardrail_results: list[Any] = []
+        tool_input_guardrail_results: list[Any] = []
+        tool_output_guardrail_results: list[Any] = []
 
     result = total_guardrail_token_usage(MockRunResult())
 

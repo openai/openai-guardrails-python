@@ -43,8 +43,6 @@ import textwrap
 
 from pydantic import Field
 
-from guardrails.types import CheckFn, GuardrailLLMContextProto
-
 from .llm_base import (
     LLMConfig,
     LLMOutput,
@@ -225,7 +223,7 @@ class JailbreakLLMOutput(LLMOutput):
     )
 
 
-jailbreak: CheckFn[GuardrailLLMContextProto, str, LLMConfig] = create_llm_check_fn(
+jailbreak = create_llm_check_fn(
     name="Jailbreak",
     description=(
         "Detects attempts to jailbreak or bypass AI safety measures using "

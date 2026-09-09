@@ -9,11 +9,13 @@ import asyncio
 import json
 import textwrap
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, cast
 
 from openai import AsyncOpenAI
 
 from guardrails import GuardrailsAsyncOpenAI
+from guardrails.client import GuardrailsResponse
+from guardrails.resources.chat.chat import AsyncChat
 
 
 @dataclass
@@ -355,11 +357,13 @@ async def run_test(
     for idx, case in enumerate(test.passing_cases, start=1):
         try:
             # Use GuardrailsClient to run the test
-            response = await guardrails_client.chat.completions.create(
+            response = await cast("AsyncChat", guardrails_client.chat).completions.create(
                 model="gpt-4.1-mini",
                 messages=[{"role": "user", "content": case}],
                 suppress_tripwire=True,
             )
+
+            assert isinstance(response, GuardrailsResponse)
 
             # Check if any guardrails were triggered
             tripwire_triggered = response.guardrail_results.tripwires_triggered
@@ -409,11 +413,13 @@ async def run_test(
     for idx, case in enumerate(test.failing_cases, start=1):
         try:
             # Use GuardrailsClient to run the test
-            response = await guardrails_client.chat.completions.create(
+            response = await cast("AsyncChat", guardrails_client.chat).completions.create(
                 model="gpt-4.1-mini",
                 messages=[{"role": "user", "content": case}],
                 suppress_tripwire=True,
             )
+
+            assert isinstance(response, GuardrailsResponse)
 
             # Check if any guardrails were triggered
             tripwire_triggered = response.guardrail_results.tripwires_triggered

@@ -377,7 +377,7 @@ def _is_user_message(message: Any) -> bool:
     return isinstance(message, dict) and message.get("role") == "user"
 
 
-def _extract_user_intent_from_messages(messages: list, max_turns: int = 10) -> UserIntentDict:
+def _extract_user_intent_from_messages(messages: list[Any], max_turns: int = 10) -> UserIntentDict:
     """Extract user intent with limited context from a list of messages.
 
     Args:

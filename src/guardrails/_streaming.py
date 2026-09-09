@@ -8,12 +8,15 @@ from __future__ import annotations
 
 import logging
 from collections.abc import AsyncIterator
-from typing import Any
+from typing import TYPE_CHECKING, Any, cast
 
 from ._base_client import GuardrailsResponse
 from .exceptions import GuardrailTripwireTriggered
 from .types import GuardrailResult
 from .utils.conversation import merge_conversation_with_items
+
+if TYPE_CHECKING:
+    from .client import GuardrailsAsyncAzureOpenAI, GuardrailsAsyncOpenAI, GuardrailsAzureOpenAI, GuardrailsOpenAI
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +34,7 @@ class StreamingMixin:
         suppress_tripwire: bool = False,
     ) -> AsyncIterator[GuardrailsResponse]:
         """Stream with periodic guardrail checks (async)."""
+        client = cast("GuardrailsAsyncOpenAI | GuardrailsAsyncAzureOpenAI", self)
         accumulated_text = ""
         chunk_count = 0
 
@@ -40,7 +44,7 @@ class StreamingMixin:
 
         async for chunk in llm_stream:
             # Extract text from chunk
-            chunk_text = self._extract_response_text(chunk)
+            chunk_text = client._extract_response_text(chunk)
             if chunk_text:
                 accumulated_text += chunk_text
                 chunk_count += 1
@@ -52,7 +56,7 @@ class StreamingMixin:
                             conversation_history or [],
                             [{"role": "assistant", "content": accumulated_text}],
                         )
-                        await self._run_stage_guardrails(
+                        await client._run_stage_guardrails(
                             "output",
                             accumulated_text,
                             conversation_history=history,
@@ -64,7 +68,7 @@ class StreamingMixin:
                         raise
 
             # Yield chunk with guardrail results
-            yield self._create_guardrails_response(chunk, preflight_results, input_results, [])
+            yield client._create_guardrails_response(chunk, preflight_results, input_results, [])
 
         # Final output check
         if accumulated_text:
@@ -72,7 +76,7 @@ class StreamingMixin:
                 conversation_history or [],
                 [{"role": "assistant", "content": accumulated_text}],
             )
-            await self._run_stage_guardrails(
+            await client._run_stage_guardrails(
                 "output",
                 accumulated_text,
                 conversation_history=history,
@@ -91,12 +95,13 @@ class StreamingMixin:
         suppress_tripwire: bool = False,
     ):
         """Stream with periodic guardrail checks (sync)."""
+        client = cast("GuardrailsOpenAI | GuardrailsAzureOpenAI", self)
         accumulated_text = ""
         chunk_count = 0
 
         for chunk in llm_stream:
             # Extract text from chunk
-            chunk_text = self._extract_response_text(chunk)
+            chunk_text = client._extract_response_text(chunk)
             if chunk_text:
                 accumulated_text += chunk_text
                 chunk_count += 1
@@ -108,7 +113,7 @@ class StreamingMixin:
                             conversation_history or [],
                             [{"role": "assistant", "content": accumulated_text}],
                         )
-                        self._run_stage_guardrails(
+                        client._run_stage_guardrails(
                             "output",
                             accumulated_text,
                             conversation_history=history,
@@ -120,7 +125,7 @@ class StreamingMixin:
                         raise
 
             # Yield chunk with guardrail results
-            yield self._create_guardrails_response(chunk, preflight_results, input_results, [])
+            yield client._create_guardrails_response(chunk, preflight_results, input_results, [])
 
         # Final output check
         if accumulated_text:
@@ -128,7 +133,7 @@ class StreamingMixin:
                 conversation_history or [],
                 [{"role": "assistant", "content": accumulated_text}],
             )
-            self._run_stage_guardrails(
+            client._run_stage_guardrails(
                 "output",
                 accumulated_text,
                 conversation_history=history,

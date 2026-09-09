@@ -10,7 +10,7 @@ import json
 import logging
 from collections.abc import Callable, Mapping
 from dataclasses import asdict, dataclass
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 from openai.types.responses import (
     Response,
@@ -169,7 +169,7 @@ def parse_response_items(
         else:
             raw = [raw]  # type: ignore[assignment]
 
-        for item in raw:
+        for item in cast(list[Any], raw):
             mapping = _to_mapping(item)
             if mapping is None:
                 logger.warning("Skipped non-mapping item: %s", item)

@@ -105,6 +105,8 @@ convention = "google"
 "examples/**" = ["D100", "D103", "D104"]
 
 [tool.ruff.format]
+# Keep the Python formatter from rewriting Markdown examples.
+exclude = ["*.md"]
 docstring-code-format = true
 
 [tool.coverage.run]

@@ -13,9 +13,11 @@ lint:
 
 .PHONY: mypy
 mypy: 
-	uv run mypy src
-	uv run mypy tests
-	uv run mypy evals
+	uv run mypy src tests
+
+.PHONY: pyright
+pyright:
+	uv run pyright
 
 .PHONY: tests
 tests: 

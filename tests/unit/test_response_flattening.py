@@ -2,6 +2,13 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING, cast
+
+if TYPE_CHECKING:
+    from openai.types.chat import ChatCompletion
+
+    from guardrails._base_client import OpenAIResponseType
+
 import warnings
 from types import SimpleNamespace
 from typing import Any
@@ -190,7 +197,7 @@ def test_method_calls_work() -> None:
     guardrail_results = _create_mock_guardrail_results()
 
     response = GuardrailsResponse(
-        _llm_response=mock_llm_response,
+        _llm_response=cast("OpenAIResponseType", mock_llm_response),
         guardrail_results=guardrail_results,
     )
 
@@ -230,7 +237,7 @@ def test_property_access_works() -> None:
     guardrail_results = _create_mock_guardrail_results()
 
     response = GuardrailsResponse(
-        _llm_response=mock_llm_response,
+        _llm_response=cast("OpenAIResponseType", mock_llm_response),
         guardrail_results=guardrail_results,
     )
 
@@ -258,7 +265,7 @@ def test_backward_compatibility_still_works() -> None:
     with warnings.catch_warnings():
         warnings.simplefilter("error")
         assert response.llm_response.model == "gpt-4"  # noqa: S101
-        assert response.llm_response.choices[0].message.content == "Hello, world!"  # noqa: S101
+        assert cast("ChatCompletion", response.llm_response).choices[0].message.content == "Hello, world!"  # noqa: S101
 
 
 def test_deprecation_warning_message_content() -> None:
@@ -301,7 +308,7 @@ def test_warning_only_once_per_instance() -> None:
         _ = response.llm_response
         _ = response.llm_response.id
         _ = response.llm_response.model
-        _ = response.llm_response.choices
+        _ = cast("ChatCompletion", response.llm_response).choices
 
         # Should only have ONE warning despite multiple accesses
         deprecation_warnings = [warning for warning in w if issubclass(warning.category, DeprecationWarning)]
