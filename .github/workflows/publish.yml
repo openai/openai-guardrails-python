@@ -5,8 +5,7 @@ on:
     types:
       - published
 
-permissions:
-  contents: read
+permissions: {}
 
 jobs:
   publish:
@@ -14,12 +13,15 @@ jobs:
       name: pypi
       url: https://pypi.org/p/openai-guardrails
     permissions:
+      contents: read
       id-token: write # Important for trusted publishing to PyPI
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          persist-credentials: false
       - name: Setup uv
         uses: astral-sh/setup-uv@e58605a9b6da7c637471fab8847a5e5a6b8df081 # v5
         with:
