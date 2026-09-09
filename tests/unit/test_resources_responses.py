@@ -2,8 +2,13 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING, cast
+
+if TYPE_CHECKING:
+    from guardrails.client import GuardrailsAsyncOpenAI, GuardrailsOpenAI
+
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, Literal
 
 import pytest
 from pydantic import BaseModel
@@ -58,7 +63,7 @@ class _SyncResponsesClient:
         self,
         stage: str,
         text: str,
-        conversation_history: list | str | None = None,
+        conversation_history: list[Any] | str | None = None,
         suppress_tripwire: bool = False,
     ) -> list[str]:
         call = {
@@ -177,7 +182,7 @@ class _AsyncResponsesClient:
         self,
         stage: str,
         text: str,
-        conversation_history: list | str | None = None,
+        conversation_history: list[Any] | str | None = None,
         suppress_tripwire: bool = False,
     ) -> list[str]:
         call = {
@@ -264,7 +269,7 @@ def _inline_executor(monkeypatch: pytest.MonkeyPatch) -> None:
         def __enter__(self) -> _InlineExecutor:
             return self
 
-        def __exit__(self, exc_type, exc, tb) -> bool:
+        def __exit__(self, exc_type, exc, tb) -> Literal[False]:
             return False
 
         def submit(self, fn, *args, **kwargs):
@@ -283,7 +288,7 @@ def _inline_executor(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_responses_create_runs_guardrails(monkeypatch: pytest.MonkeyPatch) -> None:
     """Responses.create should apply guardrails and forward modified input."""
     client = _SyncResponsesClient()
-    responses = Responses(client)
+    responses = Responses(cast("GuardrailsOpenAI", client))
     _inline_executor(monkeypatch)
 
     result = responses.create(input=_messages(), model="gpt-test")
@@ -297,7 +302,7 @@ def test_responses_create_runs_guardrails(monkeypatch: pytest.MonkeyPatch) -> No
 def test_responses_create_stream_returns_stream(monkeypatch: pytest.MonkeyPatch) -> None:
     """Streaming mode should call _stream_with_guardrails_sync."""
     client = _SyncResponsesClient()
-    responses = Responses(client)
+    responses = Responses(cast("GuardrailsOpenAI", client))
     _inline_executor(monkeypatch)
 
     result = responses.create(input=_messages(), model="gpt-test", stream=True, suppress_tripwire=True)
@@ -312,7 +317,7 @@ def test_responses_create_stream_returns_stream(monkeypatch: pytest.MonkeyPatch)
 def test_responses_create_merges_previous_history(monkeypatch: pytest.MonkeyPatch) -> None:
     """Responses.create should merge stored conversation history when provided."""
     client = _SyncResponsesClient()
-    responses = Responses(client)
+    responses = Responses(cast("GuardrailsOpenAI", client))
     _inline_executor(monkeypatch)
 
     previous_turn = [
@@ -333,7 +338,7 @@ def test_responses_create_merges_previous_history(monkeypatch: pytest.MonkeyPatc
 def test_responses_parse_runs_guardrails(monkeypatch: pytest.MonkeyPatch) -> None:
     """Responses.parse should run guardrails and pass modified input."""
     client = _SyncResponsesClient()
-    responses = Responses(client)
+    responses = Responses(cast("GuardrailsOpenAI", client))
     _inline_executor(monkeypatch)
 
     class _Schema(BaseModel):
@@ -350,7 +355,7 @@ def test_responses_parse_runs_guardrails(monkeypatch: pytest.MonkeyPatch) -> Non
 def test_responses_parse_merges_previous_history(monkeypatch: pytest.MonkeyPatch) -> None:
     """Responses.parse should include stored conversation history."""
     client = _SyncResponsesClient()
-    responses = Responses(client)
+    responses = Responses(cast("GuardrailsOpenAI", client))
     _inline_executor(monkeypatch)
 
     previous_turn = [
@@ -378,9 +383,9 @@ def test_responses_parse_merges_previous_history(monkeypatch: pytest.MonkeyPatch
 def test_responses_retrieve_wraps_output() -> None:
     """Responses.retrieve should run output guardrails and wrap the response."""
     client = _SyncResponsesClient()
-    responses = Responses(client)
+    responses = Responses(cast("GuardrailsOpenAI", client))
 
-    wrapped = responses.retrieve("resp-1", suppress_tripwire=False)
+    wrapped = cast(dict[str, Any], responses.retrieve("resp-1", suppress_tripwire=False))
 
     assert wrapped["response"].output_text == "result"  # noqa: S101
     assert wrapped["output"] == ["output"]  # noqa: S101
@@ -391,7 +396,7 @@ def test_responses_retrieve_wraps_output() -> None:
 async def test_async_responses_create_runs_guardrails() -> None:
     """AsyncResponses.create should await guardrails and modify input."""
     client = _AsyncResponsesClient()
-    responses = AsyncResponses(client)
+    responses = AsyncResponses(cast("GuardrailsAsyncOpenAI", client))
 
     result = await responses.create(input=_messages(), model="gpt-test")
 
@@ -405,7 +410,7 @@ async def test_async_responses_create_runs_guardrails() -> None:
 async def test_async_responses_stream_returns_wrapper() -> None:
     """AsyncResponses streaming mode should defer to _stream_with_guardrails."""
     client = _AsyncResponsesClient()
-    responses = AsyncResponses(client)
+    responses = AsyncResponses(cast("GuardrailsAsyncOpenAI", client))
 
     result = await responses.create(input=_messages(), model="gpt-test", stream=True)
 
@@ -420,7 +425,7 @@ async def test_async_responses_stream_returns_wrapper() -> None:
 async def test_async_responses_create_merges_previous_history() -> None:
     """AsyncResponses.create should merge stored conversation history."""
     client = _AsyncResponsesClient()
-    responses = AsyncResponses(client)
+    responses = AsyncResponses(cast("GuardrailsAsyncOpenAI", client))
 
     previous_turn = [
         {"role": "user", "content": "old question"},

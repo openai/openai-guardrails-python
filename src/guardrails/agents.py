@@ -16,7 +16,10 @@ from collections.abc import Callable
 from contextvars import ContextVar
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from agents import ToolInputGuardrail, ToolOutputGuardrail
 
 from .types import GuardrailResult
 from .utils.conversation import merge_conversation_with_items, normalize_conversation
@@ -45,13 +48,13 @@ def _ensure_agent_runner_patch() -> None:
         return
 
     try:
-        from agents.run import AgentRunner  # type: ignore
+        from agents.run import AgentRunner
     except ImportError:
         return
 
     original_run = AgentRunner.run
 
-    async def _patched_run(self, starting_agent, input, **kwargs):  # type: ignore[override]
+    async def _patched_run(self, starting_agent, input, **kwargs):
         session = kwargs.get("session")
         fallback_history: list[dict[str, Any]] | None = None
         if session is None:
@@ -66,7 +69,8 @@ def _ensure_agent_runner_patch() -> None:
             _agent_session.reset(session_token)
             _agent_conversation.reset(conversation_token)
 
-    AgentRunner.run = _patched_run  # type: ignore[assignment]
+    # Preserve the SDK call signature through the forwarding wrapper.
+    AgentRunner.run = _patched_run  # type: ignore[method-assign]
     _AGENT_RUNNER_PATCHED = True
 
 
@@ -143,7 +147,7 @@ def _separate_tool_level_from_agent_level(guardrails: list[Any]) -> tuple[list[A
     return tool_level, agent_level
 
 
-def _attach_guardrail_to_tools(tools: list[Any], guardrail: Callable, guardrail_type: str) -> None:
+def _attach_guardrail_to_tools(tools: list[Any], guardrail: object, guardrail_type: str) -> None:
     """Attach a guardrail to all tools in the list.
 
     Args:
@@ -171,7 +175,7 @@ def _create_default_tool_context() -> Any:
 
 
 def _create_conversation_context(
-    conversation_history: list,
+    conversation_history: list[Any],
     base_context: Any,
 ) -> Any:
     """Augment existing context with conversation history method.
@@ -190,12 +194,12 @@ def _create_conversation_context(
     class ConversationContextWrapper:
         """Wrapper that adds get_conversation_history() while preserving base context."""
 
-        def __init__(self, base: Any, history: list) -> None:
+        def __init__(self, base: Any, history: list[Any]) -> None:
             self._base = base
             # Expose conversation_history as public attribute per GuardrailLLMContextProto
             self.conversation_history = history
 
-        def get_conversation_history(self) -> list:
+        def get_conversation_history(self) -> list[Any]:
             """Return conversation history for conversation-aware guardrails."""
             return self.conversation_history
 
@@ -212,7 +216,7 @@ def _create_tool_guardrail(
     context: Any,
     raise_guardrail_errors: bool,
     block_on_violations: bool,
-) -> Callable:
+) -> ToolInputGuardrail[Any] | ToolOutputGuardrail[Any]:
     """Create a generic tool-level guardrail wrapper.
 
     Args:
@@ -480,7 +484,7 @@ def _create_agents_guardrails_from_config(
     def _create_individual_guardrail(guardrail):
         """Create a function for a single specific guardrail."""
 
-        async def single_guardrail(ctx: RunContextWrapper[None], agent: Agent, input_data: str | list) -> GuardrailFunctionOutput:
+        async def single_guardrail(ctx: RunContextWrapper[None], agent: Agent, input_data: str | list[Any]) -> GuardrailFunctionOutput:
             """Guardrail function for a specific guardrail check.
 
             Note: input_data is typed as str in Agents SDK, but can actually be a list

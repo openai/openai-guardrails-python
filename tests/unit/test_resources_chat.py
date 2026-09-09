@@ -2,8 +2,13 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING, cast
+
+if TYPE_CHECKING:
+    from guardrails.client import GuardrailsAsyncOpenAI, GuardrailsOpenAI
+
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, Literal
 
 import pytest
 
@@ -20,7 +25,7 @@ class _InlineExecutor:
     def __enter__(self) -> _InlineExecutor:
         return self
 
-    def __exit__(self, exc_type, exc, tb) -> bool:
+    def __exit__(self, exc_type, exc, tb) -> Literal[False]:
         return False
 
     def submit(self, fn, *args, **kwargs):
@@ -66,7 +71,7 @@ class _SyncClient:
         self,
         stage_name: str,
         text: str,
-        conversation_history: list | None = None,
+        conversation_history: list[Any] | None = None,
         suppress_tripwire: bool = False,
     ) -> list[Any]:
         call = {
@@ -90,7 +95,7 @@ class _SyncClient:
         llm_response: Any,
         preflight_results: list[Any],
         input_results: list[Any],
-        conversation_history: list | None = None,
+        conversation_history: list[Any] | None = None,
         suppress_tripwire: bool = False,
     ) -> Any:
         self.handle_calls.append(
@@ -157,7 +162,7 @@ class _AsyncClient:
         self,
         stage_name: str,
         text: str,
-        conversation_history: list | None = None,
+        conversation_history: list[Any] | None = None,
         suppress_tripwire: bool = False,
     ) -> list[Any]:
         call = {
@@ -181,7 +186,7 @@ class _AsyncClient:
         llm_response: Any,
         preflight_results: list[Any],
         input_results: list[Any],
-        conversation_history: list | None = None,
+        conversation_history: list[Any] | None = None,
         suppress_tripwire: bool = False,
     ) -> Any:
         self.handle_calls.append(
@@ -226,7 +231,7 @@ def _messages() -> list[dict[str, str]]:
 def test_chat_completions_create_invokes_guardrails(monkeypatch: pytest.MonkeyPatch) -> None:
     """ChatCompletions.create should run guardrails and forward modified messages."""
     client = _SyncClient()
-    completions = ChatCompletions(client)
+    completions = ChatCompletions(cast("GuardrailsOpenAI", client))
 
     monkeypatch.setattr("guardrails.resources.chat.chat.ThreadPoolExecutor", _InlineExecutor)
 
@@ -242,7 +247,7 @@ def test_chat_completions_create_invokes_guardrails(monkeypatch: pytest.MonkeyPa
 def test_chat_completions_stream_returns_streaming_wrapper(monkeypatch: pytest.MonkeyPatch) -> None:
     """Streaming mode should defer to _stream_with_guardrails_sync."""
     client = _SyncClient()
-    completions = ChatCompletions(client)
+    completions = ChatCompletions(cast("GuardrailsOpenAI", client))
 
     monkeypatch.setattr("guardrails.resources.chat.chat.ThreadPoolExecutor", _InlineExecutor)
 
@@ -258,7 +263,7 @@ def test_chat_completions_stream_returns_streaming_wrapper(monkeypatch: pytest.M
 async def test_async_chat_completions_create_invokes_guardrails() -> None:
     """AsyncChatCompletions.create should await guardrails and LLM call."""
     client = _AsyncClient()
-    completions = AsyncChatCompletions(client)
+    completions = AsyncChatCompletions(cast("GuardrailsAsyncOpenAI", client))
 
     result = await completions.create(messages=_messages(), model="gpt-test")
 
@@ -273,7 +278,7 @@ async def test_async_chat_completions_create_invokes_guardrails() -> None:
 async def test_async_chat_completions_stream_returns_wrapper() -> None:
     """Async streaming mode should defer to _stream_with_guardrails."""
     client = _AsyncClient()
-    completions = AsyncChatCompletions(client)
+    completions = AsyncChatCompletions(cast("GuardrailsAsyncOpenAI", client))
 
     result = await completions.create(
         messages=_messages(),

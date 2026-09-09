@@ -36,8 +36,8 @@ class _StreamingCollector(StreamingMixin, GuardrailsBaseClient):
     def trigger_tripwire(self) -> None:
         self._should_raise = True
 
-    def _extract_response_text(self, chunk: _Chunk) -> str:
-        return chunk.text
+    def _extract_response_text(self, response: _Chunk) -> str:
+        return response.text
 
     def _run_stage_guardrails(
         self,

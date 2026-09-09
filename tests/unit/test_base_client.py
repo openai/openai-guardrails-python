@@ -2,6 +2,13 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING, cast
+
+if TYPE_CHECKING:
+    from openai import AsyncOpenAI
+
+    from guardrails._base_client import OpenAIResponseType
+
 from types import SimpleNamespace
 from typing import Any
 
@@ -10,7 +17,8 @@ import pytest
 import guardrails.context as guardrails_context
 from guardrails._base_client import GuardrailResults, GuardrailsBaseClient, GuardrailsResponse
 from guardrails.context import GuardrailsContext
-from guardrails.types import GuardrailResult
+from guardrails.runtime import PipelineBundles
+from guardrails.types import GuardrailLLMContextProto, GuardrailResult
 
 
 def test_extract_latest_user_message_dicts() -> None:
@@ -366,7 +374,7 @@ def test_create_guardrails_response_wraps_results() -> None:
     output_stage = [GuardrailResult(tripwire_triggered=True)]
 
     response = client._create_guardrails_response(
-        llm_response=SimpleNamespace(choices=[]),
+        llm_response=cast("OpenAIResponseType", SimpleNamespace(choices=[])),
         preflight_results=preflight,
         input_results=input_stage,
         output_results=output_stage,
@@ -417,11 +425,11 @@ class _TestableClient(GuardrailsBaseClient):
     def __init__(self) -> None:
         self.override_called = False
 
-    def _instantiate_all_guardrails(self) -> dict[str, list]:
+    def _instantiate_all_guardrails(self) -> dict[str, list[Any]]:
         return {"pre_flight": [], "input": [], "output": []}
 
-    def _create_default_context(self) -> SimpleNamespace:
-        return SimpleNamespace(guardrail_llm="stub")
+    def _create_default_context(self) -> GuardrailLLMContextProto:
+        return cast("GuardrailLLMContextProto", SimpleNamespace(guardrail_llm="stub"))
 
     def _override_resources(self) -> None:
         self.override_called = True
@@ -437,21 +445,25 @@ def test_initialize_client_sets_pipeline_and_context() -> None:
         client_class=_DummyResourceClient,
     )
 
-    assert client.pipeline.pre_flight is None  # type: ignore[attr-defined]  # noqa: S101
-    assert client.pipeline.output.guardrails == []  # type: ignore[attr-defined]  # noqa: S101
+    assert client.pipeline.pre_flight is None  # noqa: S101
+    assert client.pipeline.output is not None
+    assert client.pipeline.output.guardrails == []  # noqa: S101
     assert client.guardrails == {"pre_flight": [], "input": [], "output": []}  # noqa: S101
-    assert client.context.guardrail_llm == "stub"  # type: ignore[attr-defined]  # noqa: S101
-    assert client._resource_client.kwargs["api_key"] == "abc"  # type: ignore[attr-defined]  # noqa: S101
+    assert client.context.guardrail_llm == "stub"  # noqa: S101
+    assert client._resource_client.kwargs["api_key"] == "abc"  # noqa: S101
     assert client.override_called is True  # noqa: S101
 
 
 def test_instantiate_all_guardrails_uses_registry(monkeypatch: pytest.MonkeyPatch) -> None:
     """_instantiate_all_guardrails should instantiate guardrails for each stage."""
     client = GuardrailsBaseClient()
-    client.pipeline = SimpleNamespace(
-        pre_flight=SimpleNamespace(),
-        input=None,
-        output=SimpleNamespace(),
+    client.pipeline = cast(
+        "PipelineBundles",
+        SimpleNamespace(
+            pre_flight=SimpleNamespace(),
+            input=None,
+            output=SimpleNamespace(),
+        ),
     )
 
     instantiated: list[str] = []
@@ -586,11 +598,11 @@ def test_create_default_context_raises_without_subclass() -> None:
 
 def test_create_default_context_uses_existing_context() -> None:
     """Existing context var should be returned."""
-    existing = GuardrailsContext(guardrail_llm="ctx")
+    existing = GuardrailsContext(guardrail_llm=cast("AsyncOpenAI", "ctx"))
     guardrails_context.set_context(existing)
     try:
         client = GuardrailsBaseClient()
-        assert client._create_default_context() is existing  # noqa: S101
+        assert cast(object, client._create_default_context()) is existing  # noqa: S101
     finally:
         guardrails_context.clear_context()
 

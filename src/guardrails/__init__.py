@@ -21,7 +21,7 @@ from .client import (
 )
 
 try:  # Optional Azure variants
-    from .client import GuardrailsAsyncAzureOpenAI, GuardrailsAzureOpenAI  # type: ignore
+    from .client import GuardrailsAsyncAzureOpenAI, GuardrailsAzureOpenAI
 except Exception:  # pragma: no cover - optional dependency path
     GuardrailsAsyncAzureOpenAI = None  # type: ignore
     GuardrailsAzureOpenAI = None  # type: ignore

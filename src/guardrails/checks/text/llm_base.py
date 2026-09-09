@@ -37,8 +37,8 @@ import inspect
 import json
 import logging
 import textwrap
-from collections.abc import Callable
-from typing import TYPE_CHECKING, Any, TypeVar
+from collections.abc import Awaitable, Callable
+from typing import TYPE_CHECKING, Any, TypeVar, overload
 
 from openai import AsyncOpenAI, OpenAI
 from pydantic import BaseModel, ConfigDict, Field
@@ -46,7 +46,6 @@ from pydantic import BaseModel, ConfigDict, Field
 from guardrails.registry import default_spec_registry
 from guardrails.spec import GuardrailSpecMetadata
 from guardrails.types import (
-    CheckFn,
     GuardrailLLMContextProto,
     GuardrailResult,
     TokenUsage,
@@ -58,7 +57,7 @@ from guardrails.utils.output import OutputSchema
 from ...utils.safety_identifier import SAFETY_IDENTIFIER, supports_safety_identifier
 
 if TYPE_CHECKING:
-    from openai import AsyncAzureOpenAI, AzureOpenAI  # type: ignore[unused-import]
+    from openai import AsyncAzureOpenAI, AzureOpenAI
 else:
     try:
         from openai import AsyncAzureOpenAI, AzureOpenAI  # type: ignore
@@ -98,18 +97,18 @@ class LLMConfig(BaseModel):
 
     model: str = Field(..., description="LLM model to use for checking the text")
     confidence_threshold: float = Field(
-        0.7,
+        default=0.7,
         description="Minimum confidence threshold to trigger the guardrail (0.0 to 1.0). Defaults to 0.7.",
         ge=0.0,
         le=1.0,
     )
     max_turns: int = Field(
-        10,
+        default=10,
         description="Maximum conversation turns to include in analysis. Set to 1 for single-turn. Defaults to 10.",
         ge=1,
     )
     include_reasoning: bool = Field(
-        False,
+        default=False,
         description=("Include reasoning/explanation fields in output. Defaults to False for token efficiency. Enable for development/debugging."),
     )
 
@@ -163,7 +162,7 @@ class LLMErrorOutput(LLMOutput):
         info (dict): Additional information about the error.
     """
 
-    info: dict
+    info: dict[str, Any]
 
 
 def create_error_result(
@@ -480,13 +479,43 @@ async def run_llm(
         )
 
 
+@overload
 def create_llm_check_fn(
     name: str,
     description: str,
     system_prompt: str,
     output_model: type[LLMOutput] | None = None,
-    config_model: type[TLLMCfg] = LLMConfig,  # type: ignore[assignment]
-) -> CheckFn[GuardrailLLMContextProto, str, TLLMCfg]:
+    *,
+    config_model: type[TLLMCfg],
+) -> Callable[[GuardrailLLMContextProto, str, TLLMCfg], Awaitable[GuardrailResult]]: ...
+
+
+@overload
+def create_llm_check_fn(
+    name: str,
+    description: str,
+    system_prompt: str,
+    output_model: type[LLMOutput] | None,
+    config_model: type[TLLMCfg],
+) -> Callable[[GuardrailLLMContextProto, str, TLLMCfg], Awaitable[GuardrailResult]]: ...
+
+
+@overload
+def create_llm_check_fn(
+    name: str,
+    description: str,
+    system_prompt: str,
+    output_model: type[LLMOutput] | None = None,
+) -> Callable[[GuardrailLLMContextProto, str, LLMConfig], Awaitable[GuardrailResult]]: ...
+
+
+def create_llm_check_fn(
+    name: str,
+    description: str,
+    system_prompt: str,
+    output_model: type[LLMOutput] | None = None,
+    config_model: type[TLLMCfg] | type[LLMConfig] = LLMConfig,
+) -> Callable[[GuardrailLLMContextProto, str, TLLMCfg], Awaitable[GuardrailResult]]:
     """Factory for constructing and registering an LLM-based guardrail check_fn.
 
     This helper registers the guardrail with the default registry and returns a

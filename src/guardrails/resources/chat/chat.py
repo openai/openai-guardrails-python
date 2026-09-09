@@ -1,24 +1,27 @@
 """Chat completions with guardrails."""
 
+from __future__ import annotations
+
 import asyncio
 from collections.abc import AsyncIterator
 from concurrent.futures import ThreadPoolExecutor
 from contextvars import copy_context
 from functools import partial
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from ..._base_client import GuardrailsBaseClient
+if TYPE_CHECKING:
+    from ...client import GuardrailsAsyncAzureOpenAI, GuardrailsAsyncOpenAI, GuardrailsAzureOpenAI, GuardrailsOpenAI
 from ...utils.safety_identifier import SAFETY_IDENTIFIER, supports_safety_identifier
 
 
 class Chat:
     """Chat completions with guardrails (sync)."""
 
-    def __init__(self, client: GuardrailsBaseClient) -> None:
+    def __init__(self, client: GuardrailsOpenAI | GuardrailsAzureOpenAI) -> None:
         """Initialize Chat resource.
 
         Args:
-            client: GuardrailsBaseClient instance with configured guardrails.
+            client: GuardrailsOpenAI | GuardrailsAzureOpenAI instance with configured guardrails.
         """
         self._client = client
 
@@ -35,11 +38,11 @@ class Chat:
 class AsyncChat:
     """Chat completions with guardrails (async)."""
 
-    def __init__(self, client: GuardrailsBaseClient) -> None:
+    def __init__(self, client: GuardrailsAsyncOpenAI | GuardrailsAsyncAzureOpenAI) -> None:
         """Initialize AsyncChat resource.
 
         Args:
-            client: GuardrailsBaseClient instance with configured guardrails.
+            client: GuardrailsAsyncOpenAI | GuardrailsAsyncAzureOpenAI instance with configured guardrails.
         """
         self._client = client
 
@@ -56,11 +59,11 @@ class AsyncChat:
 class ChatCompletions:
     """Chat completions interface with guardrails (sync)."""
 
-    def __init__(self, client: GuardrailsBaseClient) -> None:
+    def __init__(self, client: GuardrailsOpenAI | GuardrailsAzureOpenAI) -> None:
         """Initialize ChatCompletions interface.
 
         Args:
-            client: GuardrailsBaseClient instance with configured guardrails.
+            client: GuardrailsOpenAI | GuardrailsAzureOpenAI instance with configured guardrails.
         """
         self._client = client
 
@@ -129,11 +132,11 @@ class ChatCompletions:
 class AsyncChatCompletions:
     """Async chat completions interface with guardrails."""
 
-    def __init__(self, client):
+    def __init__(self, client: GuardrailsAsyncOpenAI | GuardrailsAsyncAzureOpenAI) -> None:
         """Initialize AsyncChatCompletions interface.
 
         Args:
-            client: GuardrailsBaseClient instance with configured guardrails.
+            client: GuardrailsAsyncOpenAI | GuardrailsAsyncAzureOpenAI instance with configured guardrails.
         """
         self._client = client
 

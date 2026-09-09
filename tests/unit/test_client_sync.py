@@ -2,9 +2,17 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING, cast
+
+if TYPE_CHECKING:
+    from openai import AsyncOpenAI
+
+    from guardrails._base_client import OpenAIResponseType
+
 import asyncio
+from collections.abc import Iterator
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, Literal
 
 import pytest
 
@@ -18,6 +26,7 @@ from guardrails.client import (
 )
 from guardrails.context import GuardrailsContext
 from guardrails.exceptions import GuardrailTripwireTriggered
+from guardrails.resources.chat.chat import Chat
 from guardrails.types import GuardrailResult
 
 
@@ -37,7 +46,7 @@ def _guardrail(name: str) -> Any:
 
 
 @pytest.fixture(autouse=True)
-def reset_context() -> None:
+def reset_context() -> Iterator[None]:
     guardrails_context.clear_context()
     yield
     guardrails_context.clear_context()
@@ -48,9 +57,9 @@ def test_default_context_uses_distinct_guardrail_client() -> None:
     client = _build_client(api_key="secret-key", base_url="http://example.com")
 
     assert client.context is not None  # noqa: S101
-    assert client.context.guardrail_llm is not client  # type: ignore[attr-defined]  # noqa: S101
-    assert client.context.guardrail_llm.api_key == "secret-key"  # type: ignore[attr-defined]  # noqa: S101
-    assert client.context.guardrail_llm.base_url == "http://example.com"  # type: ignore[attr-defined]  # noqa: S101
+    assert client.context.guardrail_llm is not client  # noqa: S101
+    assert client.context.guardrail_llm.api_key == "secret-key"  # noqa: S101
+    assert client.context.guardrail_llm.base_url == "http://example.com"  # noqa: S101
 
 
 def test_conversation_context_exposes_history() -> None:
@@ -66,11 +75,11 @@ def test_conversation_context_exposes_history() -> None:
 
 def test_create_default_context_uses_contextvar() -> None:
     """Existing context should be reused by derived client."""
-    existing = GuardrailsContext(guardrail_llm="existing")
+    existing = GuardrailsContext(guardrail_llm=cast("AsyncOpenAI", "existing"))
     guardrails_context.set_context(existing)
     try:
         client = _build_client()
-        assert client._create_default_context() is existing  # noqa: S101
+        assert cast(object, client._create_default_context()) is existing  # noqa: S101
     finally:
         guardrails_context.clear_context()
 
@@ -237,7 +246,7 @@ def test_handle_llm_response_runs_output_guardrails(monkeypatch: pytest.MonkeyPa
     def fake_run_stage(
         stage_name: str,
         text: str,
-        conversation_history: list | None = None,
+        conversation_history: list[Any] | None = None,
         suppress_tripwire: bool = False,
     ) -> list[GuardrailResult]:
         captured_text.append(text)
@@ -245,7 +254,7 @@ def test_handle_llm_response_runs_output_guardrails(monkeypatch: pytest.MonkeyPa
             captured_history.append(conversation_history)
         return [output_result]
 
-    monkeypatch.setattr(client, "_run_stage_guardrails", fake_run_stage)  # type: ignore[attr-defined]
+    monkeypatch.setattr(client, "_run_stage_guardrails", fake_run_stage)
 
     llm_response = SimpleNamespace(
         choices=[
@@ -258,7 +267,7 @@ def test_handle_llm_response_runs_output_guardrails(monkeypatch: pytest.MonkeyPa
     )
 
     response = client._handle_llm_response(
-        llm_response,
+        cast("OpenAIResponseType", llm_response),
         preflight_results=[GuardrailResult(tripwire_triggered=False)],
         input_results=[],
         conversation_history=[{"role": "user", "content": "hello"}],
@@ -276,15 +285,15 @@ def test_handle_llm_response_suppresses_tripwire(monkeypatch: pytest.MonkeyPatch
     def fake_run_stage(
         stage_name: str,
         text: str,
-        conversation_history: list | None = None,
+        conversation_history: list[Any] | None = None,
         suppress_tripwire: bool = False,
     ) -> list[GuardrailResult]:
         return [GuardrailResult(tripwire_triggered=True)]
 
-    monkeypatch.setattr(client, "_run_stage_guardrails", fake_run_stage)  # type: ignore[attr-defined]
+    monkeypatch.setattr(client, "_run_stage_guardrails", fake_run_stage)
 
     response = client._handle_llm_response(
-        llm_response=SimpleNamespace(output_text="value", choices=[]),
+        llm_response=cast("OpenAIResponseType", SimpleNamespace(output_text="value", choices=[])),
         preflight_results=[],
         input_results=[],
         conversation_history=[],
@@ -304,8 +313,8 @@ def test_chat_completions_create_executes_guardrails(monkeypatch: pytest.MonkeyP
         stages.append(stage_name)
         return [GuardrailResult(tripwire_triggered=False)]
 
-    monkeypatch.setattr(client, "_run_stage_guardrails", fake_run_stage)  # type: ignore[attr-defined]
-    monkeypatch.setattr(client, "_apply_preflight_modifications", lambda messages, results: messages)  # type: ignore[attr-defined]
+    monkeypatch.setattr(client, "_run_stage_guardrails", fake_run_stage)
+    monkeypatch.setattr(client, "_apply_preflight_modifications", lambda messages, results: messages)
 
     class _InlineExecutor:
         def __init__(self, *args: Any, **kwargs: Any) -> None:
@@ -314,7 +323,7 @@ def test_chat_completions_create_executes_guardrails(monkeypatch: pytest.MonkeyP
         def __enter__(self) -> _InlineExecutor:
             return self
 
-        def __exit__(self, exc_type, exc, tb) -> bool:
+        def __exit__(self, exc_type, exc, tb) -> Literal[False]:
             return False
 
         def submit(self, fn, *args, **kwargs):
@@ -335,16 +344,16 @@ def test_chat_completions_create_executes_guardrails(monkeypatch: pytest.MonkeyP
             output_text=None,
         )
 
-    client._resource_client.chat = SimpleNamespace(completions=SimpleNamespace(create=fake_llm))  # type: ignore[attr-defined]
+    client._resource_client.chat = SimpleNamespace(completions=SimpleNamespace(create=fake_llm))
 
     sentinel = object()
 
     def fake_handle_response(llm_response: Any, preflight_results: list[GuardrailResult], input_results: list[GuardrailResult], **kwargs: Any) -> Any:
         return sentinel
 
-    monkeypatch.setattr(client, "_handle_llm_response", fake_handle_response)  # type: ignore[attr-defined]
+    monkeypatch.setattr(client, "_handle_llm_response", fake_handle_response)
 
-    result = client.chat.completions.create(messages=[{"role": "user", "content": "hi"}], model="gpt")
+    result = cast("Chat", client.chat).completions.create(messages=[{"role": "user", "content": "hi"}], model="gpt")
 
     assert "pre_flight" in stages and "input" in stages  # noqa: S101
     assert result is sentinel  # noqa: S101
@@ -362,7 +371,7 @@ def test_chat_completions_create_stream(monkeypatch: pytest.MonkeyPatch) -> None
         def __enter__(self) -> _InlineExecutor:
             return self
 
-        def __exit__(self, exc_type, exc, tb) -> bool:
+        def __exit__(self, exc_type, exc, tb) -> Literal[False]:
             return False
 
         def submit(self, fn, *args, **kwargs):
@@ -380,10 +389,10 @@ def test_chat_completions_create_stream(monkeypatch: pytest.MonkeyPatch) -> None
     def fake_llm(**kwargs: Any) -> Any:
         return iter([SimpleNamespace(choices=[SimpleNamespace(delta=SimpleNamespace(content="c"))])])
 
-    client._resource_client.chat = SimpleNamespace(completions=SimpleNamespace(create=fake_llm))  # type: ignore[attr-defined]
-    monkeypatch.setattr(client, "_stream_with_guardrails_sync", lambda *args, **kwargs: ["chunk"])  # type: ignore[attr-defined]
+    client._resource_client.chat = SimpleNamespace(completions=SimpleNamespace(create=fake_llm))
+    monkeypatch.setattr(client, "_stream_with_guardrails_sync", lambda *args, **kwargs: ["chunk"])
 
-    result = client.chat.completions.create(messages=[{"role": "user", "content": "hi"}], model="gpt", stream=True)
+    result = cast("Chat", client.chat).completions.create(messages=[{"role": "user", "content": "hi"}], model="gpt", stream=True)
 
     assert result == ["chunk"]  # noqa: S101
 
@@ -398,13 +407,13 @@ def test_responses_create_executes_guardrails(monkeypatch: pytest.MonkeyPatch) -
         stages.append(stage_name)
         return [GuardrailResult(tripwire_triggered=False)]
 
-    monkeypatch.setattr(client, "_run_stage_guardrails", fake_run_stage)  # type: ignore[attr-defined]
-    monkeypatch.setattr(client, "_apply_preflight_modifications", lambda messages, results: messages)  # type: ignore[attr-defined]
+    monkeypatch.setattr(client, "_run_stage_guardrails", fake_run_stage)
+    monkeypatch.setattr(client, "_apply_preflight_modifications", lambda messages, results: messages)
 
     def fake_llm(**kwargs: Any) -> Any:
         return SimpleNamespace(output_text="text", choices=[SimpleNamespace(message=SimpleNamespace(content="ok"))])
 
-    client._resource_client.responses = SimpleNamespace(create=fake_llm)  # type: ignore[attr-defined]
+    client._resource_client.responses = SimpleNamespace(create=fake_llm)
 
     response = client.responses.create(input=[{"role": "user", "content": "hi"}], model="gpt")
 
@@ -420,20 +429,20 @@ def test_responses_parse_executes_guardrails(monkeypatch: pytest.MonkeyPatch) ->
     def fake_run_stage(stage_name: str, text: str, **kwargs: Any) -> list[GuardrailResult]:
         return [GuardrailResult(tripwire_triggered=False)]
 
-    monkeypatch.setattr(client, "_run_stage_guardrails", fake_run_stage)  # type: ignore[attr-defined]
-    monkeypatch.setattr(client, "_apply_preflight_modifications", lambda messages, results: messages)  # type: ignore[attr-defined]
+    monkeypatch.setattr(client, "_run_stage_guardrails", fake_run_stage)
+    monkeypatch.setattr(client, "_apply_preflight_modifications", lambda messages, results: messages)
 
     def fake_parse(**kwargs: Any) -> Any:
         return SimpleNamespace(output_text="{}", output=[{"type": "message", "content": "parsed"}])
 
-    client._resource_client.responses = SimpleNamespace(parse=fake_parse)  # type: ignore[attr-defined]
+    client._resource_client.responses = SimpleNamespace(parse=fake_parse)
 
     sentinel = object()
 
     def fake_handle_parse(llm_response: Any, preflight_results: list[GuardrailResult], input_results: list[GuardrailResult], **kwargs: Any) -> Any:
         return sentinel
 
-    monkeypatch.setattr(client, "_handle_llm_response", fake_handle_parse)  # type: ignore[attr-defined]
+    monkeypatch.setattr(client, "_handle_llm_response", fake_handle_parse)
 
     response = client.responses.parse(input=[{"role": "user", "content": "hi"}], model="gpt", text_format=dict)
 
@@ -448,9 +457,9 @@ def test_responses_retrieve_executes_guardrails(monkeypatch: pytest.MonkeyPatch)
     def fake_run_stage(stage_name: str, text: str, **kwargs: Any) -> list[GuardrailResult]:
         return [GuardrailResult(tripwire_triggered=False)]
 
-    monkeypatch.setattr(client, "_run_stage_guardrails", fake_run_stage)  # type: ignore[attr-defined]
+    monkeypatch.setattr(client, "_run_stage_guardrails", fake_run_stage)
 
-    client._resource_client.responses = SimpleNamespace(retrieve=lambda *args, **kwargs: SimpleNamespace(output_text="hi"))  # type: ignore[attr-defined]
+    client._resource_client.responses = SimpleNamespace(retrieve=lambda *args, **kwargs: SimpleNamespace(output_text="hi"))
 
     sentinel = object()
 
@@ -459,7 +468,7 @@ def test_responses_retrieve_executes_guardrails(monkeypatch: pytest.MonkeyPatch)
     ) -> Any:
         return sentinel
 
-    monkeypatch.setattr(client, "_create_guardrails_response", fake_create_response)  # type: ignore[attr-defined]
+    monkeypatch.setattr(client, "_create_guardrails_response", fake_create_response)
 
     response = client.responses.retrieve("resp")
 
@@ -471,8 +480,8 @@ def test_azure_clients_initialize() -> None:
     async_client = GuardrailsAsyncAzureOpenAI(config=_minimal_config(), api_key="key", azure_param=1)
     sync_client = GuardrailsAzureOpenAI(config=_minimal_config(), api_key="key", azure_param=1)
 
-    assert async_client._azure_kwargs["azure_param"] == 1  # type: ignore[attr-defined]  # noqa: S101
-    assert sync_client._azure_kwargs["azure_param"] == 1  # type: ignore[attr-defined]  # noqa: S101
+    assert async_client._azure_kwargs["azure_param"] == 1  # noqa: S101
+    assert sync_client._azure_kwargs["azure_param"] == 1  # noqa: S101
 
 
 def test_azure_sync_run_stage_guardrails(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -497,7 +506,7 @@ def test_azure_sync_append_response() -> None:
         "hi", SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content="reply"))], output=None)
     )
 
-    assert history[-1].message.content == "reply"  # type: ignore[union-attr]  # noqa: S101
+    assert history[-1].message.content == "reply"  # noqa: S101
 
 
 def test_azure_sync_handle_llm_response(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -508,17 +517,17 @@ def test_azure_sync_handle_llm_response(monkeypatch: pytest.MonkeyPatch) -> None
     def fake_run_stage(stage_name: str, text: str, **kwargs: Any) -> list[GuardrailResult]:
         return [GuardrailResult(tripwire_triggered=False)]
 
-    monkeypatch.setattr(client, "_run_stage_guardrails", fake_run_stage)  # type: ignore[attr-defined]
+    monkeypatch.setattr(client, "_run_stage_guardrails", fake_run_stage)
 
     sentinel = object()
 
     def fake_create_response(*args: Any, **kwargs: Any) -> Any:
         return sentinel
 
-    monkeypatch.setattr(client, "_create_guardrails_response", fake_create_response)  # type: ignore[attr-defined]
+    monkeypatch.setattr(client, "_create_guardrails_response", fake_create_response)
 
     result = client._handle_llm_response(
-        llm_response=SimpleNamespace(output_text="text", choices=[]),
+        llm_response=cast("OpenAIResponseType", SimpleNamespace(output_text="text", choices=[])),
         preflight_results=[],
         input_results=[],
         conversation_history=[],
@@ -563,17 +572,17 @@ def test_handle_llm_response_suppresses_tripwire_output(monkeypatch: pytest.Monk
     def fake_run_stage(
         stage_name: str,
         text: str,
-        conversation_history: list | None = None,
+        conversation_history: list[Any] | None = None,
         suppress_tripwire: bool = False,
     ) -> list[GuardrailResult]:
         return [GuardrailResult(tripwire_triggered=True)]
 
-    monkeypatch.setattr(client, "_run_stage_guardrails", fake_run_stage)  # type: ignore[attr-defined]
+    monkeypatch.setattr(client, "_run_stage_guardrails", fake_run_stage)
 
     response = SimpleNamespace(output_text="text", choices=[])
 
     result = client._handle_llm_response(
-        response,
+        cast("OpenAIResponseType", response),
         preflight_results=[],
         input_results=[],
         conversation_history=[],

@@ -1,26 +1,29 @@
 """Responses API with guardrails."""
 
+from __future__ import annotations
+
 import asyncio
 from collections.abc import AsyncIterator
 from concurrent.futures import ThreadPoolExecutor
 from contextvars import copy_context
 from functools import partial
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel
 
-from ..._base_client import GuardrailsBaseClient
+if TYPE_CHECKING:
+    from ...client import GuardrailsAsyncAzureOpenAI, GuardrailsAsyncOpenAI, GuardrailsAzureOpenAI, GuardrailsOpenAI
 from ...utils.safety_identifier import SAFETY_IDENTIFIER, supports_safety_identifier
 
 
 class Responses:
     """Responses API with guardrails (sync)."""
 
-    def __init__(self, client: GuardrailsBaseClient) -> None:
+    def __init__(self, client: GuardrailsOpenAI | GuardrailsAzureOpenAI) -> None:
         """Initialize Responses resource.
 
         Args:
-            client: GuardrailsBaseClient instance with configured guardrails.
+            client: GuardrailsOpenAI | GuardrailsAzureOpenAI instance with configured guardrails.
         """
         self._client = client
 
@@ -29,7 +32,7 @@ class Responses:
         input: str | list[dict[str, str]],
         model: str,
         stream: bool = False,
-        tools: list[dict] | None = None,
+        tools: list[dict[str, Any]] | None = None,
         suppress_tripwire: bool = False,
         **kwargs,
     ):
@@ -184,11 +187,11 @@ class Responses:
 class AsyncResponses:
     """Responses API with guardrails (async)."""
 
-    def __init__(self, client):
+    def __init__(self, client: GuardrailsAsyncOpenAI | GuardrailsAsyncAzureOpenAI) -> None:
         """Initialize AsyncResponses resource.
 
         Args:
-            client: GuardrailsBaseClient instance with configured guardrails.
+            client: GuardrailsAsyncOpenAI | GuardrailsAsyncAzureOpenAI instance with configured guardrails.
         """
         self._client = client
 
@@ -197,7 +200,7 @@ class AsyncResponses:
         input: str | list[dict[str, str]],
         model: str,
         stream: bool = False,
-        tools: list[dict] | None = None,
+        tools: list[dict[str, Any]] | None = None,
         suppress_tripwire: bool = False,
         **kwargs,
     ) -> Any | AsyncIterator[Any]:

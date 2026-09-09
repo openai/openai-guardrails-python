@@ -478,6 +478,8 @@ async def run_guardrails(
             # Re-raise the first execution failure
             failure = execution_failures[0]
             logger.debug("Re-raising guardrail execution error due to raise_guardrail_errors=True")
+            # GuardrailResult enforces this invariant in __post_init__.
+            assert failure.original_exception is not None
             raise failure.original_exception
 
     tripwire_results = [r for r in results if r.tripwire_triggered]

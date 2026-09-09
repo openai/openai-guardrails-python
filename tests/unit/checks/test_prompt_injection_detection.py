@@ -2,6 +2,11 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING, cast
+
+if TYPE_CHECKING:
+    from guardrails.types import GuardrailLLMContextProto
+
 from types import SimpleNamespace
 from typing import Any
 
@@ -144,7 +149,7 @@ async def test_prompt_injection_detection_triggers(monkeypatch: pytest.MonkeyPat
     monkeypatch.setattr(pid_module, "_call_prompt_injection_detection_llm", fake_call_llm)
 
     config = LLMConfig(model="gpt-test", confidence_threshold=0.9)
-    result = await prompt_injection_detection(context, data="{}", config=config)
+    result = await prompt_injection_detection(cast("GuardrailLLMContextProto", context), data="{}", config=config)
 
     assert result.tripwire_triggered is True  # noqa: S101
 
@@ -161,7 +166,7 @@ async def test_prompt_injection_detection_no_trigger(monkeypatch: pytest.MonkeyP
     monkeypatch.setattr(pid_module, "_call_prompt_injection_detection_llm", fake_call_llm)
 
     config = LLMConfig(model="gpt-test", confidence_threshold=0.9)
-    result = await prompt_injection_detection(context, data="{}", config=config)
+    result = await prompt_injection_detection(cast("GuardrailLLMContextProto", context), data="{}", config=config)
 
     assert result.tripwire_triggered is False  # noqa: S101
     assert "Aligned" in result.info["observation"]  # noqa: S101
@@ -173,7 +178,7 @@ async def test_prompt_injection_detection_skips_without_history(monkeypatch: pyt
     context = _FakeContext([])
     config = LLMConfig(model="gpt-test", confidence_threshold=0.9)
 
-    result = await prompt_injection_detection(context, data="{}", config=config)
+    result = await prompt_injection_detection(cast("GuardrailLLMContextProto", context), data="{}", config=config)
 
     assert result.tripwire_triggered is False  # noqa: S101
     assert result.info["observation"] == "No conversation history available"  # noqa: S101
@@ -191,7 +196,7 @@ async def test_prompt_injection_detection_handles_analysis_error(monkeypatch: py
     monkeypatch.setattr(pid_module, "_call_prompt_injection_detection_llm", failing_llm)
 
     config = LLMConfig(model="gpt-test", confidence_threshold=0.7)
-    result = await prompt_injection_detection(context, data="{}", config=config)
+    result = await prompt_injection_detection(cast("GuardrailLLMContextProto", context), data="{}", config=config)
 
     assert result.tripwire_triggered is False  # noqa: S101
     assert "Error during prompt injection detection check" in result.info["observation"]  # noqa: S101
@@ -210,7 +215,7 @@ async def test_prompt_injection_detection_llm_supports_sync_responses() -> None:
     context = SimpleNamespace(guardrail_llm=SimpleNamespace(responses=_SyncResponses()))
     config = LLMConfig(model="gpt-test", confidence_threshold=0.5)
 
-    parsed, token_usage = await pid_module._call_prompt_injection_detection_llm(context, "prompt", config)
+    parsed, token_usage = await pid_module._call_prompt_injection_detection_llm(cast("GuardrailLLMContextProto", context), "prompt", config)
 
     assert parsed is analysis  # noqa: S101
     assert token_usage.total_tokens == 75  # noqa: S101
@@ -232,7 +237,7 @@ async def test_prompt_injection_detection_skips_assistant_content(monkeypatch: p
     monkeypatch.setattr(pid_module, "_call_prompt_injection_detection_llm", fake_call_llm)
 
     config = LLMConfig(model="gpt-test", confidence_threshold=0.7)
-    result = await prompt_injection_detection(context, data="{}", config=config)
+    result = await prompt_injection_detection(cast("GuardrailLLMContextProto", context), data="{}", config=config)
 
     # Should skip since we only analyze tool calls and outputs, not assistant content
     assert result.tripwire_triggered is False  # noqa: S101
@@ -257,7 +262,7 @@ async def test_prompt_injection_detection_skips_empty_assistant_messages(monkeyp
     monkeypatch.setattr(pid_module, "_call_prompt_injection_detection_llm", fake_call_llm)
 
     config = LLMConfig(model="gpt-test", confidence_threshold=0.7)
-    result = await prompt_injection_detection(context, data="{}", config=config)
+    result = await prompt_injection_detection(cast("GuardrailLLMContextProto", context), data="{}", config=config)
 
     assert result.tripwire_triggered is False  # noqa: S101
 
@@ -290,7 +295,7 @@ async def test_prompt_injection_detection_ignores_unknown_function_name_mismatch
     monkeypatch.setattr(pid_module, "_call_prompt_injection_detection_llm", fake_call_llm)
 
     config = LLMConfig(model="gpt-test", confidence_threshold=0.7)
-    result = await prompt_injection_detection(context, data="{}", config=config)
+    result = await prompt_injection_detection(cast("GuardrailLLMContextProto", context), data="{}", config=config)
 
     assert result.tripwire_triggered is False  # noqa: S101
     assert "align" in result.info["observation"].lower()  # noqa: S101
@@ -330,7 +335,7 @@ async def test_prompt_injection_detection_flags_tool_output_with_response_direct
     monkeypatch.setattr(pid_module, "_call_prompt_injection_detection_llm", fake_call_llm)
 
     config = LLMConfig(model="gpt-test", confidence_threshold=0.7)
-    result = await prompt_injection_detection(context, data="{}", config=config)
+    result = await prompt_injection_detection(cast("GuardrailLLMContextProto", context), data="{}", config=config)
 
     assert result.tripwire_triggered is True  # noqa: S101
     assert result.info["flagged"] is True  # noqa: S101
@@ -370,7 +375,7 @@ async def test_prompt_injection_detection_flags_tool_output_with_fake_conversati
     monkeypatch.setattr(pid_module, "_call_prompt_injection_detection_llm", fake_call_llm)
 
     config = LLMConfig(model="gpt-test", confidence_threshold=0.7)
-    result = await prompt_injection_detection(context, data="{}", config=config)
+    result = await prompt_injection_detection(cast("GuardrailLLMContextProto", context), data="{}", config=config)
 
     assert result.tripwire_triggered is True  # noqa: S101
     assert result.info["flagged"] is True  # noqa: S101
@@ -407,7 +412,7 @@ async def test_prompt_injection_detection_flags_tool_output_with_fake_user_messa
     monkeypatch.setattr(pid_module, "_call_prompt_injection_detection_llm", fake_call_llm)
 
     config = LLMConfig(model="gpt-test", confidence_threshold=0.7)
-    result = await prompt_injection_detection(context, data="{}", config=config)
+    result = await prompt_injection_detection(cast("GuardrailLLMContextProto", context), data="{}", config=config)
 
     assert result.tripwire_triggered is True  # noqa: S101
     assert result.info["flagged"] is True  # noqa: S101
@@ -444,7 +449,7 @@ async def test_prompt_injection_detection_allows_legitimate_tool_output(
     monkeypatch.setattr(pid_module, "_call_prompt_injection_detection_llm", fake_call_llm)
 
     config = LLMConfig(model="gpt-test", confidence_threshold=0.7)
-    result = await prompt_injection_detection(context, data="{}", config=config)
+    result = await prompt_injection_detection(cast("GuardrailLLMContextProto", context), data="{}", config=config)
 
     assert result.tripwire_triggered is False  # noqa: S101
     assert result.info["flagged"] is False  # noqa: S101
@@ -486,7 +491,7 @@ async def test_prompt_injection_detection_respects_max_turns_config(
 
     # With max_turns=2, only "Old message 3" and "Recent message" should be in context
     config = LLMConfig(model="gpt-test", confidence_threshold=0.7, max_turns=2)
-    await prompt_injection_detection(context, data="{}", config=config)
+    await prompt_injection_detection(cast("GuardrailLLMContextProto", context), data="{}", config=config)
 
     # Verify old messages are not in the prompt
     prompt = captured_prompt[0]
@@ -524,7 +529,7 @@ async def test_prompt_injection_detection_single_turn_mode(
 
     # With max_turns=1, only "The actual request" should be used
     config = LLMConfig(model="gpt-test", confidence_threshold=0.7, max_turns=1)
-    await prompt_injection_detection(context, data="{}", config=config)
+    await prompt_injection_detection(cast("GuardrailLLMContextProto", context), data="{}", config=config)
 
     prompt = captured_prompt[0]
     # Previous context should NOT be included
@@ -569,7 +574,7 @@ async def test_prompt_injection_detection_includes_reasoning_when_enabled(
     monkeypatch.setattr(pid_module, "_call_prompt_injection_detection_llm", fake_call_llm)
 
     config = LLMConfig(model="gpt-test", confidence_threshold=0.7, include_reasoning=True)
-    result = await prompt_injection_detection(context, data="{}", config=config)
+    result = await prompt_injection_detection(cast("GuardrailLLMContextProto", context), data="{}", config=config)
 
     assert recorded_output_model == PromptInjectionDetectionOutput  # noqa: S101
     assert result.tripwire_triggered is True  # noqa: S101
@@ -608,7 +613,7 @@ async def test_prompt_injection_detection_excludes_reasoning_when_disabled(
     monkeypatch.setattr(pid_module, "_call_prompt_injection_detection_llm", fake_call_llm)
 
     config = LLMConfig(model="gpt-test", confidence_threshold=0.7, include_reasoning=False)
-    result = await prompt_injection_detection(context, data="{}", config=config)
+    result = await prompt_injection_detection(cast("GuardrailLLMContextProto", context), data="{}", config=config)
 
     assert recorded_output_model == LLMOutput  # noqa: S101
     assert result.tripwire_triggered is False  # noqa: S101

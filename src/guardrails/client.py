@@ -15,7 +15,7 @@ from typing import Any
 from openai import AsyncOpenAI, OpenAI
 
 try:  # Optional Azure support
-    from openai import AsyncAzureOpenAI, AzureOpenAI  # type: ignore
+    from openai import AsyncAzureOpenAI, AzureOpenAI
 except Exception:  # pragma: no cover
     AsyncAzureOpenAI = None  # type: ignore
     AzureOpenAI = None  # type: ignore
@@ -111,7 +111,7 @@ async def _collect_conversation_items_async(resource_client: Any, previous_respo
                 order="asc",
                 limit=100,
             )
-            async for item in page:  # type: ignore[attr-defined]
+            async for item in page:
                 items.append(item)
         except Exception:  # pragma: no cover - upstream client/network errors
             items = []
@@ -123,7 +123,7 @@ async def _collect_conversation_items_async(resource_client: Any, previous_respo
                 order="asc",
                 limit=100,
             )
-            async for item in page:  # type: ignore[attr-defined]
+            async for item in page:
                 items.append(item)
         except Exception:  # pragma: no cover - upstream client/network errors
             items = []
@@ -188,12 +188,15 @@ class GuardrailsAsyncOpenAI(AsyncOpenAI, GuardrailsBaseClient, StreamingMixin):
         # Create a separate client instance for guardrails (not the same as main client)
         @dataclass
         class DefaultContext:
-            guardrail_llm: AsyncOpenAI
+            guardrail_llm: AsyncOpenAI | OpenAI
+
+            def get_conversation_history(self) -> None:
+                return None
 
         # Create separate instance with same configuration
         from openai import AsyncOpenAI
 
-        guardrail_kwargs = {
+        guardrail_kwargs: dict[str, Any] = {
             "api_key": self.api_key,
             "base_url": getattr(self, "base_url", None),
             "organization": getattr(self, "organization", None),
@@ -207,16 +210,16 @@ class GuardrailsAsyncOpenAI(AsyncOpenAI, GuardrailsBaseClient, StreamingMixin):
 
         return DefaultContext(guardrail_llm=guardrail_client)
 
-    def _create_context_with_conversation(self, conversation_history: list) -> GuardrailLLMContextProto:
+    def _create_context_with_conversation(self, conversation_history: list[Any]) -> GuardrailLLMContextProto:
         """Create a context with conversation history for prompt injection detection guardrail."""
 
         # Create a new context that includes conversation history
         @dataclass
         class ConversationContext:
-            guardrail_llm: AsyncOpenAI
-            conversation_history: list
+            guardrail_llm: AsyncOpenAI | OpenAI
+            conversation_history: list[Any]
 
-            def get_conversation_history(self) -> list:
+            def get_conversation_history(self) -> list[Any]:
                 return self.conversation_history
 
         return ConversationContext(
@@ -224,7 +227,7 @@ class GuardrailsAsyncOpenAI(AsyncOpenAI, GuardrailsBaseClient, StreamingMixin):
             conversation_history=conversation_history,
         )
 
-    def _append_llm_response_to_conversation(self, conversation_history: list | str, llm_response: Any) -> list:
+    def _append_llm_response_to_conversation(self, conversation_history: list[Any] | str | None, llm_response: Any) -> list[Any]:
         """Append LLM response to conversation history as-is."""
         normalized_history = self._normalize_conversation(conversation_history)
         return self._conversation_with_response(normalized_history, llm_response)
@@ -252,13 +255,14 @@ class GuardrailsAsyncOpenAI(AsyncOpenAI, GuardrailsBaseClient, StreamingMixin):
         self,
         stage_name: str,
         text: str,
-        conversation_history: list | None = None,
+        conversation_history: list[Any] | None = None,
         suppress_tripwire: bool = False,
     ) -> list[GuardrailResult]:
         """Run guardrails for a specific pipeline stage."""
         if not self.guardrails[stage_name]:
             return []
 
+        results: list[GuardrailResult] = []
         try:
             ctx = self.context
             if conversation_history:
@@ -292,7 +296,7 @@ class GuardrailsAsyncOpenAI(AsyncOpenAI, GuardrailsBaseClient, StreamingMixin):
         llm_response: OpenAIResponseType,
         preflight_results: list[GuardrailResult],
         input_results: list[GuardrailResult],
-        conversation_history: list = None,
+        conversation_history: list[Any] | None = None,
         suppress_tripwire: bool = False,
     ) -> GuardrailsResponse:
         """Handle non-streaming LLM response with output guardrails."""
@@ -355,12 +359,15 @@ class GuardrailsOpenAI(OpenAI, GuardrailsBaseClient, StreamingMixin):
         # Create a separate client instance for guardrails (not the same as main client)
         @dataclass
         class DefaultContext:
-            guardrail_llm: OpenAI
+            guardrail_llm: AsyncOpenAI | OpenAI
+
+            def get_conversation_history(self) -> None:
+                return None
 
         # Create separate instance with same configuration
         from openai import OpenAI
 
-        guardrail_kwargs = {
+        guardrail_kwargs: dict[str, Any] = {
             "api_key": self.api_key,
             "base_url": getattr(self, "base_url", None),
             "organization": getattr(self, "organization", None),
@@ -374,16 +381,16 @@ class GuardrailsOpenAI(OpenAI, GuardrailsBaseClient, StreamingMixin):
 
         return DefaultContext(guardrail_llm=guardrail_client)
 
-    def _create_context_with_conversation(self, conversation_history: list) -> GuardrailLLMContextProto:
+    def _create_context_with_conversation(self, conversation_history: list[Any]) -> GuardrailLLMContextProto:
         """Create a context with conversation history for prompt injection detection guardrail."""
 
         # Create a new context that includes conversation history
         @dataclass
         class ConversationContext:
-            guardrail_llm: OpenAI
-            conversation_history: list
+            guardrail_llm: AsyncOpenAI | OpenAI
+            conversation_history: list[Any]
 
-            def get_conversation_history(self) -> list:
+            def get_conversation_history(self) -> list[Any]:
                 return self.conversation_history
 
         return ConversationContext(
@@ -391,7 +398,7 @@ class GuardrailsOpenAI(OpenAI, GuardrailsBaseClient, StreamingMixin):
             conversation_history=conversation_history,
         )
 
-    def _append_llm_response_to_conversation(self, conversation_history: list | str, llm_response: Any) -> list:
+    def _append_llm_response_to_conversation(self, conversation_history: list[Any] | str | None, llm_response: Any) -> list[Any]:
         """Append LLM response to conversation history as-is."""
         normalized_history = self._normalize_conversation(conversation_history)
         return self._conversation_with_response(normalized_history, llm_response)
@@ -419,7 +426,7 @@ class GuardrailsOpenAI(OpenAI, GuardrailsBaseClient, StreamingMixin):
         self,
         stage_name: str,
         text: str,
-        conversation_history: list = None,
+        conversation_history: list[Any] | None = None,
         suppress_tripwire: bool = False,
     ) -> list[GuardrailResult]:
         """Run guardrails for a specific pipeline stage (synchronous)."""
@@ -471,7 +478,7 @@ class GuardrailsOpenAI(OpenAI, GuardrailsBaseClient, StreamingMixin):
         llm_response: OpenAIResponseType,
         preflight_results: list[GuardrailResult],
         input_results: list[GuardrailResult],
-        conversation_history: list = None,
+        conversation_history: list[Any] | None = None,
         suppress_tripwire: bool = False,
     ) -> GuardrailsResponse:
         """Handle LLM response with output guardrails."""
@@ -494,7 +501,7 @@ class GuardrailsOpenAI(OpenAI, GuardrailsBaseClient, StreamingMixin):
 
 if AsyncAzureOpenAI is not None:
 
-    class GuardrailsAsyncAzureOpenAI(AsyncAzureOpenAI, GuardrailsBaseClient, StreamingMixin):  # type: ignore
+    class GuardrailsAsyncAzureOpenAI(AsyncAzureOpenAI, GuardrailsBaseClient, StreamingMixin):
         """AsyncAzureOpenAI subclass with automatic guardrail integration."""
 
         def __init__(
@@ -520,7 +527,7 @@ if AsyncAzureOpenAI is not None:
             self.raise_guardrail_errors = raise_guardrail_errors
 
             # Initialize common guardrails infra; resource client should also be Azure
-            from openai import AsyncAzureOpenAI as _AsyncAzureOpenAI  # type: ignore
+            from openai import AsyncAzureOpenAI as _AsyncAzureOpenAI
 
             # Persist azure kwargs so we can mirror them when creating the context client
             self._azure_kwargs: dict[str, Any] = dict(azure_kwargs)
@@ -536,24 +543,27 @@ if AsyncAzureOpenAI is not None:
             # Create a separate Azure client instance for guardrails
             @dataclass
             class DefaultContext:
-                guardrail_llm: Any  # AsyncAzureOpenAI
+                guardrail_llm: AsyncOpenAI | OpenAI
 
-            from openai import AsyncAzureOpenAI as _AsyncAzureOpenAI  # type: ignore
+                def get_conversation_history(self) -> None:
+                    return None
+
+            from openai import AsyncAzureOpenAI as _AsyncAzureOpenAI
 
             # Use the same kwargs the main Azure client was constructed with
             guardrail_client = _AsyncAzureOpenAI(**self._azure_kwargs)
             return DefaultContext(guardrail_llm=guardrail_client)
 
-        def _create_context_with_conversation(self, conversation_history: list) -> GuardrailLLMContextProto:
+        def _create_context_with_conversation(self, conversation_history: list[Any]) -> GuardrailLLMContextProto:
             """Create a context with conversation history for prompt injection detection guardrail."""
 
             # Create a new context that includes conversation history
             @dataclass
             class ConversationContext:
-                guardrail_llm: Any  # AsyncAzureOpenAI
-                conversation_history: list
+                guardrail_llm: AsyncOpenAI | OpenAI
+                conversation_history: list[Any]
 
-                def get_conversation_history(self) -> list:
+                def get_conversation_history(self) -> list[Any]:
                     return self.conversation_history
 
             return ConversationContext(
@@ -561,7 +571,7 @@ if AsyncAzureOpenAI is not None:
                 conversation_history=conversation_history,
             )
 
-        def _append_llm_response_to_conversation(self, conversation_history: list | str, llm_response: Any) -> list:
+        def _append_llm_response_to_conversation(self, conversation_history: list[Any] | str | None, llm_response: Any) -> list[Any]:
             """Append LLM response to conversation history as-is."""
             normalized_history = self._normalize_conversation(conversation_history)
             return self._conversation_with_response(normalized_history, llm_response)
@@ -587,13 +597,14 @@ if AsyncAzureOpenAI is not None:
             self,
             stage_name: str,
             text: str,
-            conversation_history: list = None,
+            conversation_history: list[Any] | None = None,
             suppress_tripwire: bool = False,
         ) -> list[GuardrailResult]:
             """Run guardrails for a specific pipeline stage."""
             if not self.guardrails[stage_name]:
                 return []
 
+            results: list[GuardrailResult] = []
             try:
                 ctx = self.context
                 if conversation_history:
@@ -627,7 +638,7 @@ if AsyncAzureOpenAI is not None:
             llm_response: OpenAIResponseType,
             preflight_results: list[GuardrailResult],
             input_results: list[GuardrailResult],
-            conversation_history: list = None,
+            conversation_history: list[Any] | None = None,
             suppress_tripwire: bool = False,
         ) -> GuardrailsResponse:
             """Handle non-streaming LLM response with output guardrails (async)."""
@@ -648,7 +659,7 @@ if AsyncAzureOpenAI is not None:
 
 if AzureOpenAI is not None:
 
-    class GuardrailsAzureOpenAI(AzureOpenAI, GuardrailsBaseClient, StreamingMixin):  # type: ignore
+    class GuardrailsAzureOpenAI(AzureOpenAI, GuardrailsBaseClient, StreamingMixin):
         """AzureOpenAI subclass with automatic guardrail integration (sync)."""
 
         def __init__(
@@ -672,7 +683,7 @@ if AzureOpenAI is not None:
             # Store the error handling preference
             self.raise_guardrail_errors = raise_guardrail_errors
 
-            from openai import AzureOpenAI as _AzureOpenAI  # type: ignore
+            from openai import AzureOpenAI as _AzureOpenAI
 
             # Persist azure kwargs
             self._azure_kwargs: dict[str, Any] = dict(azure_kwargs)
@@ -686,23 +697,26 @@ if AzureOpenAI is not None:
 
             @dataclass
             class DefaultContext:
-                guardrail_llm: Any  # AzureOpenAI
+                guardrail_llm: AsyncOpenAI | OpenAI
 
-            from openai import AzureOpenAI as _AzureOpenAI  # type: ignore
+                def get_conversation_history(self) -> None:
+                    return None
+
+            from openai import AzureOpenAI as _AzureOpenAI
 
             guardrail_client = _AzureOpenAI(**self._azure_kwargs)
             return DefaultContext(guardrail_llm=guardrail_client)
 
-        def _create_context_with_conversation(self, conversation_history: list) -> GuardrailLLMContextProto:
+        def _create_context_with_conversation(self, conversation_history: list[Any]) -> GuardrailLLMContextProto:
             """Create a context with conversation history for prompt injection detection guardrail."""
 
             # Create a new context that includes conversation history
             @dataclass
             class ConversationContext:
-                guardrail_llm: Any  # AzureOpenAI
-                conversation_history: list
+                guardrail_llm: AsyncOpenAI | OpenAI
+                conversation_history: list[Any]
 
-                def get_conversation_history(self) -> list:
+                def get_conversation_history(self) -> list[Any]:
                     return self.conversation_history
 
             return ConversationContext(
@@ -710,7 +724,7 @@ if AzureOpenAI is not None:
                 conversation_history=conversation_history,
             )
 
-        def _append_llm_response_to_conversation(self, conversation_history: list | str, llm_response: Any) -> list:
+        def _append_llm_response_to_conversation(self, conversation_history: list[Any] | str | None, llm_response: Any) -> list[Any]:
             """Append LLM response to conversation history as-is."""
             if conversation_history is None:
                 conversation_history = []
@@ -752,7 +766,7 @@ if AzureOpenAI is not None:
             self,
             stage_name: str,
             text: str,
-            conversation_history: list = None,
+            conversation_history: list[Any] | None = None,
             suppress_tripwire: bool = False,
         ) -> list[GuardrailResult]:
             """Run guardrails for a specific pipeline stage (synchronous)."""
@@ -810,7 +824,7 @@ if AzureOpenAI is not None:
             llm_response: OpenAIResponseType,
             preflight_results: list[GuardrailResult],
             input_results: list[GuardrailResult],
-            conversation_history: list = None,
+            conversation_history: list[Any] | None = None,
             suppress_tripwire: bool = False,
         ) -> GuardrailsResponse:
             """Handle LLM response with output guardrails (sync)."""

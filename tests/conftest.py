@@ -56,11 +56,11 @@ class _DummyResponse:
 
 
 _STUB_OPENAI_MODULE = types.ModuleType("openai")
-_STUB_OPENAI_MODULE.AsyncOpenAI = _StubAsyncOpenAI
-_STUB_OPENAI_MODULE.OpenAI = _StubSyncOpenAI
-_STUB_OPENAI_MODULE.AsyncAzureOpenAI = _StubAsyncOpenAI
-_STUB_OPENAI_MODULE.AzureOpenAI = _StubSyncOpenAI
-_STUB_OPENAI_MODULE.NOT_GIVEN = object()
+_STUB_OPENAI_MODULE.__dict__["AsyncOpenAI"] = _StubAsyncOpenAI
+_STUB_OPENAI_MODULE.__dict__["OpenAI"] = _StubSyncOpenAI
+_STUB_OPENAI_MODULE.__dict__["AsyncAzureOpenAI"] = _StubAsyncOpenAI
+_STUB_OPENAI_MODULE.__dict__["AzureOpenAI"] = _StubSyncOpenAI
+_STUB_OPENAI_MODULE.__dict__["NOT_GIVEN"] = object()
 
 
 class APITimeoutError(Exception):
@@ -77,33 +77,33 @@ class NotFoundError(Exception):
         self.body = body
 
 
-_STUB_OPENAI_MODULE.APITimeoutError = APITimeoutError
-_STUB_OPENAI_MODULE.NotFoundError = NotFoundError
+_STUB_OPENAI_MODULE.__dict__["APITimeoutError"] = APITimeoutError
+_STUB_OPENAI_MODULE.__dict__["NotFoundError"] = NotFoundError
 
 _OPENAI_TYPES_MODULE = types.ModuleType("openai.types")
-_OPENAI_TYPES_MODULE.Completion = _DummyResponse
-_OPENAI_TYPES_MODULE.Response = _DummyResponse
+_OPENAI_TYPES_MODULE.__dict__["Completion"] = _DummyResponse
+_OPENAI_TYPES_MODULE.__dict__["Response"] = _DummyResponse
 
 _OPENAI_CHAT_MODULE = types.ModuleType("openai.types.chat")
-_OPENAI_CHAT_MODULE.ChatCompletion = _DummyResponse
-_OPENAI_CHAT_MODULE.ChatCompletionChunk = _DummyResponse
+_OPENAI_CHAT_MODULE.__dict__["ChatCompletion"] = _DummyResponse
+_OPENAI_CHAT_MODULE.__dict__["ChatCompletionChunk"] = _DummyResponse
 
 _OPENAI_RESPONSES_MODULE = types.ModuleType("openai.types.responses")
-_OPENAI_RESPONSES_MODULE.Response = _DummyResponse
-_OPENAI_RESPONSES_MODULE.ResponseInputItemParam = dict  # type: ignore[attr-defined]
-_OPENAI_RESPONSES_MODULE.ResponseOutputItem = dict  # type: ignore[attr-defined]
-_OPENAI_RESPONSES_MODULE.ResponseStreamEvent = dict  # type: ignore[attr-defined]
+_OPENAI_RESPONSES_MODULE.__dict__["Response"] = _DummyResponse
+_OPENAI_RESPONSES_MODULE.__dict__["ResponseInputItemParam"] = dict
+_OPENAI_RESPONSES_MODULE.__dict__["ResponseOutputItem"] = dict
+_OPENAI_RESPONSES_MODULE.__dict__["ResponseStreamEvent"] = dict
 
 
 _OPENAI_RESPONSES_RESPONSE_MODULE = types.ModuleType("openai.types.responses.response")
-_OPENAI_RESPONSES_RESPONSE_MODULE.Response = _DummyResponse
+_OPENAI_RESPONSES_RESPONSE_MODULE.__dict__["Response"] = _DummyResponse
 
 
-class _ResponseTextConfigParam(dict):
+class _ResponseTextConfigParam(dict[str, Any]):
     """Stub config param used for response formatting."""
 
 
-_OPENAI_RESPONSES_MODULE.ResponseTextConfigParam = _ResponseTextConfigParam
+_OPENAI_RESPONSES_MODULE.__dict__["ResponseTextConfigParam"] = _ResponseTextConfigParam
 
 sys.modules["openai"] = _STUB_OPENAI_MODULE
 sys.modules["openai.types"] = _OPENAI_TYPES_MODULE
@@ -116,7 +116,7 @@ sys.modules["openai.types.responses.response"] = _OPENAI_RESPONSES_RESPONSE_MODU
 def stub_openai_module(monkeypatch: pytest.MonkeyPatch) -> Iterator[types.ModuleType]:
     """Provide stub OpenAI module so tests avoid real network-bound clients."""
     # Patch imported symbols in guardrails modules
-    from guardrails import _base_client, client, types as guardrail_types  # type: ignore
+    from guardrails import _base_client, client, types as guardrail_types
 
     monkeypatch.setattr(_base_client, "AsyncOpenAI", _StubAsyncOpenAI, raising=False)
     monkeypatch.setattr(_base_client, "OpenAI", _StubSyncOpenAI, raising=False)

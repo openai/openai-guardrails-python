@@ -2,6 +2,11 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING, cast
+
+if TYPE_CHECKING:
+    from openai import AsyncOpenAI
+
 import asyncio
 from pathlib import Path
 from types import SimpleNamespace
@@ -49,7 +54,7 @@ async def test_create_vector_store_from_directory(tmp_path: Path, monkeypatch: p
 
     client = _FakeAsyncOpenAI()
 
-    vector_store_id = await asyncio.wait_for(create_vector_store_from_path(tmp_path, client), timeout=1)
+    vector_store_id = await asyncio.wait_for(create_vector_store_from_path(tmp_path, cast("AsyncOpenAI", client)), timeout=1)
 
     assert vector_store_id == "vs_123"  # noqa: S101
 
@@ -61,7 +66,7 @@ async def test_create_vector_store_no_supported_files(tmp_path: Path) -> None:
     client = _FakeAsyncOpenAI()
 
     with pytest.raises(ValueError):
-        await create_vector_store_from_path(tmp_path, client)
+        await create_vector_store_from_path(tmp_path, cast("AsyncOpenAI", client))
 
 
 def test_supported_file_types_contains_common_extensions() -> None:

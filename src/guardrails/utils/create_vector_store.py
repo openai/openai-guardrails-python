@@ -12,6 +12,7 @@ import asyncio
 import logging
 import sys
 from pathlib import Path
+from typing import cast
 
 from openai import AsyncOpenAI
 
@@ -110,7 +111,7 @@ async def create_vector_store_from_path(
             files = await client.vector_stores.files.list(vector_store_id=vector_store.id)
 
             # Check if all files are completed
-            statuses = [file.status for file in files.data]
+            statuses = [cast(str, file.status) for file in files.data]
             if all(status == "completed" for status in statuses):
                 logger.info(f"Vector store created successfully: {vector_store.id}")
                 return vector_store.id

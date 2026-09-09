@@ -251,7 +251,7 @@ async def hallucination_detection(
         # Build the prompt based on whether reasoning is requested
         if config.include_reasoning:
             output_instruction = REASONING_OUTPUT_INSTRUCTION
-            output_format = HallucinationDetectionOutput
+            output_format: type[LLMOutput] = HallucinationDetectionOutput
         else:
             output_instruction = BASE_OUTPUT_INSTRUCTION
             output_format = LLMOutput

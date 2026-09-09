@@ -5,19 +5,21 @@ using Python's built-in ContextVars, which automatically propagate through
 async/await boundaries and execution contexts.
 """
 
+from __future__ import annotations
+
 from contextvars import ContextVar
 from dataclasses import dataclass
 
 from openai import AsyncOpenAI, OpenAI
 
 try:
-    from openai import AsyncAzureOpenAI, AzureOpenAI  # type: ignore
+    from openai import AsyncAzureOpenAI, AzureOpenAI
 except Exception:  # pragma: no cover - optional dependency
     AsyncAzureOpenAI = object  # type: ignore
     AzureOpenAI = object  # type: ignore
 
 # Main context variable for guardrails
-CTX = ContextVar("guardrails_context", default=None)
+CTX: ContextVar[GuardrailsContext | None] = ContextVar("guardrails_context", default=None)
 
 
 @dataclass(frozen=True, slots=True)
@@ -34,11 +36,11 @@ class GuardrailsContext:
     Both client types work seamlessly with the guardrails system.
     """
 
-    guardrail_llm: AsyncOpenAI | OpenAI | AsyncAzureOpenAI | AzureOpenAI
-    # Add other context fields as needed
-    # user_id: str
-    # session_data: dict
-    # etc.
+    guardrail_llm: AsyncOpenAI | OpenAI
+
+    def get_conversation_history(self) -> None:
+        """Return no history for a client-only context."""
+        return None
 
 
 def set_context(context: GuardrailsContext) -> None:

@@ -2,6 +2,11 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING, cast
+
+if TYPE_CHECKING:
+    from openai.types.responses import ResponseInputParam
+
 from guardrails.utils.parsing import Entry, format_entries, parse_response_items, parse_response_items_as_json
 
 
@@ -21,21 +26,21 @@ def test_parse_response_items_handles_messages() -> None:
         },
     ]
 
-    entries = parse_response_items(items)
+    entries = parse_response_items(cast("ResponseInputParam", items))
 
     assert entries == [Entry(role="user", content="Hello!"), Entry(role="function_call", content="{}")]
 
 
 def test_parse_response_items_filters_by_role() -> None:
     items = [{"type": "message", "role": "assistant", "content": "Hi"}, {"type": "message", "role": "user", "content": "Bye"}]
-    entries = parse_response_items(items, filter_role="assistant")
+    entries = parse_response_items(cast("ResponseInputParam", items), filter_role="assistant")
 
     assert entries == [Entry(role="assistant", content="Hi")]
 
 
 def test_parse_response_items_as_json() -> None:
     entries_json = parse_response_items_as_json(
-        [{"type": "message", "role": "assistant", "content": "Hi"}],
+        cast("ResponseInputParam", [{"type": "message", "role": "assistant", "content": "Hi"}]),
     )
 
     assert "assistant" in entries_json  # noqa: S101

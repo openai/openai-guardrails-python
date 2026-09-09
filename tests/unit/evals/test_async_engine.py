@@ -2,6 +2,13 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING, cast
+
+if TYPE_CHECKING:
+    from openai import AsyncOpenAI
+
+    from guardrails.client import GuardrailsAsyncOpenAI
+
 import json
 from types import SimpleNamespace
 from typing import Any
@@ -49,7 +56,7 @@ def _make_result(triggered: bool) -> GuardrailResult:
 @pytest.mark.asyncio
 async def test_incremental_prompt_injection_stops_on_trigger() -> None:
     """Prompt injection helper should halt once the guardrail triggers."""
-    conversation = [
+    conversation: list[dict[str, Any]] = [
         {"role": "user", "content": "Plan a trip."},
         {"role": "assistant", "type": "function_call", "tool_calls": [{"id": "call_1"}]},
     ]
@@ -60,7 +67,7 @@ async def test_incremental_prompt_injection_stops_on_trigger() -> None:
     histories: list[list[Any]] = []
     client = _FakeClient(sequences, histories)
 
-    results = await async_engine_module._run_incremental_guardrails(client, conversation)
+    results = await async_engine_module._run_incremental_guardrails(cast("GuardrailsAsyncOpenAI", client), conversation)
 
     assert client._call_index == 2  # noqa: S101
     assert histories[0] == conversation[:1]  # noqa: S101
@@ -75,7 +82,7 @@ async def test_incremental_prompt_injection_stops_on_trigger() -> None:
 @pytest.mark.asyncio
 async def test_incremental_prompt_injection_returns_last_result_when_no_trigger() -> None:
     """Prompt injection helper should return last non-empty result when no trigger."""
-    conversation = [
+    conversation: list[dict[str, Any]] = [
         {"role": "system", "content": "You are helpful."},
         {"role": "user", "content": "Need weather update."},
         {"role": "assistant", "type": "function_call", "tool_calls": [{"id": "call_2"}]},
@@ -88,7 +95,7 @@ async def test_incremental_prompt_injection_returns_last_result_when_no_trigger(
     histories: list[list[Any]] = []
     client = _FakeClient(sequences, histories)
 
-    results = await async_engine_module._run_incremental_guardrails(client, conversation)
+    results = await async_engine_module._run_incremental_guardrails(cast("GuardrailsAsyncOpenAI", client), conversation)
 
     assert client._call_index == 3  # noqa: S101
     assert results == sequences[-1]  # noqa: S101
@@ -123,7 +130,7 @@ async def test_mixed_conversation_and_non_conversation_guardrails() -> None:
 
     # Create mock ctx requirements
     class DummyCtxModel:
-        model_fields = {}
+        model_fields: dict[str, Any] = {}
 
         @staticmethod
         def model_validate(value, **kwargs):
@@ -201,15 +208,15 @@ async def test_mixed_conversation_and_non_conversation_guardrails() -> None:
         ]
 
     # Patch both GuardrailsAsyncOpenAI and run_guardrails
-    original_client = async_engine_module.GuardrailsAsyncOpenAI
-    original_run_guardrails = async_engine_module.run_guardrails
+    original_client = async_engine_module.__dict__["GuardrailsAsyncOpenAI"]
+    original_run_guardrails = async_engine_module.__dict__["run_guardrails"]
 
-    async_engine_module.GuardrailsAsyncOpenAI = MockGuardrailsAsyncOpenAI
-    async_engine_module.run_guardrails = mock_run_guardrails
+    async_engine_module.__dict__["GuardrailsAsyncOpenAI"] = MockGuardrailsAsyncOpenAI
+    async_engine_module.__dict__["run_guardrails"] = mock_run_guardrails
 
     try:
         # Create context
-        context = Context(guardrail_llm=SimpleNamespace(api_key="test-key"))
+        context = Context(guardrail_llm=cast("AsyncOpenAI", SimpleNamespace(api_key="test-key")))
 
         # Evaluate the sample
         result = await engine._evaluate_sample(context, sample)
@@ -220,5 +227,5 @@ async def test_mixed_conversation_and_non_conversation_guardrails() -> None:
 
     finally:
         # Restore original implementations
-        async_engine_module.GuardrailsAsyncOpenAI = original_client
-        async_engine_module.run_guardrails = original_run_guardrails
+        async_engine_module.__dict__["GuardrailsAsyncOpenAI"] = original_client
+        async_engine_module.__dict__["run_guardrails"] = original_run_guardrails

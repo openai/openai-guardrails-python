@@ -10,7 +10,7 @@ import logging
 import warnings
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Final, Union
+from typing import Any, Final, Union, cast, overload
 from weakref import WeakValueDictionary
 
 from openai.types import Completion
@@ -185,7 +185,7 @@ class GuardrailsResponse:
 class GuardrailsBaseClient:
     """Base class with shared functionality for guardrails clients."""
 
-    def _extract_latest_user_message(self, messages: list) -> tuple[str, int]:
+    def _extract_latest_user_message(self, messages: list[Any]) -> tuple[str, int]:
         """Extract the latest user message text and its index from a list of message-like items.
 
         Supports both dict-based messages (OpenAI) and object models with
@@ -257,9 +257,13 @@ class GuardrailsBaseClient:
         self.context = self._create_default_context() if context is None else context
         self._validate_context(self.context)
 
-    def _apply_preflight_modifications(
-        self, data: list[dict[str, str]] | str, preflight_results: list[GuardrailResult]
-    ) -> list[dict[str, str]] | str:
+    @overload
+    def _apply_preflight_modifications(self, data: str, preflight_results: list[GuardrailResult]) -> str: ...
+
+    @overload
+    def _apply_preflight_modifications(self, data: list[Any], preflight_results: list[GuardrailResult]) -> list[Any]: ...
+
+    def _apply_preflight_modifications(self, data: list[Any] | str, preflight_results: list[GuardrailResult]) -> list[Any] | str:
         """Apply pre-flight modifications to messages or text.
 
         Args:
@@ -315,7 +319,7 @@ class GuardrailsBaseClient:
         # Unknown content type, return unchanged
         return data
 
-    def _update_message_content(self, data: list[dict[str, str]], user_idx: int, new_content: Any) -> list[dict[str, str]]:
+    def _update_message_content(self, data: list[Any], user_idx: int, new_content: Any) -> list[Any]:
         """Update message content at the specified index.
 
         Args:
@@ -341,11 +345,11 @@ class GuardrailsBaseClient:
 
     def _apply_pii_masking_to_structured_content(
         self,
-        data: list[dict[str, str]],
+        data: list[Any],
         pii_result: GuardrailResult,
         user_idx: int,
-        current_content: list,
-    ) -> list[dict[str, str]]:
+        current_content: list[Any],
+    ) -> list[Any]:
         """Apply PII masking to structured content parts using Presidio.
 
         Args:
@@ -384,7 +388,7 @@ class GuardrailsBaseClient:
                 return text
 
             # Import functions from pii module
-            from .checks.text.pii import _build_decoded_text, _normalize_unicode
+            from .checks.text.pii import EncodedCandidate, _build_decoded_text, _normalize_unicode
 
             # Normalize to prevent bypasses
             normalized = _normalize_unicode(text)
@@ -395,7 +399,7 @@ class GuardrailsBaseClient:
 
             # Check for encoded PII if enabled
             has_encoded_pii = False
-            encoded_candidates = []
+            encoded_candidates: list[EncodedCandidate] = []
 
             if detect_encoded_pii:
                 decoded_text, encoded_candidates = _build_decoded_text(normalized)
@@ -488,7 +492,7 @@ class GuardrailsBaseClient:
 
         return self._update_message_content(data, user_idx, modified_content)
 
-    def _instantiate_all_guardrails(self) -> dict[str, list]:
+    def _instantiate_all_guardrails(self) -> dict[str, list[Any]]:
         """Instantiate guardrails for all stages."""
         from .registry import default_spec_registry
         from .runtime import instantiate_guardrails
@@ -546,11 +550,17 @@ class GuardrailsBaseClient:
             context = get_context()
             if context and hasattr(context, "guardrail_llm"):
                 # Use the context's guardrail_llm
-                return context
+                # ContextVars also accepts the released frozen GuardrailsContext.
+                # Checks only read it; preserve the public protocol's writable field.
+                return cast(GuardrailLLMContextProto, context)
 
         # Fall back to using the main client (self) for guardrails
         # Note: This will be overridden by subclasses to provide the correct type
         raise NotImplementedError("Subclasses must implement _create_default_context")
+
+    def _override_resources(self) -> None:
+        """Install resources supplied by the concrete client."""
+        raise NotImplementedError("Subclasses must implement _override_resources")
 
     def _initialize_client(self, config: str | Path | dict[str, Any], openai_kwargs: dict[str, Any], client_class: type) -> None:
         """Initialize client with common setup.
