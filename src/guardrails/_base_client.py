@@ -361,112 +361,22 @@ class GuardrailsBaseClient:
         Returns:
             Modified messages with PII masking applied to each text part
         """
-        from guardrails.utils.anonymizer import OperatorConfig, anonymize
+        from .checks.text.pii import PIIConfig, PIIEntity, _detect_pii, _mask_pii
 
-        # Extract detected entity types and config
         detected = pii_result.info.get("detected_entities", {})
         if not detected:
             return data
 
-        detect_encoded_pii = pii_result.info.get("detect_encoded_pii", False)
-
-        # Get analyzer engine - entity types are guaranteed valid from detection
-        from .checks.text.pii import _get_analyzer_engine
-
-        analyzer = _get_analyzer_engine()
-        entity_types = list(detected.keys())
-
-        # Create operators for each entity type
-        operators = {entity_type: OperatorConfig("replace", {"new_value": f"<{entity_type}>"}) for entity_type in entity_types}
-
         def _mask_text(text: str) -> str:
-            """Mask using custom anonymizer with Unicode normalization.
-
-            Handles both plain and encoded PII consistently with main detection path.
-            """
+            """Use the main masking pipeline so each encoded span is replaced once."""
             if not text:
                 return text
-
-            # Import functions from pii module
-            from .checks.text.pii import EncodedCandidate, _build_decoded_text, _normalize_unicode
-
-            # Normalize to prevent bypasses
-            normalized = _normalize_unicode(text)
-
-            # Check for plain PII
-            analyzer_results = analyzer.analyze(normalized, entities=entity_types, language="en")
-            has_plain_pii = bool(analyzer_results)
-
-            # Check for encoded PII if enabled
-            has_encoded_pii = False
-            encoded_candidates: list[EncodedCandidate] = []
-
-            if detect_encoded_pii:
-                decoded_text, encoded_candidates = _build_decoded_text(normalized)
-                if encoded_candidates:
-                    # Analyze decoded text
-                    decoded_results = analyzer.analyze(decoded_text, entities=entity_types, language="en")
-                    has_encoded_pii = bool(decoded_results)
-
-            # If no PII found at all, return original text
-            if not has_plain_pii and not has_encoded_pii:
-                return text
-
-            # Mask plain PII
-            masked = normalized
-            if has_plain_pii:
-                masked = anonymize(text=masked, analyzer_results=analyzer_results, operators=operators).text
-
-            # Mask encoded PII if found
-            if has_encoded_pii:
-                # Re-analyze to get positions in the (potentially) masked text
-                decoded_text_for_masking, candidates_for_masking = _build_decoded_text(masked)
-                decoded_results = analyzer.analyze(decoded_text_for_masking, entities=entity_types, language="en")
-
-                if decoded_results:
-                    # Build list of (candidate, entity_type) pairs to mask
-                    candidates_to_mask = []
-
-                    for result in decoded_results:
-                        detected_value = decoded_text_for_masking[result.start : result.end]
-                        entity_type = result.entity_type
-
-                        # Find candidate that overlaps with this PII
-                        # Use comprehensive overlap logic matching pii.py implementation
-                        for candidate in candidates_for_masking:
-                            if not candidate.decoded_text:
-                                continue
-
-                            candidate_lower = candidate.decoded_text.lower()
-                            detected_lower = detected_value.lower()
-
-                            # Check if candidate's decoded text overlaps with the detection
-                            # Handle partial encodings where encoded span may include extra characters
-                            # e.g., %3A%6a%6f%65%40 → ":joe@" but only "joe@" is in email "joe@domain.com"
-                            has_overlap = (
-                                candidate_lower in detected_lower  # Candidate is substring of detection
-                                or detected_lower in candidate_lower  # Detection is substring of candidate
-                                or (
-                                    len(candidate_lower) >= 3
-                                    and any(  # Any 3-char chunk overlaps
-                                        candidate_lower[i : i + 3] in detected_lower for i in range(len(candidate_lower) - 2)
-                                    )
-                                )
-                            )
-
-                            if has_overlap:
-                                candidates_to_mask.append((candidate, entity_type))
-                                break
-
-                    # Sort by position (reverse) to mask from end to start
-                    # This preserves position validity for subsequent replacements
-                    candidates_to_mask.sort(key=lambda x: x[0].start, reverse=True)
-
-                    # Mask from end to start
-                    for candidate, entity_type in candidates_to_mask:
-                        entity_marker = f"<{entity_type}_ENCODED>"
-                        masked = masked[: candidate.start] + entity_marker + masked[candidate.end :]
-
+            config = PIIConfig(
+                entities=[PIIEntity(entity_type) for entity_type in detected],
+                detect_encoded_pii=pii_result.info.get("detect_encoded_pii", False),
+            )
+            detection = _detect_pii(text, config)
+            masked, _ = _mask_pii(text, detection, config)
             return masked
 
         # Mask each text part

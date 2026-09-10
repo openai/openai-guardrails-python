@@ -73,6 +73,7 @@ from __future__ import annotations
 
 import base64
 import binascii
+import codecs
 import functools
 import logging
 import re
@@ -80,7 +81,7 @@ import unicodedata
 import urllib.parse
 from collections import defaultdict
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from enum import StrEnum
 from pathlib import Path
 from typing import Any, Final
@@ -480,6 +481,8 @@ class EncodedCandidate:
         encoding_type: Type of encoding (base64, url, hex).
         start: Start position in original text.
         end: End position in original text.
+        decoded_start: Start position in the fully decoded text.
+        decoded_end: End position in the fully decoded text.
     """
 
     encoded_text: str
@@ -487,6 +490,8 @@ class EncodedCandidate:
     encoding_type: str
     start: int
     end: int
+    decoded_start: int = 0
+    decoded_end: int = 0
 
 
 def _try_decode_base64(text: str) -> str | None:
@@ -548,6 +553,32 @@ def _try_decode_hex(text: str) -> str | None:
         return None
 
 
+def _url_decoded_offsets(text: str) -> list[int]:
+    """Map source boundaries to URL-decoded prefix lengths in one pass."""
+    offsets = [0]
+    decoded_length = 0
+    cursor = 0
+    for match in _URL_ENCODED_PATTERN.finditer(text):
+        gap_length = match.start() - cursor
+        offsets.extend(range(decoded_length + 1, decoded_length + gap_length + 1))
+        decoded_length += gap_length
+        decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
+        pending_length = 0
+        for index in range(match.start(), match.end(), 3):
+            # A prefix ending inside %HH retains its literal '%' or '%H'.
+            # Keep incomplete UTF-8 bytes buffered for following escapes, but
+            # count their errors='replace' output when measuring a prefix.
+            prefix_length = decoded_length + pending_length
+            offsets.extend((prefix_length + 1, prefix_length + 2))
+            decoded_length += len(decoder.decode(bytes.fromhex(text[index + 1 : index + 3])))
+            pending_length = len(decoder.getstate()[0].decode("utf-8", errors="replace"))
+            offsets.append(decoded_length + pending_length)
+        decoded_length += len(decoder.decode(b"", final=True))
+        cursor = match.end()
+    offsets.extend(range(decoded_length + 1, decoded_length + len(text) - cursor + 1))
+    return offsets
+
+
 def _build_decoded_text(text: str) -> tuple[str, list[EncodedCandidate]]:
     """Build a fully decoded version of text by decoding all encoded chunks.
 
@@ -601,10 +632,19 @@ def _build_decoded_text(text: str) -> tuple[str, list[EncodedCandidate]]:
             )
             used_spans.add((match.start(), match.end()))
 
-    # Build fully decoded text by replacing Hex and Base64 chunks first
-    candidates.sort(key=lambda c: c.start, reverse=True)
-    decoded_text = text
+    # A valid Base64 token can contain a shorter valid hex match. Decode the
+    # enclosing token once so replacements and offset shifts share one source.
+    candidates.sort(key=lambda c: (c.start, -c.end))
+    non_overlapping: list[EncodedCandidate] = []
     for candidate in candidates:
+        if not non_overlapping or candidate.start >= non_overlapping[-1].end:
+            non_overlapping.append(candidate)
+    candidates = non_overlapping
+    used_spans = {(candidate.start, candidate.end) for candidate in candidates}
+
+    # Build fully decoded text by replacing Hex and Base64 chunks first
+    decoded_text = text
+    for candidate in reversed(candidates):
         if candidate.decoded_text:
             decoded_text = decoded_text[: candidate.start] + candidate.decoded_text + decoded_text[candidate.end :]
 
@@ -630,9 +670,26 @@ def _build_decoded_text(text: str) -> tuple[str, list[EncodedCandidate]]:
                         end=match.end(),
                     )
                 )
-        decoded_text = url_decoded
+    # Convert original spans to positions after both decoding stages. Only
+    # Base64/hex replacements shift positions before the URL decoding pass.
+    positioned_candidates = []
+    shift = 0
+    offsets = _url_decoded_offsets(decoded_text) if candidates else []
+    for candidate in sorted(candidates, key=lambda c: c.start):
+        start = candidate.start + shift
+        replacement_length = len(candidate.decoded_text or "") if candidate.encoding_type != "url" else candidate.end - candidate.start
+        end = start + replacement_length
+        positioned_candidates.append(
+            replace(
+                candidate,
+                decoded_start=offsets[start],
+                decoded_end=offsets[end],
+            )
+        )
+        if candidate.encoding_type != "url":
+            shift += replacement_length - (candidate.end - candidate.start)
 
-    return decoded_text, candidates
+    return url_decoded, positioned_candidates
 
 
 def _mask_pii(text: str, detection: PiiDetectionResult, config: PIIConfig) -> tuple[str, dict[str, list[str]]]:
@@ -735,25 +792,9 @@ def _mask_encoded_pii(text: str, config: PIIConfig, original_text: str | None = 
 
         found_entities = set()
         for res in analyzer_results:
-            detected_value = decoded_text[res.start : res.end]
-            candidate_lower = candidate.decoded_text.lower()
-            detected_lower = detected_value.lower()
-
-            # Check if candidate's decoded text overlaps with the detection
-            # Handle partial encodings where encoded span may include extra characters
-            # e.g., %3A%6a%6f%65%40 → ":joe@" but only "joe@" is in email "joe@domain.com"
-            has_overlap = (
-                candidate_lower in detected_lower  # Candidate is substring of detection
-                or detected_lower in candidate_lower  # Detection is substring of candidate
-                or (
-                    len(candidate_lower) >= 3
-                    and any(  # Any 3-char chunk overlaps
-                        candidate_lower[i : i + 3] in detected_lower for i in range(len(candidate_lower) - 2)
-                    )
-                )
-            )
-
-            if has_overlap:
+            # Associate detections with their actual span, not similar text
+            # elsewhere in the message (including partial URL encodings).
+            if candidate.decoded_start < res.end and res.start < candidate.decoded_end:
                 found_entities.add(res.entity_type)
                 encoded_detections[res.entity_type].append(candidate.encoded_text)
 
