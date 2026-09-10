@@ -311,7 +311,7 @@ def test_responses_create_stream_returns_stream(monkeypatch: pytest.MonkeyPatch)
     stream_call = client.stream_calls[0]
     assert stream_call["suppress"] is True  # noqa: S101
     assert stream_call["preflight"] == ["preflight"]  # noqa: S101
-    assert stream_call["history"] == normalize_conversation(_messages())  # noqa: S101
+    assert stream_call["history"] == [{"role": "user", "content": "modified"}]  # noqa: S101
 
 
 def test_responses_create_merges_previous_history(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -349,7 +349,7 @@ def test_responses_parse_runs_guardrails(monkeypatch: pytest.MonkeyPatch) -> Non
 
     assert result == "handled"  # noqa: S101
     assert client.parse_calls[0]["input"][0]["content"] == "modified"  # noqa: S101
-    assert client.handle_calls[0]["history"] == normalize_conversation(messages)  # noqa: S101
+    assert client.handle_calls[0]["history"] == [{"role": "user", "content": "modified"}]  # noqa: S101
 
 
 def test_responses_parse_merges_previous_history(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -418,7 +418,7 @@ async def test_async_responses_stream_returns_wrapper() -> None:
     stream_call = client.stream_calls[0]
     assert stream_call["preflight"] == ["preflight"]  # noqa: S101
     assert stream_call["input"] == ["input"]  # noqa: S101
-    assert stream_call["history"] == normalize_conversation(_messages())  # noqa: S101
+    assert stream_call["history"] == [{"role": "user", "content": "modified"}]  # noqa: S101
 
 
 @pytest.mark.asyncio

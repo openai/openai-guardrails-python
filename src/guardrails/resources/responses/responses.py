@@ -66,6 +66,9 @@ class Responses:
 
         # Apply pre-flight modifications (PII masking, etc.)
         modified_input = self._client._apply_preflight_modifications(input, preflight_results)
+        # Output checks must see the same sanitized input as the provider.
+        output_conversation = [entry.copy() for entry in prior_history]
+        output_conversation.extend(self._client._normalize_conversation(modified_input))
 
         # Input guardrails and LLM call concurrently
         with ThreadPoolExecutor(max_workers=1) as executor:
@@ -98,7 +101,7 @@ class Responses:
                 llm_response,
                 preflight_results,
                 input_results,
-                conversation_history=normalized_conversation,
+                conversation_history=output_conversation,
                 suppress_tripwire=suppress_tripwire,
             )
         else:
@@ -106,7 +109,7 @@ class Responses:
                 llm_response,
                 preflight_results,
                 input_results,
-                conversation_history=normalized_conversation,
+                conversation_history=output_conversation,
                 suppress_tripwire=suppress_tripwire,
             )
 
@@ -133,6 +136,9 @@ class Responses:
 
         # Apply pre-flight modifications (PII masking, etc.)
         modified_input = self._client._apply_preflight_modifications(input, preflight_results)
+        # Output checks must see the same sanitized input as the provider.
+        output_conversation = [entry.copy() for entry in prior_history]
+        output_conversation.extend(self._client._normalize_conversation(modified_input))
 
         # Input guardrails and LLM call concurrently
         with ThreadPoolExecutor(max_workers=1) as executor:
@@ -162,7 +168,7 @@ class Responses:
             llm_response,
             preflight_results,
             input_results,
-            conversation_history=normalized_conversation,
+            conversation_history=output_conversation,
             suppress_tripwire=suppress_tripwire,
         )
 
@@ -230,6 +236,9 @@ class AsyncResponses:
 
         # Apply pre-flight modifications (PII masking, etc.)
         modified_input = self._client._apply_preflight_modifications(input, preflight_results)
+        # Output checks must see the same sanitized input as the provider.
+        output_conversation = [entry.copy() for entry in prior_history]
+        output_conversation.extend(self._client._normalize_conversation(modified_input))
 
         # Run input guardrails and LLM call in parallel
         input_check = self._client._run_stage_guardrails(
@@ -259,7 +268,7 @@ class AsyncResponses:
                 llm_response,
                 preflight_results,
                 input_results,
-                conversation_history=normalized_conversation,
+                conversation_history=output_conversation,
                 suppress_tripwire=suppress_tripwire,
             )
         else:
@@ -267,7 +276,7 @@ class AsyncResponses:
                 llm_response,
                 preflight_results,
                 input_results,
-                conversation_history=normalized_conversation,
+                conversation_history=output_conversation,
                 suppress_tripwire=suppress_tripwire,
             )
 
@@ -296,6 +305,9 @@ class AsyncResponses:
 
         # Apply pre-flight modifications (PII masking, etc.)
         modified_input = self._client._apply_preflight_modifications(input, preflight_results)
+        # Output checks must see the same sanitized input as the provider.
+        output_conversation = [entry.copy() for entry in prior_history]
+        output_conversation.extend(self._client._normalize_conversation(modified_input))
 
         # Run input guardrails and LLM call in parallel
         input_check = self._client._run_stage_guardrails(
@@ -325,7 +337,7 @@ class AsyncResponses:
                 llm_response,
                 preflight_results,
                 input_results,
-                conversation_history=normalized_conversation,
+                conversation_history=output_conversation,
                 suppress_tripwire=suppress_tripwire,
             )
         else:
@@ -333,7 +345,7 @@ class AsyncResponses:
                 llm_response,
                 preflight_results,
                 input_results,
-                conversation_history=normalized_conversation,
+                conversation_history=output_conversation,
                 suppress_tripwire=suppress_tripwire,
             )
 
