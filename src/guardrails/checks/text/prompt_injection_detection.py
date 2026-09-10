@@ -31,6 +31,7 @@ Examples:
 from __future__ import annotations
 
 import textwrap
+from dataclasses import replace
 from typing import Any, TypedDict
 
 from pydantic import Field
@@ -332,11 +333,12 @@ Previous context:
         return result
 
     except Exception as e:
-        return _create_skip_result(
+        result = _create_skip_result(
             f"Error during prompt injection detection check: {str(e)}",
             config.confidence_threshold,
             data=str(data),
         )
+        return replace(result, execution_failed=True, original_exception=e)
 
 
 def _slice_conversation_since_latest_user(
