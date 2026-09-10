@@ -85,6 +85,8 @@ class ChatCompletions:
 
         # Apply pre-flight modifications (PII masking, etc.)
         modified_messages = self._client._apply_preflight_modifications(messages, preflight_results)
+        # Output checks must see the same sanitized input as the provider.
+        output_conversation = self._client._normalize_conversation(modified_messages)
 
         # Run input guardrails and LLM call concurrently using a thread for the LLM
         with ThreadPoolExecutor(max_workers=1) as executor:
@@ -116,7 +118,7 @@ class ChatCompletions:
                 llm_response,
                 preflight_results,
                 input_results,
-                conversation_history=normalized_conversation,
+                conversation_history=output_conversation,
                 suppress_tripwire=suppress_tripwire,
             )
         else:
@@ -124,7 +126,7 @@ class ChatCompletions:
                 llm_response,
                 preflight_results,
                 input_results,
-                conversation_history=normalized_conversation,
+                conversation_history=output_conversation,
                 suppress_tripwire=suppress_tripwire,
             )
 
@@ -157,6 +159,8 @@ class AsyncChatCompletions:
 
         # Apply pre-flight modifications (PII masking, etc.)
         modified_messages = self._client._apply_preflight_modifications(messages, preflight_results)
+        # Output checks must see the same sanitized input as the provider.
+        output_conversation = self._client._normalize_conversation(modified_messages)
 
         # Run input guardrails and LLM call concurrently for both streaming and non-streaming
         input_check = self._client._run_stage_guardrails(
@@ -184,7 +188,7 @@ class AsyncChatCompletions:
                 llm_response,
                 preflight_results,
                 input_results,
-                conversation_history=normalized_conversation,
+                conversation_history=output_conversation,
                 suppress_tripwire=suppress_tripwire,
             )
         else:
@@ -192,6 +196,6 @@ class AsyncChatCompletions:
                 llm_response,
                 preflight_results,
                 input_results,
-                conversation_history=normalized_conversation,
+                conversation_history=output_conversation,
                 suppress_tripwire=suppress_tripwire,
             )
