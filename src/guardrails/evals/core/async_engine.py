@@ -362,8 +362,10 @@ class AsyncRunEngine(RunEngine):
                         # Create a temporary GuardrailsAsyncOpenAI client for conversation-aware guardrails
                         temp_client = GuardrailsAsyncOpenAI(
                             config=minimal_config,
-                            api_key=getattr(context.guardrail_llm, "api_key", None) or "fake-key-for-eval",
+                            api_key="fake-key-for-eval",
                         )
+                        # Keep the selected provider, authentication, and transport for analysis.
+                        temp_client.context = context
 
                         # Normalize conversation history using the client's normalization
                         normalized_conversation = temp_client._normalize_conversation(conversation_history)
