@@ -17,7 +17,8 @@ from guardrails.client import GuardrailsAsyncOpenAI, GuardrailsOpenAI
 @pytest.mark.asyncio
 @pytest.mark.parametrize("asynchronous", [False, True])
 @pytest.mark.parametrize("stream", [False, True])
-async def test_repeated_encoded_pii_is_masked_before_provider_call(asynchronous: bool, stream: bool) -> None:
+@pytest.mark.parametrize("prefix", ["", (base64.b64encode(b"Snowman: %E2").decode() + "%98%83; ") * 10])
+async def test_repeated_encoded_pii_is_masked_before_provider_call(asynchronous: bool, stream: bool, prefix: str) -> None:
     """Mask every occurrence while preserving ordinary text and image parts."""
     config = {
         "version": 1,
@@ -29,7 +30,9 @@ async def test_repeated_encoded_pii_is_masked_before_provider_call(asynchronous:
     encoded = base64.b64encode(b"jane@example.com").decode()
     note = base64.b64encode(b"example document").decode()
     image = {"type": "image_url", "image_url": {"url": "https://example.com/image.png"}}
-    messages: Any = [{"role": "user", "content": [{"type": "text", "text": f"Note: {note}; first: {encoded}; second: {encoded}. End."}, image]}]
+    messages: Any = [
+        {"role": "user", "content": [{"type": "text", "text": f"{prefix}Note: {note}; first: {encoded}; second: {encoded}. End."}, image]}
+    ]
     response = SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content="OK"))])
     if asynchronous:
         client = GuardrailsAsyncOpenAI(config=config, api_key="test-key")
@@ -45,10 +48,10 @@ async def test_repeated_encoded_pii_is_masked_before_provider_call(asynchronous:
     provider.assert_called_once()
     forwarded = provider.call_args.kwargs["messages"]
     assert forwarded[0]["content"] == [
-        {"type": "text", "text": f"Note: {note}; first: <EMAIL_ADDRESS_ENCODED>; second: <EMAIL_ADDRESS_ENCODED>. End."},
+        {"type": "text", "text": f"{prefix}Note: {note}; first: <EMAIL_ADDRESS_ENCODED>; second: <EMAIL_ADDRESS_ENCODED>. End."},
         image,
     ]
-    assert messages[0]["content"][0]["text"] == f"Note: {note}; first: {encoded}; second: {encoded}. End."
+    assert messages[0]["content"][0]["text"] == f"{prefix}Note: {note}; first: {encoded}; second: {encoded}. End."
 
 
 @pytest.mark.parametrize("count", [100, 200, 400])
@@ -95,3 +98,11 @@ def test_mixed_encoded_spans_preserve_unicode_and_unrelated_content() -> None:
         "joe@example.com",
         "@",
     ]
+
+
+@pytest.mark.parametrize("text", ["☃ %E2%98%83 end", "%F0%9F%92%A9", "%E2%98text", "%FF%C3%A9", "%4x%41%", "%ED%A0%80"])
+def test_url_offsets_match_standard_library_prefix_decoding(text: str) -> None:
+    """Offsets retain unquote semantics even inside percent and UTF-8 sequences."""
+    from guardrails.checks.text.pii import _url_decoded_offsets
+
+    assert _url_decoded_offsets(text) == [len(urllib.parse.unquote(text[:end])) for end in range(len(text) + 1)]

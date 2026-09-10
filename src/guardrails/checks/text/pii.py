@@ -73,6 +73,7 @@ from __future__ import annotations
 
 import base64
 import binascii
+import codecs
 import functools
 import logging
 import re
@@ -552,6 +553,32 @@ def _try_decode_hex(text: str) -> str | None:
         return None
 
 
+def _url_decoded_offsets(text: str) -> list[int]:
+    """Map source boundaries to URL-decoded prefix lengths in one pass."""
+    offsets = [0]
+    decoded_length = 0
+    cursor = 0
+    for match in _URL_ENCODED_PATTERN.finditer(text):
+        gap_length = match.start() - cursor
+        offsets.extend(range(decoded_length + 1, decoded_length + gap_length + 1))
+        decoded_length += gap_length
+        decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
+        pending_length = 0
+        for index in range(match.start(), match.end(), 3):
+            # A prefix ending inside %HH retains its literal '%' or '%H'.
+            # Keep incomplete UTF-8 bytes buffered for following escapes, but
+            # count their errors='replace' output when measuring a prefix.
+            prefix_length = decoded_length + pending_length
+            offsets.extend((prefix_length + 1, prefix_length + 2))
+            decoded_length += len(decoder.decode(bytes.fromhex(text[index + 1 : index + 3])))
+            pending_length = len(decoder.getstate()[0].decode("utf-8", errors="replace"))
+            offsets.append(decoded_length + pending_length)
+        decoded_length += len(decoder.decode(b"", final=True))
+        cursor = match.end()
+    offsets.extend(range(decoded_length + 1, decoded_length + len(text) - cursor + 1))
+    return offsets
+
+
 def _build_decoded_text(text: str) -> tuple[str, list[EncodedCandidate]]:
     """Build a fully decoded version of text by decoding all encoded chunks.
 
@@ -638,25 +665,18 @@ def _build_decoded_text(text: str) -> tuple[str, list[EncodedCandidate]]:
     # Base64/hex replacements shift positions before the URL decoding pass.
     positioned_candidates = []
     shift = 0
-    previous_end = 0
-    decoded_position = 0
+    offsets = _url_decoded_offsets(decoded_text) if candidates else []
     for candidate in sorted(candidates, key=lambda c: c.start):
         start = candidate.start + shift
         replacement_length = len(candidate.decoded_text or "") if candidate.encoding_type != "url" else candidate.end - candidate.start
         end = start + replacement_length
-        # Decode disjoint spans so position tracking does not repeatedly scan
-        # growing prefixes when input contains many short percent escapes.
-        decoded_position += len(urllib.parse.unquote(decoded_text[previous_end:start]))
-        decoded_start = decoded_position
-        decoded_position += len(urllib.parse.unquote(decoded_text[start:end]))
         positioned_candidates.append(
             replace(
                 candidate,
-                decoded_start=decoded_start,
-                decoded_end=decoded_position,
+                decoded_start=offsets[start],
+                decoded_end=offsets[end],
             )
         )
-        previous_end = end
         if candidate.encoding_type != "url":
             shift += replacement_length - (candidate.end - candidate.start)
 
