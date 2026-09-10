@@ -15,21 +15,31 @@ jobs:
     if: github.ref == 'refs/heads/main' && github.repository == 'openai/openai-guardrails-python'
     runs-on: ubuntu-latest
     environment: release
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: write
+      actions: write
     steps:
-      - name: Create release app token
-        id: app-token
-        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
-        with:
-          client-id: ${{ vars.OPENAI_SDKS_APP_CLIENT_ID }}
-          private-key: ${{ secrets.OPENAI_SDKS_APP_PRIVATE_KEY }}
-          permission-contents: write
-          permission-issues: write
-          permission-pull-requests: write
-
       - name: Create release PR or GitHub Release
+        id: release
         uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
         with:
-          token: ${{ steps.app-token.outputs.token }}
+          token: ${{ github.token }}
           target-branch: main
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
+
+      # GITHUB_TOKEN-created releases do not trigger release-event workflows.
+      - name: Start PyPI publishing
+        if: steps.release.outputs.release_created == 'true'
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+        env:
+          RELEASE_TAG: ${{ steps.release.outputs.tag_name }}
+        with:
+          script: |
+            await github.rest.actions.createWorkflowDispatch({
+              ...context.repo,
+              workflow_id: 'publish.yml',
+              ref: `refs/tags/${process.env.RELEASE_TAG}`,
+            });
