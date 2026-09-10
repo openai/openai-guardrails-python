@@ -9,8 +9,10 @@ if TYPE_CHECKING:
 
 from types import SimpleNamespace
 from typing import Any
+from unittest.mock import AsyncMock, Mock
 
 import pytest
+from openai import AsyncOpenAI
 
 from guardrails.checks.text import prompt_injection_detection as pid_module
 from guardrails.checks.text.llm_base import LLMConfig, LLMOutput
@@ -20,6 +22,7 @@ from guardrails.checks.text.prompt_injection_detection import (
     _should_analyze,
     prompt_injection_detection,
 )
+from guardrails.runtime import ConfigBundle, GuardrailConfig, instantiate_guardrails, run_guardrails
 from guardrails.types import TokenUsage
 
 
@@ -186,12 +189,14 @@ async def test_prompt_injection_detection_skips_without_history(monkeypatch: pyt
 
 @pytest.mark.asyncio
 async def test_prompt_injection_detection_handles_analysis_error(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Exceptions during analysis should return a skip result."""
+    """Analysis errors remain non-tripwire results and retain the original failure."""
     history = _make_history({"type": "function_call", "tool_name": "get_weather", "arguments": "{}"})
     context = _FakeContext(history)
 
+    error = RuntimeError("LLM failed")
+
     async def failing_llm(*_args: Any, **_kwargs: Any) -> PromptInjectionDetectionOutput:
-        raise RuntimeError("LLM failed")
+        raise error
 
     monkeypatch.setattr(pid_module, "_call_prompt_injection_detection_llm", failing_llm)
 
@@ -199,7 +204,9 @@ async def test_prompt_injection_detection_handles_analysis_error(monkeypatch: py
     result = await prompt_injection_detection(cast("GuardrailLLMContextProto", context), data="{}", config=config)
 
     assert result.tripwire_triggered is False  # noqa: S101
-    assert "Error during prompt injection detection check" in result.info["observation"]  # noqa: S101
+    assert "Error during prompt injection detection check" in result.info["observation"]
+    assert result.execution_failed is True
+    assert result.original_exception is error
 
 
 @pytest.mark.asyncio
@@ -621,3 +628,49 @@ async def test_prompt_injection_detection_excludes_reasoning_when_disabled(
     assert "evidence" not in result.info  # noqa: S101
     assert result.info["flagged"] is False  # noqa: S101
     assert result.info["confidence"] == 0.1  # noqa: S101
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("strict", [False, True])
+@pytest.mark.parametrize("failure", [RuntimeError("Provider unavailable"), ValueError("Invalid analysis response")])
+async def test_analysis_failure_respects_runtime_error_policy(strict: bool, failure: Exception) -> None:
+    """Actual check failures obey strict mode independently of tripwire suppression."""
+    client = Mock(spec=AsyncOpenAI)
+    parse = AsyncMock(side_effect=failure)
+    client.responses = SimpleNamespace(parse=parse)
+    context = SimpleNamespace(
+        guardrail_llm=client,
+        get_conversation_history=lambda: _make_history({"type": "function_call", "name": "get_weather", "arguments": "{}"}),
+    )
+    guardrails = instantiate_guardrails(ConfigBundle(guardrails=[GuardrailConfig(name="Prompt Injection Detection", config={"model": "gpt-test"})]))
+    if strict:
+        with pytest.raises(type(failure)) as caught:
+            await run_guardrails(context, "{}", "text/plain", guardrails, raise_guardrail_errors=True, suppress_tripwire=True)
+        assert caught.value is failure
+    else:
+        results = await run_guardrails(context, "{}", "text/plain", guardrails)
+        assert len(results) == 1
+        assert results[0].tripwire_triggered is False
+        assert results[0].execution_failed is True
+        assert results[0].original_exception is failure
+    parse.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "history",
+    [[], [{"type": "function_call", "name": "get_weather", "arguments": "{}"}], [{"role": "user", "content": "Weather?"}]],
+)
+async def test_intentional_skip_remains_safe_in_strict_mode(history: list[Any]) -> None:
+    """Inapplicable conversations remain no-ops even when execution errors are strict."""
+    client = Mock(spec=AsyncOpenAI)
+    parse = AsyncMock()
+    client.responses = SimpleNamespace(parse=parse)
+    context = SimpleNamespace(guardrail_llm=client, get_conversation_history=lambda: history)
+    guardrails = instantiate_guardrails(ConfigBundle(guardrails=[GuardrailConfig(name="Prompt Injection Detection", config={"model": "gpt-test"})]))
+    results = await run_guardrails(context, "{}", "text/plain", guardrails, raise_guardrail_errors=True)
+    assert len(results) == 1
+    assert results[0].tripwire_triggered is False
+    assert results[0].execution_failed is False
+    assert results[0].original_exception is None
+    parse.assert_not_awaited()
