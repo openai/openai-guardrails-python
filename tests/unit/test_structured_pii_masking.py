@@ -17,8 +17,16 @@ from guardrails.client import GuardrailsAsyncOpenAI, GuardrailsOpenAI
 @pytest.mark.asyncio
 @pytest.mark.parametrize("asynchronous", [False, True])
 @pytest.mark.parametrize("stream", [False, True])
-@pytest.mark.parametrize("prefix", ["", (base64.b64encode(b"Snowman: %E2").decode() + "%98%83; ") * 10])
-async def test_repeated_encoded_pii_is_masked_before_provider_call(asynchronous: bool, stream: bool, prefix: str) -> None:
+@pytest.mark.parametrize(
+    ("prefix", "payload"),
+    [
+        ("", b"jane@example.com"),
+        ((base64.b64encode(b"Snowman: %E2").decode() + "%98%83; ") * 10, b"jane@example.com"),
+        ("", b"\xeb\xae\xba" * 8 + b"\xeb\xaf\xbf john@example.com"),
+    ],
+    ids=["plain", "split-utf8", "overlapping-encodings"],
+)
+async def test_repeated_encoded_pii_is_masked_before_provider_call(asynchronous: bool, stream: bool, prefix: str, payload: bytes) -> None:
     """Mask every occurrence while preserving ordinary text and image parts."""
     config = {
         "version": 1,
@@ -27,7 +35,7 @@ async def test_repeated_encoded_pii_is_masked_before_provider_call(asynchronous:
             "guardrails": [{"name": "Contains PII", "config": {"entities": ["EMAIL_ADDRESS"], "block": False, "detect_encoded_pii": True}}],
         },
     }
-    encoded = base64.b64encode(b"jane@example.com").decode()
+    encoded = base64.b64encode(payload).decode()
     note = base64.b64encode(b"example document").decode()
     image = {"type": "image_url", "image_url": {"url": "https://example.com/image.png"}}
     messages: Any = [

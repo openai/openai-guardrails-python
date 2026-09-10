@@ -632,10 +632,19 @@ def _build_decoded_text(text: str) -> tuple[str, list[EncodedCandidate]]:
             )
             used_spans.add((match.start(), match.end()))
 
-    # Build fully decoded text by replacing Hex and Base64 chunks first
-    candidates.sort(key=lambda c: c.start, reverse=True)
-    decoded_text = text
+    # A valid Base64 token can contain a shorter valid hex match. Decode the
+    # enclosing token once so replacements and offset shifts share one source.
+    candidates.sort(key=lambda c: (c.start, -c.end))
+    non_overlapping: list[EncodedCandidate] = []
     for candidate in candidates:
+        if not non_overlapping or candidate.start >= non_overlapping[-1].end:
+            non_overlapping.append(candidate)
+    candidates = non_overlapping
+    used_spans = {(candidate.start, candidate.end) for candidate in candidates}
+
+    # Build fully decoded text by replacing Hex and Base64 chunks first
+    decoded_text = text
+    for candidate in reversed(candidates):
         if candidate.decoded_text:
             decoded_text = decoded_text[: candidate.start] + candidate.decoded_text + decoded_text[candidate.end :]
 
