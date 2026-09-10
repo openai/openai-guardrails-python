@@ -638,17 +638,25 @@ def _build_decoded_text(text: str) -> tuple[str, list[EncodedCandidate]]:
     # Base64/hex replacements shift positions before the URL decoding pass.
     positioned_candidates = []
     shift = 0
+    previous_end = 0
+    decoded_position = 0
     for candidate in sorted(candidates, key=lambda c: c.start):
         start = candidate.start + shift
         replacement_length = len(candidate.decoded_text or "") if candidate.encoding_type != "url" else candidate.end - candidate.start
         end = start + replacement_length
+        # Decode disjoint spans so position tracking does not repeatedly scan
+        # growing prefixes when input contains many short percent escapes.
+        decoded_position += len(urllib.parse.unquote(decoded_text[previous_end:start]))
+        decoded_start = decoded_position
+        decoded_position += len(urllib.parse.unquote(decoded_text[start:end]))
         positioned_candidates.append(
             replace(
                 candidate,
-                decoded_start=len(urllib.parse.unquote(decoded_text[:start])),
-                decoded_end=len(urllib.parse.unquote(decoded_text[:end])),
+                decoded_start=decoded_start,
+                decoded_end=decoded_position,
             )
         )
+        previous_end = end
         if candidate.encoding_type != "url":
             shift += replacement_length - (candidate.end - candidate.start)
 
