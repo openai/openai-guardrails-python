@@ -6,7 +6,7 @@ import asyncio
 import base64
 import urllib.parse
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, cast
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
@@ -114,3 +114,39 @@ def test_url_offsets_match_standard_library_prefix_decoding(text: str) -> None:
     from guardrails.checks.text.pii import _url_decoded_offsets
 
     assert _url_decoded_offsets(text) == [len(urllib.parse.unquote(text[:end])) for end in range(len(text) + 1)]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("asynchronous", [False, True])
+@pytest.mark.parametrize("responses", [False, True])
+async def test_overlapping_pii_is_masked_in_structured_content(asynchronous: bool, responses: bool) -> None:
+    """Real overlapping recognizers must not expose text in provider-bound parts."""
+    config = {
+        "version": 1,
+        "pre_flight": {
+            "version": 1,
+            "guardrails": [{"name": "Contains PII", "config": {"entities": ["EMAIL_ADDRESS", "URL"], "block": False}}],
+        },
+    }
+    text_type = "input_text" if responses else "text"
+    messages: Any = [{"role": "user", "content": [{"type": text_type, "text": "Contact: jane@example.com/profile. End."}]}]
+    response = SimpleNamespace(output=[], output_text="OK", choices=[SimpleNamespace(message=SimpleNamespace(content="OK"))])
+    client = GuardrailsAsyncOpenAI(config=config, api_key="test-key") if asynchronous else GuardrailsOpenAI(config=config, api_key="test-key")
+    provider = AsyncMock(return_value=response) if asynchronous else Mock(return_value=response)
+    if responses:
+        client._resource_client.responses = SimpleNamespace(create=provider)
+        resource = cast(Any, client.responses)
+        kwargs = {"input": messages, "model": "test-model"}
+    else:
+        client._resource_client.chat = SimpleNamespace(completions=SimpleNamespace(create=provider))
+        resource = client.chat.completions
+        kwargs = {"messages": messages, "model": "test-model"}
+    if asynchronous:
+        await resource.create(**kwargs)
+    else:
+        await asyncio.to_thread(lambda: resource.create(**kwargs))
+
+    provider.assert_called_once()
+    forwarded = provider.call_args.kwargs["input" if responses else "messages"]
+    assert forwarded[0]["content"] == [{"type": text_type, "text": "Contact: <URL> End."}]
+    assert messages[0]["content"][0]["text"] == "Contact: jane@example.com/profile. End."

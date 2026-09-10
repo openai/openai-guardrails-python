@@ -49,47 +49,43 @@ class AnonymizeResult:
     text: str
 
 
-def _resolve_overlaps(results: Sequence[RecognizerResult]) -> list[RecognizerResult]:
-    """Remove overlapping entity spans, keeping longer/earlier ones.
+@dataclass(slots=True)
+class _AnonymizationSpan:
+    """A replacement span owned by the anonymizer, independent of detections."""
 
-    When entities overlap, prioritize:
-    1. Longer spans over shorter ones
-    2. Earlier positions when spans are equal length
+    start: int
+    end: int
+    entity_type: str
+
+
+def _resolve_overlaps(results: Sequence[RecognizerResult]) -> list[RecognizerResult]:
+    """Merge overlapping spans without losing any detected text coverage.
+
+    Use the longest original detection's entity type for each connected group,
+    preferring the earlier detection for equal lengths. Adjacent spans remain
+    separate, and the analyzer's results are never mutated.
 
     Args:
         results: Sequence of recognizer results to resolve.
 
     Returns:
-        List of non-overlapping recognizer results.
-
-    Examples:
-        >>> # If EMAIL_ADDRESS spans (0, 20) and PERSON spans (5, 10), keep EMAIL_ADDRESS
-        >>> # If two entities span (0, 10) and (5, 15), keep the one starting at 0
+        Non-overlapping replacement spans covering every detection.
     """
-    if not results:
-        return []
+    merged: list[RecognizerResult] = []
+    preferred: RecognizerResult | None = None
+    for result in sorted(results, key=lambda r: r.start):
+        if not merged or result.start >= merged[-1].end:
+            merged.append(_AnonymizationSpan(result.start, result.end, result.entity_type))
+            preferred = result
+            continue
 
-    # Sort by: 1) longer spans first, 2) earlier position for equal lengths
-    sorted_results = sorted(
-        results,
-        key=lambda r: (-(r.end - r.start), r.start),
-    )
+        current = merged[-1]
+        current.end = max(current.end, result.end)
+        if preferred is not None and result.end - result.start > preferred.end - preferred.start:
+            current.entity_type = result.entity_type
+            preferred = result
 
-    # Filter out overlapping spans
-    non_overlapping: list[RecognizerResult] = []
-    for result in sorted_results:
-        # Check if this result overlaps with any already selected
-        overlaps = False
-        for selected in non_overlapping:
-            # Two spans overlap if one starts before the other ends
-            if result.start < selected.end and result.end > selected.start:
-                overlaps = True
-                break
-
-        if not overlaps:
-            non_overlapping.append(result)
-
-    return non_overlapping
+    return merged
 
 
 def anonymize(
