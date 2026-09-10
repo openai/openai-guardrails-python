@@ -288,10 +288,10 @@ def _contains_allowed_pattern(text: str) -> bool:
     if url_pattern.search(text):
         return True
 
-    # Regex for allowed file extensions
-    # Build a pattern like: ".*\\.(py|js|html|...|png)$"
+    # Require a non-whitespace stem character without rescanning a greedy
+    # prefix at every search position when no allowed extension matches.
     ext_pattern = re.compile(
-        r"[^\s]+(" + "|".join(re.escape(ext) for ext in ALLOWED_EXTENSIONS) + r")$",
+        r"(?<=\S)(" + "|".join(re.escape(ext) for ext in ALLOWED_EXTENSIONS) + r")$",
         re.IGNORECASE,
     )
     if ext_pattern.search(text):
