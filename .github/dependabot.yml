@@ -1,0 +1,27 @@
+version: 2
+updates:
+  # Python manifests are tracked without a lockfile.
+  - package-ecosystem: pip
+    directory: /
+    schedule:
+      interval: weekly
+    # Routine updates wait eight days; security updates are exempt.
+    cooldown:
+      default-days: 8
+    groups:
+      python-security:
+        applies-to: security-updates
+        patterns:
+          - "*"
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 8
+    groups:
+      actions-security:
+        applies-to: security-updates
+        patterns:
+          - "*"

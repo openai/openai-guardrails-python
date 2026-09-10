@@ -82,10 +82,10 @@ Skip it for repository metadata, editorial docs, conversation-only work, or when
 
 - Work in the current checkout and branch unless the user explicitly asks for or approves a different branch or worktree.
 - Preserve unrelated and user-owned changes. Never remove or overwrite an existing worktree or branch to make room.
-- Agent workflows must never push, open or edit pull requests, post comments or reviews, merge, tag, publish releases, or otherwise mutate GitHub.
-- Do not run `gh`. Use an approved read-only GitHub mechanism when remote evidence is required.
-- Local branch creation, staging, and commits require explicit user authorization or explicit invocation of `$implementation-kickoff`.
-- Stop after local verification and the requested local handoff.
+- Perform Git and GitHub actions within the user's authorized task scope, including creating branches, committing, pushing, and managing pull requests. Do not request authorization again for actions already authorized in the conversation.
+- Use the available GitHub connector or Git tooling for remote operations.
+- Complete required review and verification before pushing or opening or updating a pull request. Monitor CI, fix in-scope failures, and request review in the root `#sdk-reviews` channel once checks pass.
+- Complete the authorized delivery and handoff steps; stop at local verification only when the user requests a local-only task.
 
 ### Scope discipline and complexity reset
 
@@ -204,7 +204,7 @@ Use `uv run ...` for Python commands so local execution uses the repository envi
 5. Run `$implementation-final-review` when applicable.
 6. Run `$code-change-verification` when applicable.
 7. Run `$pr-draft-summary` when applicable.
-8. Create a local commit only when authorized. Never push or mutate GitHub.
+8. Complete the user-authorized commit, pull request, CI monitoring, and handoff steps.
 
 ### Common commands
 
