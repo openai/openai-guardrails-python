@@ -61,7 +61,8 @@ def supports_safety_identifier(
     base_url = getattr(client, "base_url", None)
     if base_url is not None:
         # Only official OpenAI API endpoints support safety_identifier
-        return urlsplit(str(base_url)).hostname == "api.openai.com"
+        hostname = urlsplit(str(base_url)).hostname or ""
+        return hostname == "api.openai.com" or hostname.endswith(".api.openai.com")
 
     # Default OpenAI client (no custom base_url) supports it
     return True

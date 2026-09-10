@@ -11,6 +11,10 @@ from httpx import URL
     [
         ("https://api.openai.com/v1", True),
         ("https://API.OPENAI.COM/v1", True),
+        ("https://eu.api.openai.com/v1", True),
+        ("https://us.api.openai.com/v1", True),
+        ("https://notapi.openai.com/v1", False),
+        ("https://api.openai.com.example.org/v1", False),
         ("http://localhost:11434/v1", False),
         ("http://localhost:11434/api.openai.com/v1", False),
     ],
