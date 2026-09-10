@@ -26,8 +26,9 @@ async def test_repeated_encoded_pii_is_masked_before_provider_call(asynchronous:
         },
     }
     encoded = base64.b64encode(b"jane@example.com").decode()
+    note = base64.b64encode(b"example document").decode()
     image = {"type": "image_url", "image_url": {"url": "https://example.com/image.png"}}
-    messages: Any = [{"role": "user", "content": [{"type": "text", "text": f"First: {encoded}; second: {encoded}. End."}, image]}]
+    messages: Any = [{"role": "user", "content": [{"type": "text", "text": f"Note: {note}; first: {encoded}; second: {encoded}. End."}, image]}]
     response = SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content="OK"))])
     if asynchronous:
         client = GuardrailsAsyncOpenAI(config=config, api_key="test-key")
@@ -43,7 +44,7 @@ async def test_repeated_encoded_pii_is_masked_before_provider_call(asynchronous:
     provider.assert_called_once()
     forwarded = provider.call_args.kwargs["messages"]
     assert forwarded[0]["content"] == [
-        {"type": "text", "text": "First: <EMAIL_ADDRESS_ENCODED>; second: <EMAIL_ADDRESS_ENCODED>. End."},
+        {"type": "text", "text": f"Note: {note}; first: <EMAIL_ADDRESS_ENCODED>; second: <EMAIL_ADDRESS_ENCODED>. End."},
         image,
     ]
-    assert messages[0]["content"][0]["text"] == f"First: {encoded}; second: {encoded}. End."
+    assert messages[0]["content"][0]["text"] == f"Note: {note}; first: {encoded}; second: {encoded}. End."

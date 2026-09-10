@@ -80,7 +80,7 @@ import unicodedata
 import urllib.parse
 from collections import defaultdict
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from enum import StrEnum
 from pathlib import Path
 from typing import Any, Final
@@ -480,6 +480,8 @@ class EncodedCandidate:
         encoding_type: Type of encoding (base64, url, hex).
         start: Start position in original text.
         end: End position in original text.
+        decoded_start: Start position in the fully decoded text.
+        decoded_end: End position in the fully decoded text.
     """
 
     encoded_text: str
@@ -487,6 +489,8 @@ class EncodedCandidate:
     encoding_type: str
     start: int
     end: int
+    decoded_start: int = 0
+    decoded_end: int = 0
 
 
 def _try_decode_base64(text: str) -> str | None:
@@ -630,9 +634,25 @@ def _build_decoded_text(text: str) -> tuple[str, list[EncodedCandidate]]:
                         end=match.end(),
                     )
                 )
-        decoded_text = url_decoded
+    # Convert original spans to positions after both decoding stages. Only
+    # Base64/hex replacements shift positions before the URL decoding pass.
+    positioned_candidates = []
+    shift = 0
+    for candidate in sorted(candidates, key=lambda c: c.start):
+        start = candidate.start + shift
+        replacement_length = len(candidate.decoded_text or "") if candidate.encoding_type != "url" else candidate.end - candidate.start
+        end = start + replacement_length
+        positioned_candidates.append(
+            replace(
+                candidate,
+                decoded_start=len(urllib.parse.unquote(decoded_text[:start])),
+                decoded_end=len(urllib.parse.unquote(decoded_text[:end])),
+            )
+        )
+        if candidate.encoding_type != "url":
+            shift += replacement_length - (candidate.end - candidate.start)
 
-    return decoded_text, candidates
+    return url_decoded, positioned_candidates
 
 
 def _mask_pii(text: str, detection: PiiDetectionResult, config: PIIConfig) -> tuple[str, dict[str, list[str]]]:
@@ -735,25 +755,9 @@ def _mask_encoded_pii(text: str, config: PIIConfig, original_text: str | None = 
 
         found_entities = set()
         for res in analyzer_results:
-            detected_value = decoded_text[res.start : res.end]
-            candidate_lower = candidate.decoded_text.lower()
-            detected_lower = detected_value.lower()
-
-            # Check if candidate's decoded text overlaps with the detection
-            # Handle partial encodings where encoded span may include extra characters
-            # e.g., %3A%6a%6f%65%40 → ":joe@" but only "joe@" is in email "joe@domain.com"
-            has_overlap = (
-                candidate_lower in detected_lower  # Candidate is substring of detection
-                or detected_lower in candidate_lower  # Detection is substring of candidate
-                or (
-                    len(candidate_lower) >= 3
-                    and any(  # Any 3-char chunk overlaps
-                        candidate_lower[i : i + 3] in detected_lower for i in range(len(candidate_lower) - 2)
-                    )
-                )
-            )
-
-            if has_overlap:
+            # Associate detections with their actual span, not similar text
+            # elsewhere in the message (including partial URL encodings).
+            if candidate.decoded_start < res.end and res.start < candidate.decoded_end:
                 found_entities.add(res.entity_type)
                 encoded_detections[res.entity_type].append(candidate.encoded_text)
 
