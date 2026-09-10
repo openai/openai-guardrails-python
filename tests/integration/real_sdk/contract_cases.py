@@ -20,7 +20,6 @@ import pytest_asyncio
 from pydantic import BaseModel
 
 import guardrails
-from guardrails import GuardrailsResponse, GuardrailTripwireTriggered
 from guardrails.context import GuardrailsContext, clear_context, set_context
 
 # Match the HTTP implementation used by the installed SDK (httpx or httpx2).
@@ -173,7 +172,7 @@ async def test_create_wire_contract(client_case: Any, api: str, stream: bool) ->
         assert (result.choices[0].delta.content if api == "chat" else result.delta) == "hello"
     else:
         assert (result.choices[0].message.content if api == "chat" else result.output_text) == "hello"
-    assert isinstance(result, GuardrailsResponse)
+    assert isinstance(result, guardrails.GuardrailsResponse)
     assert result.guardrail_results.all_results == []
     assert len(requests) == 1
     req = requests[0]
@@ -200,7 +199,7 @@ async def test_create_wire_contract(client_case: Any, api: str, stream: bool) ->
 async def test_actual_check_tripwire_and_suppression(client_case: Any, api: str, stage: str) -> None:
     make, requests, asynchronous, _ = client_case
     client = make(pipeline(stage, "hello"))
-    with pytest.raises(GuardrailTripwireTriggered):
+    with pytest.raises(guardrails.GuardrailTripwireTriggered):
         await invoke(client, asynchronous, api)
     assert len(requests) == (0 if stage == "pre_flight" else 1)
     result = await invoke(client, asynchronous, api, suppress_tripwire=True)
@@ -281,7 +280,7 @@ async def test_configuration_to_execution(tmp_path: Path, source_kind: str) -> N
     elif source_kind == "model":
         source = guardrails.load_config_bundle(bundle)
     configured = guardrails.instantiate_guardrails(guardrails.load_config_bundle(source))
-    with pytest.raises(GuardrailTripwireTriggered):
+    with pytest.raises(guardrails.GuardrailTripwireTriggered):
         await guardrails.run_guardrails({}, "hello", "text/plain", configured)
     results = await guardrails.run_guardrails({}, "hello", "text/plain", configured, suppress_tripwire=True)
     assert len(results) == 1
