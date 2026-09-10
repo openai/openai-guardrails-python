@@ -94,6 +94,7 @@ async def process_input(
         console.print(f"\n[bold blue]Assistant output:[/bold blue] {content}\n")
 
         # Show PII masking information if detected in pre-flight
+        masked_text = user_input
         if response.guardrail_results.preflight:
             for result in response.guardrail_results.preflight:
                 if result.info.get("guardrail_name") == "Contains PII" and result.info.get("pii_detected", False):
@@ -125,8 +126,8 @@ async def process_input(
                         )
                     )
 
-        # Guardrails passed - now safe to add to conversation history
-        messages.append({"role": "user", "content": user_input})
+        # Retain the masked input so later turns do not resend the original PII.
+        messages.append({"role": "user", "content": masked_text})
         messages.append({"role": "assistant", "content": content})
 
     except GuardrailTripwireTriggered as exc:

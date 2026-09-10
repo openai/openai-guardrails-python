@@ -8,8 +8,10 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from types import SimpleNamespace
 from typing import Any, cast
+from unittest.mock import AsyncMock, Mock
 
 import pytest
+from openai import AsyncOpenAI
 
 from guardrails.types import GuardrailResult
 
@@ -1271,3 +1273,36 @@ async def test_tool_guardrail_uses_correct_stage_name_output(monkeypatch: pytest
 
     # Should use "tool_output", not a guardrail-specific name
     assert captured_stage_name == "tool_output"  # noqa: S101
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("strict", [False, True])
+async def test_prompt_injection_tool_input_analysis_failure(strict: bool) -> None:
+    """The actual prompt injection check blocks analysis failures only in strict mode."""
+    from guardrails.runtime import ConfigBundle, GuardrailConfig, instantiate_guardrails
+
+    guardrail = instantiate_guardrails(ConfigBundle(guardrails=[GuardrailConfig(name="Prompt Injection Detection", config={"model": "gpt-test"})]))[0]
+    session_token = agents._agent_session.set(None)
+    conversation_token = agents._agent_conversation.set(({"role": "user", "content": "Weather in Paris?"},))
+    try:
+        client = Mock(spec=AsyncOpenAI)
+        parse = AsyncMock(side_effect=RuntimeError("Analysis unavailable"))
+        client.responses = SimpleNamespace(parse=parse)
+        tool_fn = agents._create_tool_guardrail(
+            guardrail=guardrail,
+            guardrail_type="input",
+            context=SimpleNamespace(guardrail_llm=client),
+            raise_guardrail_errors=strict,
+            block_on_violations=False,
+        )
+        data = agents_module.ToolInputGuardrailData(context=ToolContext(tool_name="weather", tool_arguments={"city": "Paris"}))
+        result = await cast(Callable[..., Awaitable[Any]], tool_fn)(data)
+        assert result.tripwire_triggered is strict
+        if strict:
+            assert result.message == "raise"
+        else:
+            assert "Error during prompt injection detection check" in result.output_info["observation"]
+        parse.assert_awaited_once()
+    finally:
+        agents._agent_session.reset(session_token)
+        agents._agent_conversation.reset(conversation_token)

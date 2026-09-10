@@ -42,6 +42,30 @@ async def test_secret_keys_ignores_non_matching_input() -> None:
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
+    ("text", "exempt"),
+    [
+        ("AbCdEfGhIjKlMnOpQrStUvWx012345.py", True),
+        ("AbCdEfGhIjKlMnOpQrStUvWx012345.PY", True),
+        ("AbCdEfGhIjKlMnOpQrStUvWx012345.jſ", True),
+        ("folder/AbCdEfGhIjKlMnOpQrStUvWx012345.json", True),
+        ("AbCdEfGhIjKlMnOpQrStUvWx012345.py\n", True),
+        ("https://example.com/report.unknown", True),
+        ("AbCdEfGhIjKlMnOpQrStUvWx012345.unknown", False),
+        ("AbCdEfGhIjKlMnOpQrStUvWx012345.py.backup", False),
+    ],
+)
+@pytest.mark.parametrize("threshold", ["balanced", "permissive", "strict"])
+async def test_secret_keys_preserves_extension_exemption_semantics(text: str, exempt: bool, threshold: str) -> None:
+    """Only non-strict checks exempt recognized suffixes with a nonempty stem."""
+    result = await secret_keys(None, text, SecretKeysCfg(threshold=threshold, custom_regex=None))
+
+    expected_secrets = [] if exempt and threshold != "strict" else [text.strip()]
+    assert result.tripwire_triggered is bool(expected_secrets)
+    assert result.info["detected_secrets"] == expected_secrets
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
     "text",
     [
         "https://example.com/?token=sk-AAAABBBBCCCCDDDD",
