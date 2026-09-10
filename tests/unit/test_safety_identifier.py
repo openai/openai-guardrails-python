@@ -3,6 +3,28 @@
 from unittest.mock import Mock
 
 import pytest
+from httpx import URL
+
+
+@pytest.mark.parametrize(
+    ("base_url", "expected"),
+    [
+        ("https://api.openai.com/v1", True),
+        ("https://API.OPENAI.COM/v1", True),
+        ("https://eu.api.openai.com/v1", True),
+        ("https://us.api.openai.com/v1", True),
+        ("https://notapi.openai.com/v1", False),
+        ("https://api.openai.com.example.org/v1", False),
+        ("http://localhost:11434/v1", False),
+        ("http://localhost:11434/api.openai.com/v1", False),
+    ],
+)
+def test_safety_identifier_uses_client_hostname(base_url: str, expected: bool) -> None:
+    """Classify SDK URL objects by hostname independently of routing paths."""
+    from guardrails.utils.safety_identifier import supports_safety_identifier
+
+    client = Mock(base_url=URL(base_url))
+    assert supports_safety_identifier(client) is expected
 
 
 def test_supports_safety_identifier_for_openai_client() -> None:
