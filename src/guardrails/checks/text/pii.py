@@ -494,6 +494,10 @@ class EncodedCandidate:
     decoded_end: int = 0
 
 
+class _DecodedContentTooLarge(ValueError):
+    """Encoded content exceeded the supported PII inspection size."""
+
+
 def _try_decode_base64(text: str) -> str | None:
     """Attempt to decode Base64 string.
 
@@ -514,7 +518,7 @@ def _try_decode_base64(text: str) -> str | None:
         # Security: Fail closed - reject content > 10KB to prevent memory DoS and PII bypass
         if len(decoded_bytes) > 10_000:
             msg = f"Base64 decoded content too large ({len(decoded_bytes):,} bytes). Maximum allowed is 10KB."
-            raise ValueError(msg)
+            raise _DecodedContentTooLarge(msg)
         # Check if result is valid UTF-8
         return decoded_bytes.decode("utf-8", errors="strict")
     except (binascii.Error, UnicodeDecodeError):
@@ -545,7 +549,7 @@ def _try_decode_hex(text: str) -> str | None:
     # Security: Fail closed - reject content > 10KB to prevent memory DoS and PII bypass
     if len(decoded_bytes) > 10_000:
         msg = f"Hex decoded content too large ({len(decoded_bytes):,} bytes). Maximum allowed is 10KB."
-        raise ValueError(msg)
+        raise _DecodedContentTooLarge(msg)
 
     try:
         return decoded_bytes.decode("utf-8", errors="strict")
@@ -861,6 +865,10 @@ async def pii(
     - If `block=True`: Triggers tripwire when PII is detected (blocking behavior)
     - If `block=False`: Only masks PII without blocking (masking behavior, default)
 
+    Encoded content exceeding the inspection limit triggers a tripwire in either
+    mode and reports an execution failure, so strict runtime error handling can
+    still raise the size error. Explicit tripwire suppression remains supported.
+
     **IMPORTANT: PII masking (block=False) only works in pre-flight stage.**
     - Use masking mode in pre-flight to automatically clean user input
     - Use blocking mode in output stage to prevent PII exposure in LLM responses
@@ -880,7 +888,23 @@ async def pii(
     """
     _ = ctx
     result = _detect_pii(data, config)
-    return _as_result(result, config, "Contains PII", data)
+    try:
+        return _as_result(result, config, "Contains PII", data)
+    except _DecodedContentTooLarge as exc:
+        # This rejection must not become a non-triggering runtime error. Keep
+        # the diagnostic without retaining decoder frames containing input.
+        return GuardrailResult(
+            tripwire_triggered=True,
+            execution_failed=True,
+            original_exception=_DecodedContentTooLarge(str(exc)),
+            info={
+                "guardrail_name": "Contains PII",
+                "checked_text": "",
+                "error": str(exc),
+                "block_mode": config.block,
+                "detect_encoded_pii": config.detect_encoded_pii,
+            },
+        )
 
 
 default_spec_registry.register(
