@@ -1,6 +1,7 @@
 name: Publish to PyPI
 
 on:
+  workflow_dispatch:
   release:
     types:
       - published
@@ -9,16 +10,30 @@ permissions: {}
 
 jobs:
   build:
-    if: github.repository == 'openai/openai-guardrails-python'
+    if: github.repository == 'openai/openai-guardrails-python' && github.ref_type == 'tag' && startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     # Package build code must not have access to publishing credentials.
     permissions:
       contents: read
     steps:
+      - name: Verify published release
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+        with:
+          script: |
+            const { data: release } = await github.rest.repos.getReleaseByTag({
+              ...context.repo,
+              tag: context.ref.slice('refs/tags/'.length),
+            });
+            if (release.draft || !release.published_at) {
+              throw new Error('Publishing requires a published GitHub Release.');
+            }
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
         with:
           persist-credentials: false
+          fetch-depth: 0
+      - name: Verify release is from main
+        run: git merge-base --is-ancestor HEAD refs/remotes/origin/main
       - name: Setup uv
         uses: astral-sh/setup-uv@e58605a9b6da7c637471fab8847a5e5a6b8df081 # v5
         with:
