@@ -3656,3 +3656,52 @@ async def test_urls_guardrail_blocks_subdomains_and_paths_correctly() -> None:
     assert len(result.info["blocked"]) == 2  # noqa: S101
     assert "help-suntropy.es" in result.info["blocked"]  # noqa: S101
     assert "help.suntropy.es" in result.info["blocked"]  # noqa: S101
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("host", ["192.0.2.10", "[2001:db8::10]"])
+@pytest.mark.parametrize(
+    ("suffix", "blocked"),
+    [
+        ("/docs?view=full#intro", False),
+        ("/docs/chapter?view=full#intro", False),
+        ("/other?view=full#intro", True),
+        ("/docs2?view=full#intro", True),
+        ("/docs?view=short#intro", True),
+        ("/docs?view=full#other", True),
+    ],
+)
+async def test_ip_url_component_restrictions(host: str, suffix: str, blocked: bool) -> None:
+    """Full IP URLs enforce the configured path, query, and fragment."""
+    candidate = f"https://{host}{suffix}"
+    config = URLConfig(url_allow_list=[f"https://{host}/docs?view=full#intro"])
+
+    result = await urls(None, candidate, config)
+
+    assert result.info["detected"] == [candidate]
+    assert result.tripwire_triggered is blocked
+    assert result.info["allowed"] == ([] if blocked else [candidate])
+    assert result.info["blocked"] == ([candidate] if blocked else [])
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("entry", "host"),
+    [
+        ("192.0.2.10", "192.0.2.10"),
+        ("[2001:db8::10]", "[2001:db8::10]"),
+        ("192.0.2.0/24", "192.0.2.0"),
+        ("192.0.2.0/24", "192.0.2.10"),
+        ("[2001:db8::]/64", "[2001:db8::10]"),
+        ("https://192.0.2.0/24", "192.0.2.10"),
+    ],
+)
+async def test_ip_and_cidr_entries_keep_unrestricted_components(entry: str, host: str) -> None:
+    """Bare IP and CIDR entries continue to allow arbitrary URL components."""
+    candidate = f"https://{host}/docs?view=full#intro"
+
+    result = await urls(None, candidate, URLConfig(url_allow_list=[entry]))
+
+    assert result.info["detected"] == [candidate]
+    assert result.tripwire_triggered is False
+    assert result.info["allowed"] == [candidate]

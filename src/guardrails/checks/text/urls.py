@@ -1942,45 +1942,34 @@ def _is_url_allowed(
         except (AddressValueError, ValueError):
             allowed_ip = None
 
-        if allowed_ip is not None:
-            if url_ip is None:
-                continue
-            # Scheme matching for IPs: if both allow list and URL have explicit schemes, they must match
-            if has_explicit_scheme and url_had_explicit_scheme and allowed_scheme and allowed_scheme != scheme_lower:
-                continue
-            # Port matching: enforce if allow list has explicit port
-            if allowed_port_explicit is not None and allowed_port != url_port:
-                continue
-            if allowed_ip == url_ip:
-                return True
-
-            network_spec = allowed_host
-            if parsed_allowed.path not in ("", "/"):
-                network_spec = f"{network_spec}{parsed_allowed.path}"
-            try:
-                if network_spec and "/" in network_spec and url_ip in ip_network(network_spec, strict=False):
-                    return True
-            except (AddressValueError, ValueError):
-                # Path segment might not represent a CIDR mask; ignore.
-                pass
+        # Scheme and port restrictions apply to both host and network entries.
+        if has_explicit_scheme and url_had_explicit_scheme and allowed_scheme and allowed_scheme != scheme_lower:
             continue
-
-        if not allowed_host:
-            continue
-
-        allowed_domain = allowed_host.removeprefix("www.")
-
-        # Port matching: enforce if allow list has explicit port
         if allowed_port_explicit is not None and allowed_port != url_port:
             continue
 
-        host_matches = url_domain == allowed_domain or (allow_subdomains and url_domain.endswith(f".{allowed_domain}"))
-        if not host_matches:
-            continue
-
-        # Scheme matching: if both allow list and URL have explicit schemes, they must match
-        if has_explicit_scheme and url_had_explicit_scheme and allowed_scheme and allowed_scheme != scheme_lower:
-            continue
+        if allowed_ip is not None:
+            if url_ip is None:
+                continue
+            if allowed_path not in ("", "/"):
+                try:
+                    allowed_network = ip_network(f"{allowed_host}{allowed_path}", strict=False)
+                except (AddressValueError, ValueError):
+                    # An ordinary URL path is not a CIDR mask.
+                    pass
+                else:
+                    if url_ip in allowed_network:
+                        return True
+                    continue
+            if allowed_ip != url_ip:
+                continue
+        else:
+            if not allowed_host:
+                continue
+            allowed_domain = allowed_host.removeprefix("www.")
+            host_matches = url_domain == allowed_domain or (allow_subdomains and url_domain.endswith(f".{allowed_domain}"))
+            if not host_matches:
+                continue
 
         # Path matching with segment boundary respect
         if allowed_path not in ("", "/"):
