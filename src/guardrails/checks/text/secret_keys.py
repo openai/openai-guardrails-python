@@ -109,8 +109,8 @@ _EXPLICIT_URL_SCHEME_RE = re.compile(
     r"(?:https?|ftp)://|(?:data|javascript|vbscript):",
     re.IGNORECASE,
 )
-_URL_SHAPED_SCHEME_RE = re.compile(
-    r"[a-z][a-z0-9+.-]*:/",
+_URL_SCHEME_SPAN_RE = re.compile(
+    r"[a-z][a-z0-9+.-]*",
     re.IGNORECASE,
 )
 _ASCII_SCHEME_START_CHARACTERS = frozenset("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ")
@@ -638,7 +638,9 @@ def _iter_exempt_container_candidates(text: str) -> Iterator[str]:
         file_text = prefix.strip("".join(_ADJACENT_SCHEME_URL_BOUNDARIES))
 
     file_text = file_text.strip("*#")
-    if _URL_SHAPED_SCHEME_RE.search(file_text) is not None:
+    # Consume each maximal scheme span once; a failing delimiter in the regex
+    # would retry overlapping suffixes of long filenames.
+    if any(file_text.startswith(":/", match.end()) for match in _URL_SCHEME_SPAN_RE.finditer(file_text)):
         return
     lowered = file_text.lower()
     for extension in ALLOWED_EXTENSIONS:
