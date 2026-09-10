@@ -10,6 +10,7 @@ be sent to Azure OpenAI or other OpenAI-compatible providers.
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
+from urllib.parse import urlsplit
 
 if TYPE_CHECKING:
     from openai import AsyncAzureOpenAI, AsyncOpenAI, AzureOpenAI, OpenAI
@@ -59,9 +60,8 @@ def supports_safety_identifier(
     # Check if using a custom base_url (local or alternative provider)
     base_url = getattr(client, "base_url", None)
     if base_url is not None:
-        base_url_str = str(base_url)
         # Only official OpenAI API endpoints support safety_identifier
-        return "api.openai.com" in base_url_str
+        return urlsplit(str(base_url)).hostname == "api.openai.com"
 
     # Default OpenAI client (no custom base_url) supports it
     return True
