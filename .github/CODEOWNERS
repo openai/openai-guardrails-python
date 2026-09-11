@@ -1,0 +1,9 @@
+# Require SDK-team review for release workflows and ownership changes.
+/.github/ @openai/sdks-team
+
+# Package build configuration and release-please inputs and outputs.
+/Makefile @openai/sdks-team
+/pyproject.toml @openai/sdks-team
+/release-please-config.json @openai/sdks-team
+/.release-please-manifest.json @openai/sdks-team
+/CHANGELOG.md @openai/sdks-team
