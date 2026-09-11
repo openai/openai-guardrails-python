@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.3.4](https://github.com/openai/openai-guardrails-python/compare/v0.3.3...v0.3.4) (2026-09-11)
+
+
+### Bug Fixes
+
+* Bound Secret Keys file-container matching ([#122](https://github.com/openai/openai-guardrails-python/issues/122)) ([cb5893f](https://github.com/openai/openai-guardrails-python/commit/cb5893f5326e09457a383c40178aeee98928fffc))
+* Preserve full coverage of overlapping PII detections ([#119](https://github.com/openai/openai-guardrails-python/issues/119)) ([8fb432b](https://github.com/openai/openai-guardrails-python/commit/8fb432ba91bfe931a3dc02fb67bd3f6bc2c0d7a5))
+* Preserve masked conversation history in output checks ([#121](https://github.com/openai/openai-guardrails-python/issues/121)) ([d539416](https://github.com/openai/openai-guardrails-python/commit/d53941699f35fbc2d3addfdc6fd7274272be919e))
+* Reject PII decoding-limit failures by default ([#120](https://github.com/openai/openai-guardrails-python/issues/120)) ([b2b73e9](https://github.com/openai/openai-guardrails-python/commit/b2b73e974e31bd8140e39d67fa298fc394f1b430))
+
+
+### Chores
+
+* require SDK-team ownership for release files ([#125](https://github.com/openai/openai-guardrails-python/issues/125)) ([ede106b](https://github.com/openai/openai-guardrails-python/commit/ede106bb083eb33d4d4c39e461d953a788e84168))
+
+
+### Documentation
+
+* Tighten README and verify setup examples ([#124](https://github.com/openai/openai-guardrails-python/issues/124)) ([78f2ad7](https://github.com/openai/openai-guardrails-python/commit/78f2ad7b0272a57d2b8da2533fe659bbcbe02a67))
+
 ## [0.3.3](https://github.com/openai/openai-guardrails-python/compare/v0.3.2...v0.3.3) (2026-09-10)
 
 
