@@ -1,15 +1,22 @@
 # Releasing
 
-Releases use release-please with the repository's `GITHUB_TOKEN`. No SDK GitHub
-App installation, client ID, or private key is required.
+Releases use release-please with a short-lived installation token from the
+`openai-sdks` GitHub App. App-created release PRs trigger normal CI, and published
+GitHub Releases trigger the existing PyPI publishing workflow.
 
 ## One-time setup
 
-Allow GitHub Actions to create pull requests in this repository's Actions
-settings. The release job grants its token Contents, Issues, Pull requests, and
-Actions write permissions; other jobs keep their own scoped permissions.
-Require SDK-team approval for the `release` environment and restrict it to the
-exact `main` branch.
+The App must be installed for this repository. The existing `release` environment
+holds the `OPENAI_SDKS_APP_CLIENT_ID` variable and `OPENAI_SDKS_APP_PRIVATE_KEY`
+secret. Keep it restricted to the exact `main` branch with admin bypass disabled;
+preserve configured environment approvals. Verify secret presence by metadata
+only; never print or copy its value.
+
+The token action is pinned to a full commit SHA and requests only this repository
+with Contents, Issues, and Pull requests write permissions. It revokes the token
+at job completion; installation tokens also expire after one hour. The release
+job's `GITHUB_TOKEN` has no granted permissions. Keep required PR reviews, checks,
+and the merge queue in place; the App does not need a default-branch bypass.
 
 Keep the existing PyPI trusted publisher for `openai/openai-guardrails-python`,
 workflow `publish.yml`, environment `pypi`. Restrict `pypi` deployments to `v*`
@@ -23,20 +30,19 @@ new tags. These controls live in GitHub settings, not workflow YAML.
    produces a patch bump, `feat:` a minor bump, and breaking changes a minor bump
    while the package is pre-1.0. Release notes use the sections in
    `release-please-config.json`.
-2. Approve the `release` environment run after a push to `main`. Release-please
-   opens or updates a release PR containing the version in `pyproject.toml`,
+2. After a push to `main`, approve the `release` environment run if prompted.
+   Release-please opens or updates a release PR containing the version in `pyproject.toml`,
    `CHANGELOG.md`, and `.release-please-manifest.json`. The manifest starts at
    the existing `v0.3.2` release. The package reads its runtime version from
    installed metadata, so no source version constant needs updating.
-3. For a token-created or updated PR, approve its pending workflow runs using
-   **Approve workflows to run** in the PR merge box. Review the proposed version
-   and changelog, wait for required CI, and run the repository's final release
-   review before merging the release PR.
-4. Approve the ensuing `release` environment run. Release-please creates the
-   `vX.Y.Z` tag and publishes a GitHub Release, then explicitly dispatches
-   `publish.yml` at that tag. `GITHUB_TOKEN`-created releases do not trigger
-   release-event workflows; `workflow_dispatch` provides the handoff. Releases
-   published directly by a maintainer still use the `release: published` event.
+3. App-created or updated release PRs trigger the normal PR workflows. Review the
+   proposed version and changelog, wait for required CI, and run the repository's
+   final release review before merging the release PR through the merge queue.
+4. Approve the ensuing `release` environment run if prompted. Release-please creates
+   the `vX.Y.Z` tag and publishes a GitHub Release using the App token. The
+   `release: published` event starts `publish.yml` at that tag, including for
+   releases published directly by a maintainer. Do not also dispatch publishing:
+   the release event is the single automatic handoff.
 5. The publishing workflow requires a published GitHub Release and verifies
    that the checked-out tag commit is an ancestor of `main` before installing
    dependencies. It builds the wheel and sdist without OIDC permission, then
@@ -48,10 +54,13 @@ new tags. These controls live in GitHub settings, not workflow YAML.
 
 ## Recovery
 
-If release creation succeeds but dispatch fails, manually run **Publish to
-PyPI** from the Actions UI with the published release tag selected. Select a
-`v*` tag containing the dispatch-enabled workflow; branch runs are skipped.
-Rerunning release-please alone may not dispatch an already-created release.
+If release creation succeeds but no publishing run appears, first check Actions
+for an existing run for that tag. If none exists, manually run **Publish to PyPI**
+with the published release tag selected. Select a `v*` tag containing the
+dispatch-enabled workflow; branch runs are skipped. Rerunning release-please
+alone does not republish an already-created release. Never manually dispatch
+while that tag's publishing run is queued or active, and inspect PyPI before
+retrying a completed run.
 
 If publishing fails, rerun the failed job from the original publishing run
 while its artifacts remain available (one day), or rerun the whole original run
@@ -64,3 +73,10 @@ documentation for new behavior with its package release, as required by `AGENTS.
 
 PEP 740 publishing attestations are enabled; this workflow does not separately
 generate GitHub artifact attestations or SLSA build provenance.
+
+## Local workflow validation
+
+After `make sync`, run `uv run python -m unittest discover -s .github/tests -v`
+to check release credential scope, the single automatic publication handoff,
+and the publishing guards. These configuration checks do not execute a
+production release or verify a PyPI upload.
