@@ -21,6 +21,7 @@ pyright:
 
 .PHONY: tests
 tests: 
+	uv run python -m unittest discover -s .github/tests -v
 	uv run pytest 
 
 .PHONY: coverage
