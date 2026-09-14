@@ -1,5 +1,28 @@
 # Changelog
 
+## [0.3.4](https://github.com/openai/openai-guardrails-python/compare/v0.3.3...v0.3.4) (2026-09-14)
+
+
+### Bug Fixes
+
+* Bound Secret Keys file-container matching ([#122](https://github.com/openai/openai-guardrails-python/issues/122)) ([cb5893f](https://github.com/openai/openai-guardrails-python/commit/cb5893f5326e09457a383c40178aeee98928fffc))
+* Preserve full coverage of overlapping PII detections ([#119](https://github.com/openai/openai-guardrails-python/issues/119)) ([8fb432b](https://github.com/openai/openai-guardrails-python/commit/8fb432ba91bfe931a3dc02fb67bd3f6bc2c0d7a5))
+* Preserve masked conversation history in output checks ([#121](https://github.com/openai/openai-guardrails-python/issues/121)) ([d539416](https://github.com/openai/openai-guardrails-python/commit/d53941699f35fbc2d3addfdc6fd7274272be919e))
+* Reject PII decoding-limit failures by default ([#120](https://github.com/openai/openai-guardrails-python/issues/120)) ([b2b73e9](https://github.com/openai/openai-guardrails-python/commit/b2b73e974e31bd8140e39d67fa298fc394f1b430))
+
+
+### Chores
+
+* **deps:** bump actions/github-script from 8.0.0 to 9.0.0 ([#126](https://github.com/openai/openai-guardrails-python/issues/126)) ([e6ff2c8](https://github.com/openai/openai-guardrails-python/commit/e6ff2c82fed4c267a7bc84cd694032235fe7b6f5))
+* **deps:** bump actions/upload-pages-artifact from 4.0.0 to 5.0.0 ([#128](https://github.com/openai/openai-guardrails-python/issues/128)) ([7d02a56](https://github.com/openai/openai-guardrails-python/commit/7d02a56ed146b09141aa03426981d8efc034de9c))
+* **deps:** update astral-sh/setup-uv requirement to e4db8464a088ece1b920f60402e813ea4de65b8f ([#127](https://github.com/openai/openai-guardrails-python/issues/127)) ([cb06172](https://github.com/openai/openai-guardrails-python/commit/cb06172728c5af6f584c39b5250ecbe3afd78a9c))
+* require SDK-team ownership for release files ([#125](https://github.com/openai/openai-guardrails-python/issues/125)) ([ede106b](https://github.com/openai/openai-guardrails-python/commit/ede106bb083eb33d4d4c39e461d953a788e84168))
+
+
+### Documentation
+
+* Tighten README and verify setup examples ([#124](https://github.com/openai/openai-guardrails-python/issues/124)) ([78f2ad7](https://github.com/openai/openai-guardrails-python/commit/78f2ad7b0272a57d2b8da2533fe659bbcbe02a67))
+
 ## [0.3.3](https://github.com/openai/openai-guardrails-python/compare/v0.3.2...v0.3.3) (2026-09-10)
 
 
