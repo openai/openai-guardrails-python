@@ -244,6 +244,8 @@ async def test_malformed_url_prefix_cannot_alias_a_later_valid_url() -> None:
     [
         "https://example.com/?token=sk-AAAABBBBCCCCDDDD{hard_stop}tail",
         "files/sk-AAAABBBBCCCCDDDD.png,https://example.com{hard_stop}tail",
+        "https://example.com/path{hard_stop}tail?token=sk-AAAABBBBCCCCDDDD",
+        "https://example.com/?token=sk-AAAABBBBCCCCDDDD#{hard_stop}tail",
     ],
 )
 async def test_url_regex_hard_stop_does_not_expose_candidates(
