@@ -28,7 +28,7 @@ from heapq import merge
 from ipaddress import AddressValueError, ip_address, ip_network
 from itertools import chain
 from typing import Any
-from urllib.parse import ParseResult, urlparse
+from urllib.parse import ParseResult, urlparse, urlsplit
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -88,7 +88,8 @@ _ADJACENT_DOMAIN_START_RE = re.compile(
 _ADJACENT_IP_START_RE = re.compile(rf"(?<=[{_ADJACENT_SCHEME_URL_BOUNDARY_CLASS}])(?:[0-9]{{1,3}}\.){{3}}[0-9]{{1,3}}")
 _EXPLICIT_URL_SCHEME_PATTERN = r"(?:https?|ftp)://|(?:data|javascript|vbscript):"
 _EXPLICIT_URL_SCHEME_RE = re.compile(_EXPLICIT_URL_SCHEME_PATTERN, re.IGNORECASE)
-_HTTP_URL_CHARACTER_PATTERN = r'[^\s<>"{}|\\^`\[\]]'
+# Browser path separators must survive detection for subsequent path checks.
+_HTTP_URL_CHARACTER_PATTERN = r'[^\s<>"{}|^`\[\]]'
 _BRACKETED_HTTP_AUTHORITY_PATTERN = r"https?://\[[^\]\s/?#]+\]"
 _HIERARCHICAL_URL_COMPONENT_PATTERN = (
     r"(?:(?!["
@@ -1154,7 +1155,7 @@ def _has_valid_http_authority(url: str) -> bool:
         port syntax.
     """
     try:
-        parsed_url = urlparse(url)
+        parsed_url = urlparse(_normalize_browser_separators(url, url.partition(":")[0]))
         hostname = parsed_url.hostname
         _port = parsed_url.port
     except (ValueError, UnicodeError):
@@ -1173,7 +1174,7 @@ def _has_open_http_query_value(url: str) -> bool:
         an equals sign.
     """
     try:
-        parsed_url = urlparse(url)
+        parsed_url = urlparse(_normalize_browser_separators(url, url.partition(":")[0]))
         hostname = parsed_url.hostname
         _port = parsed_url.port
     except (ValueError, UnicodeError):
@@ -1360,7 +1361,7 @@ def _truncate_before_adjacent_scheme_less_url(url: str) -> str:
         return url
 
     scheme_prefix_end = url.find("://") + 3
-    component_starts = [position for delimiter in "/?#" if (position := url.find(delimiter, scheme_prefix_end)) >= 0]
+    component_starts = [position for delimiter in "/\\?#" if (position := url.find(delimiter, scheme_prefix_end)) >= 0]
     first_component_start = min(component_starts, default=len(url))
     userinfo_end = url.rfind("@", scheme_prefix_end, first_component_start)
     query_start = url.find("?", first_component_start)
@@ -1411,7 +1412,7 @@ def _truncate_before_adjacent_scheme_less_url(url: str) -> str:
 
 
 def _has_same_preserved_url_identity(source_url: str, preserved_url: str) -> bool:
-    """Compare URL identity while normalizing only scheme and host case.
+    """Compare URL identity using browser separators and scheme/host case folding.
 
     Args:
         source_url: URL spelling recovered from the source text.
@@ -1421,8 +1422,8 @@ def _has_same_preserved_url_identity(source_url: str, preserved_url: str) -> boo
         True when normalized authority and case-sensitive components match.
     """
     try:
-        source_parsed = urlparse(source_url)
-        preserved_parsed = urlparse(preserved_url)
+        source_parsed = urlparse(_normalize_browser_separators(source_url, source_url.partition(":")[0]))
+        preserved_parsed = urlparse(_normalize_browser_separators(preserved_url, preserved_url.partition(":")[0]))
         same_authority = (
             source_parsed.scheme.lower() == preserved_parsed.scheme.lower()
             and source_parsed.hostname is not None
@@ -1753,7 +1754,7 @@ def _detect_urls(
     ordinary_explicit_urls = (url for _, _, url in detected_candidates if "://" in url)
     for url in ordinary_explicit_urls:
         try:
-            parsed = urlparse(url)
+            parsed = urlparse(_normalize_browser_separators(url, url.partition(":")[0]))
             if parsed.hostname:
                 scheme_url_domains.add(parsed.hostname.lower())
                 # Also add www-stripped version
@@ -1786,6 +1787,15 @@ def _detect_urls(
     return list(dict.fromkeys([url for url in final_urls if url]))
 
 
+def _normalize_browser_separators(url_string: str, scheme: str) -> str:
+    """Normalize special-scheme separators without changing query or fragment data."""
+    if scheme.lower() not in {"http", "https", "ftp", "ws", "wss", "file"}:
+        return url_string
+    before_fragment, fragment_separator, fragment = url_string.partition("#")
+    before_query, query_separator, query = before_fragment.partition("?")
+    return before_query.replace("\\", "/") + query_separator + query + fragment_separator + fragment
+
+
 def _validate_url_security(url_string: str, config: URLConfig) -> tuple[ParseResult | None, str, bool]:
     """Validate URL security properties using urllib.parse.
 
@@ -1807,7 +1817,8 @@ def _validate_url_security(url_string: str, config: URLConfig) -> tuple[ParseRes
         has_explicit_scheme = False
         if "://" in url_string:
             # Standard URL with double-slash scheme (http://, https://, ftp://, etc.)
-            parsed_url = urlparse(url_string)
+            scheme = url_string.split(":", 1)[0]
+            parsed_url = urlparse(_normalize_browser_separators(url_string, scheme))
             original_scheme = parsed_url.scheme
             has_explicit_scheme = True
         elif ":" in url_string and url_string.split(":", 1)[0] in {"data", "javascript", "vbscript", "mailto"}:
@@ -1817,7 +1828,7 @@ def _validate_url_security(url_string: str, config: URLConfig) -> tuple[ParseRes
             has_explicit_scheme = True
         else:
             # Add http scheme for parsing only (user didn't specify a scheme)
-            parsed_url = urlparse(f"http://{url_string}")
+            parsed_url = urlparse(_normalize_browser_separators(f"http://{url_string}", "http"))
             original_scheme = None  # No explicit scheme
             has_explicit_scheme = False
 
@@ -1873,6 +1884,7 @@ def _is_url_allowed(
     allow_list: list[str],
     allow_subdomains: bool,
     url_had_explicit_scheme: bool,
+    complete_path: str,
 ) -> bool:
     """Check if parsed URL matches any entry in the allow list.
 
@@ -1880,12 +1892,16 @@ def _is_url_allowed(
     paths/ports/query strings. Allow list entries without explicit schemes
     match any scheme. Entries with schemes must match exactly against URLs
     with explicit schemes, but match any scheme-less URL.
+    Path-restricted entries reject paths with literal or percent-encoded
+    dot segments; callers should supply an already resolved path instead.
+    Browser-special schemes treat backslashes as path separators.
 
     Args:
         parsed_url: The parsed URL to check.
         allow_list: List of allowed URL patterns (domains, IPs, CIDR, full URLs).
         allow_subdomains: If True, subdomains of allowed domains are permitted.
         url_had_explicit_scheme: Whether the original URL included an explicit scheme.
+        complete_path: The separator-normalized path including semicolon parameters.
 
     Returns:
         True if the URL matches any allow list entry, False otherwise.
@@ -1917,7 +1933,7 @@ def _is_url_allowed(
         url_ip = None
 
     for allowed_entry in allow_list:
-        allowed_entry = allowed_entry.strip()
+        allowed_entry = _normalize_browser_separators(allowed_entry.strip(), scheme_lower)
 
         has_explicit_scheme = bool(SCHEME_PREFIX_RE.match(allowed_entry))
         if has_explicit_scheme:
@@ -1973,6 +1989,11 @@ def _is_url_allowed(
 
         # Path matching with segment boundary respect
         if allowed_path not in ("", "/"):
+            # Browser navigation resolves these whole segments before use.
+            # Reject them for path rules without decoding other escapes or
+            # changing the original URL reported by the guardrail.
+            if any(segment.lower().replace("%2e", ".") in (".", "..") for segment in complete_path.split("/")):
+                continue
             # Normalize trailing slashes to prevent issues with entries like "/api/"
             # which should match "/api/users" but would fail with double-slash check
             normalized_allowed_path = allowed_path.rstrip("/")
@@ -2038,7 +2059,13 @@ async def urls(ctx: Any, data: str, config: URLConfig) -> GuardrailResult:
             # For hostless schemes, only scheme permission matters (no allow list needed)
             # They were already validated for scheme permission in _validate_url_security
             allowed.append(url_string)
-        elif _is_url_allowed(parsed_url, config.url_allow_list, config.allow_subdomains, url_had_explicit_scheme):
+        elif _is_url_allowed(
+            parsed_url,
+            config.url_allow_list,
+            config.allow_subdomains,
+            url_had_explicit_scheme,
+            urlsplit(_normalize_browser_separators(url_string if url_had_explicit_scheme else f"http://{url_string}", parsed_url.scheme)).path,
+        ):
             allowed.append(url_string)
         else:
             blocked.append(url_string)

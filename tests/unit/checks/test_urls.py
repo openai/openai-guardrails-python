@@ -8,6 +8,7 @@ import string
 from datetime import timedelta
 from statistics import median
 from timeit import repeat
+from urllib.parse import urlsplit
 
 import pytest
 from hypothesis import given, settings, strategies as st
@@ -2982,9 +2983,11 @@ def test_is_url_allowed_handles_full_urls_with_paths() -> None:
     assert root_url is not None  # noqa: S101
     assert path_url is not None  # noqa: S101
     assert wrong_path_url is not None  # noqa: S101
-    assert _is_url_allowed(root_url, config.url_allow_list, config.allow_subdomains, had_scheme1) is True  # noqa: S101
-    assert _is_url_allowed(path_url, config.url_allow_list, config.allow_subdomains, had_scheme2) is True  # noqa: S101
-    assert _is_url_allowed(wrong_path_url, config.url_allow_list, config.allow_subdomains, had_scheme3) is False  # noqa: S101
+    assert _is_url_allowed(root_url, config.url_allow_list, config.allow_subdomains, had_scheme1, urlsplit(root_url.geturl()).path) is True  # noqa: S101
+    assert _is_url_allowed(path_url, config.url_allow_list, config.allow_subdomains, had_scheme2, urlsplit(path_url.geturl()).path) is True  # noqa: S101
+    assert (
+        _is_url_allowed(wrong_path_url, config.url_allow_list, config.allow_subdomains, had_scheme3, urlsplit(wrong_path_url.geturl()).path) is False
+    )  # noqa: S101
 
 
 def test_is_url_allowed_respects_path_segment_boundaries() -> None:
@@ -3008,12 +3011,12 @@ def test_is_url_allowed_respects_path_segment_boundaries() -> None:
     assert similar_path2 is not None  # noqa: S101
 
     # Exact match and valid subpath should be allowed
-    assert _is_url_allowed(exact_match, config.url_allow_list, config.allow_subdomains, had_scheme1) is True  # noqa: S101
-    assert _is_url_allowed(valid_subpath, config.url_allow_list, config.allow_subdomains, had_scheme2) is True  # noqa: S101
+    assert _is_url_allowed(exact_match, config.url_allow_list, config.allow_subdomains, had_scheme1, urlsplit(exact_match.geturl()).path) is True  # noqa: S101
+    assert _is_url_allowed(valid_subpath, config.url_allow_list, config.allow_subdomains, had_scheme2, urlsplit(valid_subpath.geturl()).path) is True  # noqa: S101
 
     # Similar paths that don't respect segment boundaries should be blocked
-    assert _is_url_allowed(similar_path1, config.url_allow_list, config.allow_subdomains, had_scheme3) is False  # noqa: S101
-    assert _is_url_allowed(similar_path2, config.url_allow_list, config.allow_subdomains, had_scheme4) is False  # noqa: S101
+    assert _is_url_allowed(similar_path1, config.url_allow_list, config.allow_subdomains, had_scheme3, urlsplit(similar_path1.geturl()).path) is False  # noqa: S101
+    assert _is_url_allowed(similar_path2, config.url_allow_list, config.allow_subdomains, had_scheme4, urlsplit(similar_path2.geturl()).path) is False  # noqa: S101
 
 
 def test_is_url_allowed_without_scheme_matches_multiple_protocols() -> None:
@@ -3028,8 +3031,8 @@ def test_is_url_allowed_without_scheme_matches_multiple_protocols() -> None:
 
     assert https_result is not None, https_reason  # noqa: S101
     assert http_result is not None, http_reason  # noqa: S101
-    assert _is_url_allowed(https_result, config.url_allow_list, config.allow_subdomains, had_scheme1) is True  # noqa: S101
-    assert _is_url_allowed(http_result, config.url_allow_list, config.allow_subdomains, had_scheme2) is True  # noqa: S101
+    assert _is_url_allowed(https_result, config.url_allow_list, config.allow_subdomains, had_scheme1, urlsplit(https_result.geturl()).path) is True  # noqa: S101
+    assert _is_url_allowed(http_result, config.url_allow_list, config.allow_subdomains, had_scheme2, urlsplit(http_result.geturl()).path) is True  # noqa: S101
 
 
 def test_is_url_allowed_supports_subdomains_and_cidr() -> None:
@@ -3043,8 +3046,8 @@ def test_is_url_allowed_supports_subdomains_and_cidr() -> None:
 
     assert https_result is not None  # noqa: S101
     assert ip_result is not None  # noqa: S101
-    assert _is_url_allowed(https_result, config.url_allow_list, config.allow_subdomains, had_scheme1) is True  # noqa: S101
-    assert _is_url_allowed(ip_result, config.url_allow_list, config.allow_subdomains, had_scheme2) is True  # noqa: S101
+    assert _is_url_allowed(https_result, config.url_allow_list, config.allow_subdomains, had_scheme1, urlsplit(https_result.geturl()).path) is True  # noqa: S101
+    assert _is_url_allowed(ip_result, config.url_allow_list, config.allow_subdomains, had_scheme2, urlsplit(ip_result.geturl()).path) is True  # noqa: S101
 
 
 @pytest.mark.parametrize(
@@ -3066,7 +3069,7 @@ def test_is_url_allowed_removes_only_a_leading_www_label(
     parsed_url, _, had_scheme = _validate_url_security(url, config)
 
     assert parsed_url is not None  # noqa: S101
-    assert _is_url_allowed(parsed_url, config.url_allow_list, False, had_scheme) is expected  # noqa: S101
+    assert _is_url_allowed(parsed_url, config.url_allow_list, False, had_scheme, urlsplit(parsed_url.geturl()).path) is expected  # noqa: S101
 
 
 @pytest.mark.asyncio
@@ -3403,9 +3406,9 @@ def test_is_url_allowed_handles_cidr_blocks() -> None:
     assert ip_in_range2 is not None  # noqa: S101
     assert ip_outside is not None  # noqa: S101
 
-    assert _is_url_allowed(ip_in_range1, config.url_allow_list, config.allow_subdomains, had_scheme1) is True  # noqa: S101
-    assert _is_url_allowed(ip_in_range2, config.url_allow_list, config.allow_subdomains, had_scheme2) is True  # noqa: S101
-    assert _is_url_allowed(ip_outside, config.url_allow_list, config.allow_subdomains, had_scheme3) is False  # noqa: S101
+    assert _is_url_allowed(ip_in_range1, config.url_allow_list, config.allow_subdomains, had_scheme1, urlsplit(ip_in_range1.geturl()).path) is True  # noqa: S101
+    assert _is_url_allowed(ip_in_range2, config.url_allow_list, config.allow_subdomains, had_scheme2, urlsplit(ip_in_range2.geturl()).path) is True  # noqa: S101
+    assert _is_url_allowed(ip_outside, config.url_allow_list, config.allow_subdomains, had_scheme3, urlsplit(ip_outside.geturl()).path) is False  # noqa: S101
 
 
 def test_is_url_allowed_handles_port_matching() -> None:
@@ -3432,11 +3435,27 @@ def test_is_url_allowed_handles_port_matching() -> None:
     assert implicit_match is not None  # noqa: S101
     assert explicit_default_port is not None  # noqa: S101
 
-    assert _is_url_allowed(correct_port, config.url_allow_list, config.allow_subdomains, had_scheme1) is True  # noqa: S101
-    assert _is_url_allowed(wrong_port, config.url_allow_list, config.allow_subdomains, had_scheme2) is False  # noqa: S101
-    assert _is_url_allowed(explicit_port_no_restriction, config.url_allow_list, config.allow_subdomains, had_scheme3) is True  # noqa: S101
-    assert _is_url_allowed(implicit_match, config.url_allow_list, config.allow_subdomains, had_scheme4) is True  # noqa: S101
-    assert _is_url_allowed(explicit_default_port, config.url_allow_list, config.allow_subdomains, had_scheme5) is True  # noqa: S101
+    assert _is_url_allowed(correct_port, config.url_allow_list, config.allow_subdomains, had_scheme1, urlsplit(correct_port.geturl()).path) is True  # noqa: S101
+    assert _is_url_allowed(wrong_port, config.url_allow_list, config.allow_subdomains, had_scheme2, urlsplit(wrong_port.geturl()).path) is False  # noqa: S101
+    assert (
+        _is_url_allowed(
+            explicit_port_no_restriction,
+            config.url_allow_list,
+            config.allow_subdomains,
+            had_scheme3,
+            urlsplit(explicit_port_no_restriction.geturl()).path,
+        )
+        is True
+    )  # noqa: S101
+    assert (
+        _is_url_allowed(implicit_match, config.url_allow_list, config.allow_subdomains, had_scheme4, urlsplit(implicit_match.geturl()).path) is True
+    )  # noqa: S101
+    assert (
+        _is_url_allowed(
+            explicit_default_port, config.url_allow_list, config.allow_subdomains, had_scheme5, urlsplit(explicit_default_port.geturl()).path
+        )
+        is True
+    )  # noqa: S101
 
 
 def test_is_url_allowed_handles_query_and_fragment() -> None:
@@ -3460,10 +3479,12 @@ def test_is_url_allowed_handles_query_and_fragment() -> None:
     assert exact_fragment is not None  # noqa: S101
     assert diff_fragment is not None  # noqa: S101
 
-    assert _is_url_allowed(exact_query, config.url_allow_list, config.allow_subdomains, had_scheme1) is True  # noqa: S101
-    assert _is_url_allowed(diff_query, config.url_allow_list, config.allow_subdomains, had_scheme2) is False  # noqa: S101
-    assert _is_url_allowed(exact_fragment, config.url_allow_list, config.allow_subdomains, had_scheme3) is True  # noqa: S101
-    assert _is_url_allowed(diff_fragment, config.url_allow_list, config.allow_subdomains, had_scheme4) is False  # noqa: S101
+    assert _is_url_allowed(exact_query, config.url_allow_list, config.allow_subdomains, had_scheme1, urlsplit(exact_query.geturl()).path) is True  # noqa: S101
+    assert _is_url_allowed(diff_query, config.url_allow_list, config.allow_subdomains, had_scheme2, urlsplit(diff_query.geturl()).path) is False  # noqa: S101
+    assert (
+        _is_url_allowed(exact_fragment, config.url_allow_list, config.allow_subdomains, had_scheme3, urlsplit(exact_fragment.geturl()).path) is True
+    )  # noqa: S101
+    assert _is_url_allowed(diff_fragment, config.url_allow_list, config.allow_subdomains, had_scheme4, urlsplit(diff_fragment.geturl()).path) is False  # noqa: S101
 
 
 def test_validate_url_security_allows_userinfo_when_disabled() -> None:
@@ -3491,8 +3512,8 @@ def test_is_url_allowed_enforces_scheme_when_explicitly_specified() -> None:
     assert http_url is not None  # noqa: S101
 
     # This is the security-critical check: scheme-qualified entries must match exactly
-    assert _is_url_allowed(https_url, config.url_allow_list, config.allow_subdomains, had_scheme1) is True  # noqa: S101
-    assert _is_url_allowed(http_url, config.url_allow_list, config.allow_subdomains, had_scheme2) is False  # noqa: S101
+    assert _is_url_allowed(https_url, config.url_allow_list, config.allow_subdomains, had_scheme1, urlsplit(https_url.geturl()).path) is True  # noqa: S101
+    assert _is_url_allowed(http_url, config.url_allow_list, config.allow_subdomains, had_scheme2, urlsplit(http_url.geturl()).path) is False  # noqa: S101
 
 
 def test_is_url_allowed_enforces_scheme_for_ips() -> None:
@@ -3510,8 +3531,8 @@ def test_is_url_allowed_enforces_scheme_for_ips() -> None:
     assert https_ip is not None  # noqa: S101
     assert http_ip is not None  # noqa: S101
 
-    assert _is_url_allowed(https_ip, config.url_allow_list, config.allow_subdomains, had_scheme1) is True  # noqa: S101
-    assert _is_url_allowed(http_ip, config.url_allow_list, config.allow_subdomains, had_scheme2) is False  # noqa: S101
+    assert _is_url_allowed(https_ip, config.url_allow_list, config.allow_subdomains, had_scheme1, urlsplit(https_ip.geturl()).path) is True  # noqa: S101
+    assert _is_url_allowed(http_ip, config.url_allow_list, config.allow_subdomains, had_scheme2, urlsplit(http_ip.geturl()).path) is False  # noqa: S101
 
 
 @pytest.mark.asyncio
@@ -3564,8 +3585,8 @@ def test_is_url_allowed_handles_trailing_slash_in_path() -> None:
     assert exact_url is not None  # noqa: S101
 
     # Both should be allowed
-    assert _is_url_allowed(subpath_url, config.url_allow_list, config.allow_subdomains, had_scheme1) is True  # noqa: S101
-    assert _is_url_allowed(exact_url, config.url_allow_list, config.allow_subdomains, had_scheme2) is True  # noqa: S101
+    assert _is_url_allowed(subpath_url, config.url_allow_list, config.allow_subdomains, had_scheme1, urlsplit(subpath_url.geturl()).path) is True  # noqa: S101
+    assert _is_url_allowed(exact_url, config.url_allow_list, config.allow_subdomains, had_scheme2, urlsplit(exact_url.geturl()).path) is True  # noqa: S101
 
 
 @pytest.mark.asyncio
@@ -3609,8 +3630,10 @@ def test_is_url_allowed_handles_ipv6_addresses() -> None:
     assert ipv6_with_ftp is not None  # noqa: S101
 
     # Both should be allowed
-    assert _is_url_allowed(ipv6_no_scheme, config.url_allow_list, config.allow_subdomains, had_scheme1) is True  # noqa: S101
-    assert _is_url_allowed(ipv6_with_ftp, config.url_allow_list, config.allow_subdomains, had_scheme2) is True  # noqa: S101
+    assert (
+        _is_url_allowed(ipv6_no_scheme, config.url_allow_list, config.allow_subdomains, had_scheme1, urlsplit(ipv6_no_scheme.geturl()).path) is True
+    )  # noqa: S101
+    assert _is_url_allowed(ipv6_with_ftp, config.url_allow_list, config.allow_subdomains, had_scheme2, urlsplit(ipv6_with_ftp.geturl()).path) is True  # noqa: S101
 
 
 def test_is_url_allowed_handles_ipv6_cidr_notation() -> None:
@@ -3632,10 +3655,10 @@ def test_is_url_allowed_handles_ipv6_cidr_notation() -> None:
     assert ip_outside is not None  # noqa: S101
 
     # IPs within CIDR ranges should be allowed
-    assert _is_url_allowed(ip_in_range1, config.url_allow_list, config.allow_subdomains, had_scheme1) is True  # noqa: S101
-    assert _is_url_allowed(ip_in_range2, config.url_allow_list, config.allow_subdomains, had_scheme2) is True  # noqa: S101
+    assert _is_url_allowed(ip_in_range1, config.url_allow_list, config.allow_subdomains, had_scheme1, urlsplit(ip_in_range1.geturl()).path) is True  # noqa: S101
+    assert _is_url_allowed(ip_in_range2, config.url_allow_list, config.allow_subdomains, had_scheme2, urlsplit(ip_in_range2.geturl()).path) is True  # noqa: S101
     # IP outside should be blocked
-    assert _is_url_allowed(ip_outside, config.url_allow_list, config.allow_subdomains, had_scheme3) is False  # noqa: S101
+    assert _is_url_allowed(ip_outside, config.url_allow_list, config.allow_subdomains, had_scheme3, urlsplit(ip_outside.geturl()).path) is False  # noqa: S101
 
 
 @pytest.mark.asyncio
@@ -3656,6 +3679,239 @@ async def test_urls_guardrail_blocks_subdomains_and_paths_correctly() -> None:
     assert len(result.info["blocked"]) == 2  # noqa: S101
     assert "help-suntropy.es" in result.info["blocked"]  # noqa: S101
     assert "help.suntropy.es" in result.info["blocked"]  # noqa: S101
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("suffix", "blocked"),
+    [
+        ("/api/../admin", True),
+        ("/admin", True),
+        ("/api/./users", True),
+        ("/api/%2e/users", True),
+        ("/api/%2E%2e/admin", True),
+        ("/api/.%2E/admin", True),
+        ("/api/%2e./admin", True),
+        ("/api/users/../../admin", True),
+        ("/api/..?view=full", True),
+        ("/api/%2e%2e", True),
+        ("/api", False),
+        ("/api/", False),
+        ("/api/users", False),
+        ("/api2", True),
+        ("/api-v2", True),
+        ("/api/file..txt", False),
+        ("/api/..;version=1", False),
+        ("/api/%2e;version=1", False),
+        ("/api/..;?view=full", False),
+        ("/api/..;version=1/../admin", True),
+        ("/api/%2e%2efile", False),
+        ("/api/%252e%252e/admin", False),
+        ("/api/users?next=/../admin#../section", False),
+    ],
+)
+async def test_urls_path_allow_list_rejects_dot_segments(suffix: str, blocked: bool) -> None:
+    """Path rules reject dot segments without rewriting the detected URL."""
+    candidate = f"https://example.com{suffix}"
+    result = await urls(None, candidate, URLConfig(url_allow_list=["https://example.com/api"]))
+
+    assert result.info["detected"] == [candidate]
+    assert result.tripwire_triggered is blocked
+    assert result.info["allowed"] == ([] if blocked else [candidate])
+    assert result.info["blocked"] == ([candidate] if blocked else [])
+    assert result.info["blocked_reasons"] == ([f"{candidate}: Not in allow list"] if blocked else [])
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("prefix", "host"),
+    [("", "example.com"), ("", "192.0.2.10"), ("https://", "[2001:db8::10]")],
+)
+async def test_urls_dot_segments_cannot_match_path_entries(prefix: str, host: str) -> None:
+    """Trailing-slash path rules apply to scheme-less URLs and IP hosts too."""
+    candidate = f"{prefix}{host}/api/%2e%2e/admin"
+    result = await urls(None, candidate, URLConfig(url_allow_list=[f"https://{host}/api/"]))
+
+    assert result.info["detected"] == [candidate]
+    assert result.tripwire_triggered is True
+    assert result.info["blocked"] == [candidate]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("suffix", "entry", "blocked"),
+    [
+        (r"/api/..\admin", "/api", True),
+        (r"/api\..\admin", "/api", True),
+        (r"/api/%2E%2e\admin", "/api", True),
+        (r"/api\.%2e/admin", "/api", True),
+        (r"/api\users", "/api/users", False),
+        ("/api/users", r"/api\users", False),
+        (r"/api\users2", "/api/users", True),
+        (r"/api/..;version=1\users", "/api", False),
+        (r"/api/users?next=..\admin#..\section", "/api", False),
+        (r"/api/..\admin", "", False),
+    ],
+)
+async def test_urls_path_rules_use_browser_path_separators(suffix: str, entry: str, blocked: bool) -> None:
+    """Retained scheme-less paths use browser separators without rewriting reports."""
+    candidate = f"example.com{suffix}"
+    result = await urls(None, candidate, URLConfig(url_allow_list=[f"https://example.com{entry}"]))
+
+    assert result.info["detected"] == [candidate]
+    assert result.tripwire_triggered is blocked
+    assert result.info["allowed"] == ([] if blocked else [candidate])
+    assert result.info["blocked"] == ([candidate] if blocked else [])
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("scheme", ["http", "https", "ftp"])
+@pytest.mark.parametrize(
+    ("suffix", "blocked"),
+    [
+        (r"/api/..\admin", True),
+        (r"/api/%2e%2e\admin", True),
+        (r"/api\%2e%2e", True),
+        (r"/api\users", False),
+        (r"\api\users", False),
+        (r"\api\..\admin", True),
+        (r"\api\%2e%2e\admin", True),
+        (r"\api2\users", True),
+        (r"\api\..;version=1\users", False),
+    ],
+)
+async def test_urls_explicit_special_scheme_path_separators(scheme: str, suffix: str, blocked: bool) -> None:
+    """Explicit paths reach validation intact without exact URL preservation."""
+    candidate = f"{scheme}://example.com{suffix}"
+    result = await urls(None, candidate, URLConfig(url_allow_list=[f"{scheme}://example.com/api"], allowed_schemes={scheme}))
+
+    assert result.info["detected"] == [candidate]
+    assert result.tripwire_triggered is blocked
+    assert result.info["allowed"] == ([] if blocked else [candidate])
+    assert result.info["blocked"] == ([candidate] if blocked else [])
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("host", ["192.0.2.10", "[2001:db8::10]"])
+@pytest.mark.parametrize(("suffix", "blocked"), [(r"/api/..\admin", True), (r"\api\users", False)])
+async def test_urls_explicit_ip_paths_retain_browser_separators(host: str, suffix: str, blocked: bool) -> None:
+    """Explicit IP URLs preserve browser-separated paths inside surrounding prose."""
+    candidate = f"https://{host}{suffix}"
+    result = await urls(None, f"See ({candidate}).", URLConfig(url_allow_list=[f"https://{host}/api"]))
+
+    assert result.info["detected"] == [candidate]
+    assert result.tripwire_triggered is blocked
+    assert result.info["allowed"] == ([] if blocked else [candidate])
+    assert result.info["blocked"] == ([candidate] if blocked else [])
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("scheme", ["http", "https", "ftp"])
+@pytest.mark.parametrize(("entry", "blocked"), [("example.com", True), ("other.example", False)])
+async def test_urls_browser_separator_determines_authority(scheme: str, entry: str, blocked: bool) -> None:
+    """Text after a browser path separator cannot replace the actual host."""
+    candidate = f"{scheme}://other.example\\@example.com/api"
+    config = URLConfig(url_allow_list=[entry], allowed_schemes={scheme})
+
+    result = await urls(None, candidate, config)
+
+    assert result.info["detected"] == [candidate]
+    assert result.tripwire_triggered is blocked
+    assert result.info["allowed"] == ([] if blocked else [candidate])
+    assert result.info["blocked"] == ([candidate] if blocked else [])
+    assert result.info["blocked_reasons"] == ([f"{candidate}: Not in allow list"] if blocked else [])
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("entry", [r"https://example.com\api", r"example.com\api"])
+async def test_urls_configured_leading_browser_separator(entry: str) -> None:
+    """Configured path restrictions use the same authority boundary as candidates."""
+    candidate = "https://example.com/api/users"
+
+    result = await urls(None, candidate, URLConfig(url_allow_list=[entry]))
+
+    assert result.tripwire_triggered is False
+    assert result.info["allowed"] == [candidate]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("suffix", "blocked"),
+    [(r"?next=..\admin#..\section", False), ("?next=../admin#../section", True), (r"#..\section?next=..\admin", True)],
+)
+async def test_urls_browser_separators_preserve_query_and_fragment(suffix: str, blocked: bool) -> None:
+    """Only authority and path separators normalize; query and fragment remain exact."""
+    candidate = r"https://example.com\api\users?next=..\admin#..\section"
+    config = URLConfig(url_allow_list=[f"https://example.com/api{suffix}"])
+
+    result = await urls(None, candidate, config)
+
+    assert result.info["detected"] == [candidate]
+    assert result.tripwire_triggered is blocked
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("block_userinfo", [True, False])
+async def test_urls_leading_browser_separator_preserves_userinfo_policy(block_userinfo: bool) -> None:
+    """Credentials before the actual host still follow the configured policy."""
+    candidate = r"https://user@example.com\api\users"
+    config = URLConfig(url_allow_list=["https://example.com/api"], block_userinfo=block_userinfo)
+
+    result = await urls(None, candidate, config)
+
+    assert result.info["detected"] == [candidate]
+    assert result.tripwire_triggered is block_userinfo
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("scheme", ["http", "https", "ftp"])
+async def test_urls_browser_authority_does_not_hide_independent_bare_host(scheme: str) -> None:
+    """Host deduplication uses the same authority as allow-list matching."""
+    candidate = f"{scheme}://allowed.example\\@blocked.example/api"
+    config = URLConfig(url_allow_list=["allowed.example"], allowed_schemes={scheme})
+
+    result = await urls(None, f"{candidate} blocked.example", config)
+
+    assert result.tripwire_triggered is True
+    assert result.info["detected"] == [candidate, "blocked.example"]
+    assert result.info["allowed"] == [candidate]
+    assert result.info["blocked"] == ["blocked.example"]
+
+
+@pytest.mark.asyncio
+async def test_urls_browser_path_colon_does_not_hide_adjacent_url() -> None:
+    """A colon after the host/path separator is path data, not a port."""
+    candidate = r"https://allowed.example\api:users"
+
+    result = await urls(None, f"{candidate},blocked.example/path", URLConfig(url_allow_list=["allowed.example"]))
+
+    assert result.tripwire_triggered is True
+    assert result.info["detected"] == [candidate, "blocked.example/path"]
+    assert result.info["blocked"] == ["blocked.example/path"]
+
+
+@pytest.mark.asyncio
+async def test_urls_browser_separator_preserves_nested_query_ownership() -> None:
+    """A valid port before a browser separator retains query-value ownership."""
+    candidate = r"https://allowed.example:443\api?next="
+
+    result = await urls(None, f"{candidate},https://blocked.example/path", URLConfig(url_allow_list=["allowed.example"]))
+
+    assert result.tripwire_triggered is False
+    assert result.info["detected"] == [candidate]
+    assert result.info["allowed"] == [candidate]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("entry", ["example.com", "https://example.com/", "https://example.com/api/../admin"])
+async def test_urls_dot_segment_matching_remains_entry_specific(entry: str) -> None:
+    """Only unrestricted entries may allow a path containing dot segments."""
+    candidate = "https://example.com/api/../admin"
+    result = await urls(None, candidate, URLConfig(url_allow_list=["https://example.com/api", entry]))
+
+    assert result.info["detected"] == [candidate]
+    assert result.tripwire_triggered is (entry == candidate)
+    assert result.info["allowed"] == ([] if entry == candidate else [candidate])
 
 
 @pytest.mark.asyncio

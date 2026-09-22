@@ -659,15 +659,19 @@ def _iter_exempt_container_candidates(text: str) -> Iterator[str]:
 
 
 def _is_valid_http_url(parsed_url: ParseResult) -> bool:
-    """Return whether a parsed HTTP(S) URL has a valid authority.
+    """Return whether a parsed HTTP(S) URL is a supported secret container.
 
     Args:
         parsed_url: Parsed URL returned by ``urlparse``.
 
     Returns:
-        True when the URL has a supported scheme, hostname, and port.
+        True when the URL has supported components without literal backslashes.
     """
     if parsed_url.scheme.lower() not in {"http", "https"}:
+        return False
+    # The shared detector retains browser separators for URL Filter, but
+    # malformed container recovery remains outside secret extraction.
+    if "\\" in parsed_url.geturl():
         return False
     try:
         hostname = parsed_url.hostname
