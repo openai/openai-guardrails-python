@@ -159,6 +159,13 @@ Explore the examples:
 | [Off Topic Prompts](https://openai.github.io/openai-guardrails-python/ref/checks/off_topic_prompts/) | Content outside a configured topic or scope |
 | [Custom Prompt Check](https://openai.github.io/openai-guardrails-python/ref/checks/custom_prompt_check/) | Violations of custom instructions |
 
+## Contributing
+
+Please share bug reports and feature requests through [GitHub issues](https://github.com/openai/openai-guardrails-python/issues).
+Pull requests are limited to repository collaborators; we do not accept pull requests from non-collaborators.
+See [CONTRIBUTING.md](https://github.com/openai/openai-guardrails-python/blob/main/CONTRIBUTING.md) for the contribution policy and development guide.
+For security vulnerabilities, follow [SECURITY.md](https://github.com/openai/openai-guardrails-python/blob/main/SECURITY.md).
+
 ## License
 
 [MIT](./LICENSE).
