@@ -1,5 +1,22 @@
 # Contributing to OpenAI Guardrails Python
 
+## Contribution policy
+
+We welcome bug reports, feature requests, minimal reproductions, and root-cause
+analysis through [GitHub issues](https://github.com/openai/openai-guardrails-python/issues).
+
+**Pull requests are limited to repository collaborators. We do not accept pull
+requests from non-collaborators**, including documentation or example changes.
+If you are not a collaborator, please open an issue instead of preparing a pull
+request. Include the affected version, expected and actual behavior, and a small,
+sanitized reproduction when applicable.
+
+Report suspected security vulnerabilities privately as described in
+[SECURITY.md](SECURITY.md), rather than in issues or pull requests.
+
+The development and pull request instructions below are for maintainers and
+repository collaborators.
+
 Thanks for contributing! This guide covers local setup and the checks expected for
 changes. Read [AGENTS.md](AGENTS.md) for the repository's detailed workflow and
 review policies, including the restrictions that apply to automated agents.
