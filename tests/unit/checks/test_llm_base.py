@@ -661,11 +661,13 @@ async def test_create_llm_check_fn_uses_base_model_without_reasoning(monkeypatch
 
 
 @pytest.mark.asyncio
-async def test_run_llm_handles_empty_response_with_reasoning_output(monkeypatch: pytest.MonkeyPatch) -> None:
-    """When response content is empty, should return base LLMOutput even if output_model is LLMReasoningOutput."""
+@pytest.mark.parametrize("content", [None, ""])
+@pytest.mark.parametrize("output_model", [LLMOutput, LLMReasoningOutput])
+async def test_run_llm_handles_empty_response(monkeypatch: pytest.MonkeyPatch, content: str | None, output_model: type[LLMOutput]) -> None:
+    """Missing classifications should retain usage and report an execution error."""
     # Mock response with empty content
     mock_response = SimpleNamespace(
-        choices=[SimpleNamespace(message=SimpleNamespace(content=""))],
+        choices=[SimpleNamespace(message=SimpleNamespace(content=content))],
         usage=SimpleNamespace(prompt_tokens=10, completion_tokens=0, total_tokens=10),
     )
 
@@ -674,20 +676,17 @@ async def test_run_llm_handles_empty_response_with_reasoning_output(monkeypatch:
 
     monkeypatch.setattr(llm_base, "_request_chat_completion", fake_request_chat_completion)
 
-    # Call run_llm with LLMReasoningOutput (which requires a reason field)
     result, token_usage = await run_llm(
         text="test input",
         system_prompt="test prompt",
         client=SimpleNamespace(),  # type: ignore[arg-type]
         model="gpt-test",
-        output_model=LLMReasoningOutput,
+        output_model=output_model,
     )
 
-    # Should return LLMOutput (not LLMReasoningOutput) to avoid validation error
-    assert isinstance(result, LLMOutput)  # noqa: S101
+    assert isinstance(result, LLMErrorOutput)  # noqa: S101
     assert result.flagged is False  # noqa: S101
     assert result.confidence == 0.0  # noqa: S101
-    # Should NOT have a reason field since we returned base LLMOutput
-    assert not hasattr(result, "reason") or not hasattr(result, "__dict__") or "reason" not in result.__dict__  # noqa: S101
+    assert result.info == {"error_message": "LLM returned an empty classification response"}  # noqa: S101
     assert token_usage.prompt_tokens == 10  # noqa: S101
     assert token_usage.completion_tokens == 0  # noqa: S101

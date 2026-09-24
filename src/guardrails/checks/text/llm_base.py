@@ -437,12 +437,12 @@ async def run_llm(
 
         result = response.choices[0].message.content
         if not result:
-            # Use base LLMOutput for empty responses to avoid validation errors
-            # with extended models that have required fields (e.g., LLMReasoningOutput)
+            # Missing classification is an execution failure, not a safe result.
             return (
-                LLMOutput(
+                LLMErrorOutput(
                     flagged=False,
                     confidence=0.0,
+                    info={"error_message": "LLM returned an empty classification response"},
                 ),
                 token_usage,
             )
