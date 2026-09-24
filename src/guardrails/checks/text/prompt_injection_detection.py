@@ -191,7 +191,7 @@ def _should_analyze(msg: Any) -> bool:
     """Check if a message should be analyzed by the prompt injection detection check.
 
     Analyzes function calls and function outputs only.
-    Skips user messages (captured as user intent) and assistant messages.
+    Skips user messages (captured as user intent) and assistant messages without tool calls.
 
     Args:
         msg: Message to check (dict or object format)
@@ -211,10 +211,12 @@ def _should_analyze(msg: Any) -> bool:
         value = _get_attr(obj, key)
         return bool(value)
 
-    # Skip user and assistant messages - we only analyze tool calls and outputs
+    # Assistant messages may carry pending calls in Chat Completions histories.
     role = _get_attr(msg, "role")
-    if role in ("user", "assistant"):
+    if role == "user":
         return False
+    if role == "assistant":
+        return _has_attr(msg, "tool_calls") or _has_attr(msg, "function_call")
 
     # Check message type
     msg_type = _get_attr(msg, "type")
@@ -257,7 +259,7 @@ async def prompt_injection_detection(
         GuardrailResult containing prompt injection detection analysis with flagged status and confidence.
     """
     try:
-        # Get conversation history (already normalized by the client)
+        # Client wrappers normalize history; standalone contexts may use Chat Completions messages.
         conversation_history = getattr(ctx, "get_conversation_history", lambda: None)() or []
         if not conversation_history:
             return _create_skip_result(
