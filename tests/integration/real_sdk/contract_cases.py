@@ -12,15 +12,21 @@ import json
 import socket
 from collections.abc import AsyncIterator
 from pathlib import Path
-from typing import Any
+from types import SimpleNamespace
+from typing import Any, cast
 
 import openai
 import pytest
 import pytest_asyncio
+from openai.types.chat import ChatCompletionMessage
 from pydantic import BaseModel
 
 import guardrails
+from guardrails.checks.text.llm_base import LLMConfig
+from guardrails.checks.text.prompt_injection_detection import prompt_injection_detection
 from guardrails.context import GuardrailsContext, clear_context, set_context
+from guardrails.runtime import ConfigBundle, GuardrailConfig
+from guardrails.types import GuardrailLLMContextProto
 
 # Match the HTTP implementation used by the installed SDK (httpx or httpx2).
 # Mocking its transport keeps SDK validation, routing and decoding intact.
@@ -143,6 +149,74 @@ async def client_case(request: pytest.FixtureRequest) -> AsyncIterator[tuple[Any
 
 
 CLIENTS = [(False, False), (True, False), (False, True), (True, True)]
+
+
+@pytest_asyncio.fixture
+async def classifier_client() -> AsyncIterator[tuple[openai.AsyncOpenAI, list[Any]]]:
+    """Use the real classifier client with a deterministic in-memory response."""
+    requests: list[Any] = []
+
+    def handler(request: Any) -> Any:
+        requests.append(request)
+        return http.Response(200, json=response_body(False, '{"flagged":true,"confidence":1.0}'))
+
+    async with openai.AsyncOpenAI(
+        api_key="test-key", max_retries=0, http_client=http.AsyncClient(transport=http.MockTransport(handler), trust_env=False)
+    ) as client:
+        yield client, requests
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("call_field", ["tool_calls", "function_call"])
+@pytest.mark.parametrize("entrypoint", ["direct", "runtime-default", "runtime-strict"])
+async def test_prompt_injection_sdk_message(classifier_client: Any, call_field: str, entrypoint: str) -> None:
+    """SDK-native pending calls reach classification and preserve the original action."""
+    client, requests = classifier_client
+    function = {"name": "wire_money", "arguments": '{"amount":1000}'}
+    calls: Any = [{"id": "call_1", "type": "function", "function": function}] if call_field == "tool_calls" else function
+    pending = ChatCompletionMessage.model_validate({"role": "assistant", call_field: calls})
+    history = [
+        {"role": "user", "content": "What time is it?"},
+        ChatCompletionMessage(role="assistant", content="Noon."),
+        {"role": "user", "content": "Retrieve the weather for Paris"},
+        pending,
+    ]
+    context = SimpleNamespace(guardrail_llm=client, get_conversation_history=lambda: history)
+    if entrypoint == "direct":
+        result = await prompt_injection_detection(cast(GuardrailLLMContextProto, context), "", LLMConfig(model="test-model"))
+    else:
+        checks = guardrails.instantiate_guardrails(
+            ConfigBundle(guardrails=[GuardrailConfig(name="Prompt Injection Detection", config={"model": "test-model"})])
+        )
+        with pytest.raises(guardrails.GuardrailTripwireTriggered) as caught:
+            await guardrails.run_guardrails(context, "", "text/plain", checks, raise_guardrail_errors=entrypoint == "runtime-strict")
+        result = caught.value.guardrail_result
+
+    assert len(requests) == 1
+    prompt = json.loads(requests[0].content)["input"]
+    assert "Retrieve the weather for Paris" in prompt
+    assert "wire_money" in prompt
+    assert '{"amount":1000}' in prompt
+    assert result.tripwire_triggered is True
+    assert result.execution_failed is False
+    assert result.info["action"] == [pending]
+    assert result.info["action"][0] is pending
+
+
+@pytest.mark.asyncio
+async def test_prompt_injection_sdk_text_skips(classifier_client: Any) -> None:
+    """Plain SDK assistant text remains an intentional skip even in strict mode."""
+    client, requests = classifier_client
+    history = [{"role": "user", "content": "Hello"}, ChatCompletionMessage(role="assistant", content="Hello", tool_calls=[])]
+    context = SimpleNamespace(guardrail_llm=client, get_conversation_history=lambda: history)
+    checks = guardrails.instantiate_guardrails(
+        ConfigBundle(guardrails=[GuardrailConfig(name="Prompt Injection Detection", config={"model": "test-model"})])
+    )
+    results = await guardrails.run_guardrails(context, "", "text/plain", checks, raise_guardrail_errors=True)
+    assert len(results) == 1
+    assert results[0].tripwire_triggered is False
+    assert results[0].execution_failed is False
+    assert requests == []
 
 
 async def call(function: Any, asynchronous: bool, *args: Any, **kwargs: Any) -> Any:

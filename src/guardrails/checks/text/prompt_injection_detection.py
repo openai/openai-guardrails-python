@@ -385,7 +385,7 @@ def _extract_user_intent_from_messages(messages: list[Any], max_turns: int = 10)
     """Extract user intent with limited context from a list of messages.
 
     Args:
-        messages: Already normalized conversation history.
+        messages: Conversation history with dictionary user turns and dictionary or SDK assistant messages.
         max_turns: Maximum number of user messages to include for context.
             The most recent user message is always included, plus up to
             (max_turns - 1) previous user messages for context.
@@ -395,7 +395,7 @@ def _extract_user_intent_from_messages(messages: list[Any], max_turns: int = 10)
         - "most_recent_message": The latest user message as a string
         - "previous_context": Up to (max_turns - 1) previous user messages for context
     """
-    user_texts = [entry["content"] for entry in messages if entry.get("role") == "user" and isinstance(entry.get("content"), str)]
+    user_texts = [entry["content"] for entry in messages if _is_user_message(entry) and isinstance(entry.get("content"), str)]
 
     if not user_texts:
         return {"most_recent_message": "", "previous_context": []}
