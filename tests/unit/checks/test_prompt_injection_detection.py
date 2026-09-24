@@ -22,6 +22,7 @@ from guardrails.checks.text.prompt_injection_detection import (
     _should_analyze,
     prompt_injection_detection,
 )
+from guardrails.exceptions import GuardrailTripwireTriggered
 from guardrails.runtime import ConfigBundle, GuardrailConfig, instantiate_guardrails, run_guardrails
 from guardrails.types import TokenUsage
 
@@ -158,6 +159,62 @@ async def test_prompt_injection_detection_triggers(monkeypatch: pytest.MonkeyPat
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "action",
+    [
+        {
+            "role": "assistant",
+            "content": None,
+            "tool_calls": [{"id": "call_1", "type": "function", "function": {"name": "wire_money", "arguments": '{"amount":1000}'}}],
+        },
+        {"role": "assistant", "content": None, "function_call": {"name": "wire_money", "arguments": '{"amount":1000}'}},
+        {"type": "function_call", "tool_name": "wire_money", "arguments": '{"amount":1000}', "call_id": "call_1"},
+    ],
+    ids=["chat-tool-calls", "legacy-function-call", "normalized-function-call"],
+)
+async def test_pending_tool_call_is_analyzed(action: dict[str, Any]) -> None:
+    """Pending calls reach alignment analysis regardless of the supported message format."""
+    parse = AsyncMock(return_value=SimpleNamespace(output_parsed=LLMOutput(flagged=True, confidence=1.0)))
+    context = _FakeContext(_make_history(action))
+    context.guardrail_llm = SimpleNamespace(responses=SimpleNamespace(parse=parse))
+
+    result = await prompt_injection_detection(cast("GuardrailLLMContextProto", context), "", LLMConfig(model="gpt-test"))
+
+    parse.assert_awaited_once()
+    prompt = parse.call_args.kwargs["input"]
+    assert "Retrieve the weather for Paris" in prompt
+    assert "wire_money" in prompt
+    assert '{"amount":1000}' in prompt
+    assert result.tripwire_triggered is True
+    assert result.execution_failed is False
+    assert result.info["action"] == [action]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("strict", [False, True])
+async def test_runtime_blocks_inline_tool_call(strict: bool) -> None:
+    """Inline calls can trigger a tripwire with either execution-error policy."""
+    client = Mock(spec=AsyncOpenAI)
+    parse = AsyncMock(return_value=SimpleNamespace(output_parsed=LLMOutput(flagged=True, confidence=1.0)))
+    client.responses = SimpleNamespace(parse=parse)
+    history = _make_history(
+        {
+            "role": "assistant",
+            "content": None,
+            "tool_calls": [{"id": "call_1", "type": "function", "function": {"name": "wire_money", "arguments": '{"amount":1000}'}}],
+        }
+    )
+    context = SimpleNamespace(guardrail_llm=client, get_conversation_history=lambda: history)
+    guardrails = instantiate_guardrails(ConfigBundle(guardrails=[GuardrailConfig(name="Prompt Injection Detection", config={"model": "gpt-test"})]))
+
+    with pytest.raises(GuardrailTripwireTriggered) as caught:
+        await run_guardrails(context, "", "text/plain", guardrails, raise_guardrail_errors=strict)
+
+    parse.assert_awaited_once()
+    assert caught.value.guardrail_result.execution_failed is False
+
+
+@pytest.mark.asyncio
 async def test_prompt_injection_detection_no_trigger(monkeypatch: pytest.MonkeyPatch) -> None:
     """Low confidence results should not trigger the guardrail."""
     history = _make_history({"type": "function_call", "tool_name": "get_weather", "arguments": "{}"})
@@ -266,11 +323,13 @@ async def test_prompt_injection_detection_skips_empty_assistant_messages(monkeyp
         # If this function is called, it means tool calls are being analyzed (as expected)
         return PromptInjectionDetectionOutput(flagged=False, confidence=0.1, observation="Aligned", evidence=None), _mock_token_usage()
 
-    monkeypatch.setattr(pid_module, "_call_prompt_injection_detection_llm", fake_call_llm)
+    analysis = AsyncMock(side_effect=fake_call_llm)
+    monkeypatch.setattr(pid_module, "_call_prompt_injection_detection_llm", analysis)
 
     config = LLMConfig(model="gpt-test", confidence_threshold=0.7)
     result = await prompt_injection_detection(cast("GuardrailLLMContextProto", context), data="{}", config=config)
 
+    analysis.assert_awaited_once()
     assert result.tripwire_triggered is False  # noqa: S101
 
 
@@ -659,7 +718,12 @@ async def test_analysis_failure_respects_runtime_error_policy(strict: bool, fail
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     "history",
-    [[], [{"type": "function_call", "name": "get_weather", "arguments": "{}"}], [{"role": "user", "content": "Weather?"}]],
+    [
+        [],
+        [{"type": "function_call", "name": "get_weather", "arguments": "{}"}],
+        [{"role": "user", "content": "Weather?"}],
+        _make_history({"role": "assistant", "content": "No tools needed.", "tool_calls": []}),
+    ],
 )
 async def test_intentional_skip_remains_safe_in_strict_mode(history: list[Any]) -> None:
     """Inapplicable conversations remain no-ops even when execution errors are strict."""

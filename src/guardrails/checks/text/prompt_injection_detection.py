@@ -191,7 +191,7 @@ def _should_analyze(msg: Any) -> bool:
     """Check if a message should be analyzed by the prompt injection detection check.
 
     Analyzes function calls and function outputs only.
-    Skips user messages (captured as user intent) and assistant messages.
+    Skips user messages (captured as user intent) and assistant messages without tool calls.
 
     Args:
         msg: Message to check (dict or object format)
@@ -211,10 +211,12 @@ def _should_analyze(msg: Any) -> bool:
         value = _get_attr(obj, key)
         return bool(value)
 
-    # Skip user and assistant messages - we only analyze tool calls and outputs
+    # Assistant messages may carry pending calls in Chat Completions histories.
     role = _get_attr(msg, "role")
-    if role in ("user", "assistant"):
+    if role == "user":
         return False
+    if role == "assistant":
+        return _has_attr(msg, "tool_calls") or _has_attr(msg, "function_call")
 
     # Check message type
     msg_type = _get_attr(msg, "type")
@@ -257,7 +259,7 @@ async def prompt_injection_detection(
         GuardrailResult containing prompt injection detection analysis with flagged status and confidence.
     """
     try:
-        # Get conversation history (already normalized by the client)
+        # Client wrappers normalize history; standalone contexts may use Chat Completions messages.
         conversation_history = getattr(ctx, "get_conversation_history", lambda: None)() or []
         if not conversation_history:
             return _create_skip_result(
@@ -383,7 +385,7 @@ def _extract_user_intent_from_messages(messages: list[Any], max_turns: int = 10)
     """Extract user intent with limited context from a list of messages.
 
     Args:
-        messages: Already normalized conversation history.
+        messages: Conversation history with dictionary user turns and dictionary or SDK assistant messages.
         max_turns: Maximum number of user messages to include for context.
             The most recent user message is always included, plus up to
             (max_turns - 1) previous user messages for context.
@@ -393,7 +395,7 @@ def _extract_user_intent_from_messages(messages: list[Any], max_turns: int = 10)
         - "most_recent_message": The latest user message as a string
         - "previous_context": Up to (max_turns - 1) previous user messages for context
     """
-    user_texts = [entry["content"] for entry in messages if entry.get("role") == "user" and isinstance(entry.get("content"), str)]
+    user_texts = [entry["content"] for entry in messages if _is_user_message(entry) and isinstance(entry.get("content"), str)]
 
     if not user_texts:
         return {"most_recent_message": "", "previous_context": []}
