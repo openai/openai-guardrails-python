@@ -18,6 +18,8 @@ from typing import Any, cast
 import openai
 import pytest
 import pytest_asyncio
+from agents import OutputGuardrailTripwireTriggered, RunConfig, Runner
+from agents.models.openai_responses import OpenAIResponsesModel
 from openai.types.chat import ChatCompletionMessage
 from pydantic import BaseModel
 
@@ -73,6 +75,50 @@ def response_body(chat: bool, text: str = "hello") -> dict[str, Any]:
             }
         ],
     }
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("raise_errors", [False, True])
+@pytest.mark.parametrize(
+    ("output", "blocked"),
+    [
+        (["https://attacker.invalid/phish"], True),
+        (["https://example.com", "java\nscript:alert(1)"], True),
+        (["https://example.com", "https://attacker.invalid/phish"], True),
+        (["https://example.com", "ordinary text"], False),
+        ([], False),
+        ("https://attacker.invalid/phish", True),
+        ("https://example.com", False),
+    ],
+)
+async def test_agent_output_url_policy(output: str | list[str], blocked: bool, raise_errors: bool, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Check the parsed agent output without changing the returned value."""
+    text = json.dumps({"response": output}) if isinstance(output, list) else output
+
+    def handler(request: Any) -> Any:
+        return http.Response(200, json=response_body(False, text))
+
+    config = {"version": 1, "output": {"version": 1, "guardrails": [{"name": "URL Filter", "config": {"url_allow_list": ["example.com"]}}]}}
+    async with openai.AsyncOpenAI(
+        api_key="test-key", http_client=http.AsyncClient(transport=http.MockTransport(handler), trust_env=False)
+    ) as provider:
+        # Keep the adapter's default check context on the same mocked transport.
+        monkeypatch.setattr(openai, "AsyncOpenAI", lambda: provider)
+        agent = guardrails.GuardrailAgent(
+            config=config,
+            name="URL policy contract",
+            model=OpenAIResponsesModel(model="test-model", openai_client=provider),
+            output_type=list[str] if isinstance(output, list) else str,
+            raise_guardrail_errors=raise_errors,
+        )
+        if blocked:
+            with pytest.raises(OutputGuardrailTripwireTriggered) as exc:
+                await Runner.run(agent, "Return the requested links", run_config=RunConfig(tracing_disabled=True))
+            assert exc.value.guardrail_result.output.output_info["blocked"]
+        else:
+            result = await Runner.run(agent, "Return the requested links", run_config=RunConfig(tracing_disabled=True))
+            assert result.final_output == output
+            assert result.output_guardrail_results[0].output.output_info["blocked"] == []
 
 
 @pytest_asyncio.fixture

@@ -491,8 +491,12 @@ def _create_agents_guardrails_from_config(
             of message objects when conversation history is used. We handle both cases.
             """
             try:
-                # Extract text from input_data (handle both string and conversation history formats)
-                text_data = _extract_text_from_input(input_data)
+                if guardrail_type == "output" and isinstance(input_data, list):
+                    # Output lists are generated content, not conversation history.
+                    # Preserve literal characters in string items instead of repr-escaping them.
+                    text_data = " ".join(str(item) for item in input_data)
+                else:
+                    text_data = _extract_text_from_input(input_data)
 
                 # Load conversation history only if any guardrail in this stage needs it
                 if needs_conversation_history:
