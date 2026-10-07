@@ -4,6 +4,30 @@ This guide defines the required workflow for agents and contributors working in 
 
 ## Policies and mandatory rules
 
+### Security review
+
+Before pushing or opening a pull request, review the complete diff for security
+impact alongside the normal code review. For affected paths:
+
+- Trace untrusted configuration, provider responses, tool arguments, and evaluation
+  inputs to network, file, subprocess, and deserialization operations; verify the
+  trust boundary before side effects.
+- Check that credentials, prompts, model outputs, and tool data cannot leak through
+  logs, exception chains, telemetry, or test artifacts. Use synthetic regression
+  cases and keep tests hermetic.
+- Review dependency changes for necessity, source integrity, and known advisories.
+  For CI or release changes, verify action SHA pins, least-privilege token grants,
+  trusted refs, and isolation of publishing credentials from untrusted code.
+- Run the applicable validation below and inspect required security-check results.
+  Fix introduced findings before handoff; do not disable checks, weaken protections,
+  or dismiss findings merely to make CI pass.
+
+Record the reviewed surfaces, validation, and unresolved risks in the handoff,
+without sensitive details. Route suspected vulnerabilities privately according to
+[SECURITY.md](SECURITY.md); do not put exploit details or secrets in public issues,
+pull requests, or logs. If a security decision requires additional authority,
+complete independent work and identify the exact remaining decision privately.
+
 ### Repository skills
 
 Repository skills live under `.agents/skills/`. A reference such as `$<skill-name>` is a repository instruction reference, not a request for manual user invocation. When a rule requires a skill, read `.agents/skills/<skill-name>/SKILL.md` completely before taking task actions, follow it, and resolve referenced files relative to that skill directory.
