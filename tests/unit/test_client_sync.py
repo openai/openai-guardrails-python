@@ -236,6 +236,37 @@ def test_run_stage_guardrails_creates_event_loop(monkeypatch: pytest.MonkeyPatch
             loop.close()
 
 
+@pytest.mark.asyncio
+async def test_run_stage_guardrails_with_running_event_loop(monkeypatch: pytest.MonkeyPatch) -> None:
+    """GuardrailsOpenAI should run guardrails when the calling thread already drives a loop."""
+    client = _build_client()
+    client.guardrails["output"] = [_guardrail("guard")]
+
+    async def fake_run_guardrails(**kwargs: Any) -> list[GuardrailResult]:
+        return [GuardrailResult(tripwire_triggered=False)]
+
+    monkeypatch.setattr(client_module, "run_guardrails", fake_run_guardrails)
+
+    result = client._run_stage_guardrails("output", "payload")
+
+    assert result[0].tripwire_triggered is False  # noqa: S101
+
+
+@pytest.mark.asyncio
+async def test_azure_sync_run_stage_guardrails_with_running_event_loop(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Azure sync client should surface tripwires raised while a loop is already running."""
+    client = GuardrailsAzureOpenAI(config=_minimal_config(), api_key="key")
+    client.guardrails = {"output": [_guardrail("guard")]}
+
+    async def fake_run_guardrails(**kwargs: Any) -> list[GuardrailResult]:
+        return [GuardrailResult(tripwire_triggered=True)]
+
+    monkeypatch.setattr(client_module, "run_guardrails", fake_run_guardrails)
+
+    with pytest.raises(GuardrailTripwireTriggered):
+        client._run_stage_guardrails("output", "payload")
+
+
 def test_handle_llm_response_runs_output_guardrails(monkeypatch: pytest.MonkeyPatch) -> None:
     """_handle_llm_response should append conversation and return response wrapper."""
     client = _build_client()
