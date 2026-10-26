@@ -247,10 +247,9 @@ async def test_running_loop_guardrails_inherit_context(monkeypatch: pytest.Monke
     seen: list[str] = []
 
     async def check(**kwargs: Any) -> list[GuardrailResult]:
-        loop = asyncio.get_running_loop()
-        checkpoint: asyncio.Future[None] = loop.create_future()
-        loop.call_soon(checkpoint.set_result, None)
-        await checkpoint
+        checkpoint = asyncio.Event()
+        asyncio.get_running_loop().call_soon(checkpoint.set)
+        await checkpoint.wait()
         seen.append(request_id.get())
         return [GuardrailResult(tripwire_triggered=False)]
 
