@@ -33,7 +33,7 @@ from enum import StrEnum
 from functools import cache
 from typing import Any
 
-from openai import AsyncOpenAI, NotFoundError
+from openai import AsyncOpenAI, NotFoundError, OpenAI
 from pydantic import BaseModel, ConfigDict, Field
 
 from guardrails.registry import default_spec_registry
@@ -163,6 +163,23 @@ def _call_moderation_api_sync(client: Any, data: str) -> Any:
     )
 
 
+def _call_fallback_moderation_sync(data: str) -> Any:
+    """Own the sync fallback client and its connection pool for one check.
+
+    The entire operation runs in a blocking worker, so its cleanup stays with
+    the request even if the awaiting task is cancelled. It must not borrow the
+    cached async fallback, whose connections belong to another execution loop.
+
+    Args:
+        data: Text to moderate using the environment's OpenAI configuration.
+
+    Returns:
+        The moderation API response.
+    """
+    with OpenAI() as client:
+        return _call_moderation_api_sync(client, data)
+
+
 async def moderation(
     ctx: Any,
     data: str,
@@ -202,8 +219,11 @@ async def moderation(
                 "Moderation endpoint not available on context client, falling back to OpenAI: %s",
                 e,
             )
-            client = _get_moderation_client()
-            resp = await _call_moderation_api_async(client, data)
+            if is_async:
+                client = _get_moderation_client()
+                resp = await _call_moderation_api_async(client, data)
+            else:
+                resp = await asyncio.to_thread(_call_fallback_moderation_sync, data)
     else:
         # No context client - use fallback OpenAI client
         client = _get_moderation_client()

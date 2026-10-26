@@ -7,7 +7,11 @@ applying guardrails to text-based methods that could benefit from validation.
 
 from __future__ import annotations
 
+import asyncio
 import logging
+from collections.abc import Callable, Coroutine
+from concurrent.futures import ThreadPoolExecutor
+from contextvars import copy_context
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -42,6 +46,38 @@ __all__ = [
 ]
 
 logger = logging.getLogger(__name__)
+
+
+def _run_sync_guardrails(coroutine_factory: Callable[[], Coroutine[Any, Any, list[GuardrailResult]]]) -> list[GuardrailResult]:
+    """Run guardrails without reentering the calling thread's active event loop.
+
+    An idle caller loop retains its existing lifetime. When a loop is already
+    running, a temporary worker owns guardrail execution and inherits the caller's
+    context variables. Custom checks using caller-loop-bound resources should use
+    an asynchronous client instead.
+
+    Args:
+        coroutine_factory: Create the guardrail coroutine in its execution context.
+
+    Returns:
+        Completed guardrail results, propagating execution errors unchanged.
+    """
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        try:
+            loop = asyncio.get_event_loop()
+        except RuntimeError:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+        return loop.run_until_complete(coroutine_factory())
+
+    def run_in_worker() -> list[GuardrailResult]:
+        return asyncio.run(coroutine_factory())
+
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        return executor.submit(copy_context().run, run_in_worker).result()
+
 
 # Stage name constants
 PREFLIGHT_STAGE = "pre_flight"
@@ -433,15 +469,6 @@ class GuardrailsOpenAI(OpenAI, GuardrailsBaseClient, StreamingMixin):
         if not self.guardrails[stage_name]:
             return []
 
-        # For sync version, we need to run async guardrails in sync context
-        import asyncio
-
-        try:
-            loop = asyncio.get_event_loop()
-        except RuntimeError:
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-
         async def _run_async():
             # Check if prompt injection detection guardrail is present and we have conversation history
             ctx = self.context
@@ -467,7 +494,7 @@ class GuardrailsOpenAI(OpenAI, GuardrailsBaseClient, StreamingMixin):
             return results
 
         try:
-            return loop.run_until_complete(_run_async())
+            return _run_sync_guardrails(_run_async)
         except GuardrailTripwireTriggered:
             if suppress_tripwire:
                 return []
@@ -773,15 +800,6 @@ if AzureOpenAI is not None:
             if not self.guardrails[stage_name]:
                 return []
 
-            # For sync version, we need to run async guardrails in sync context
-            import asyncio
-
-            try:
-                loop = asyncio.get_event_loop()
-            except RuntimeError:
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-
             async def _run_async():
                 ctx = self.context
 
@@ -813,7 +831,7 @@ if AzureOpenAI is not None:
                 return results
 
             try:
-                return loop.run_until_complete(_run_async())
+                return _run_sync_guardrails(_run_async)
             except GuardrailTripwireTriggered:
                 if suppress_tripwire:
                     return []

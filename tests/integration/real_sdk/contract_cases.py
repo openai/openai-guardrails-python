@@ -279,6 +279,59 @@ async def invoke(client: Any, asynchronous: bool, api: str, **kwargs: Any) -> An
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("client_case", [(False, False), (False, True)], indirect=True)
+@pytest.mark.parametrize("api", ["chat", "responses"])
+@pytest.mark.parametrize("stream", [False, True])
+async def test_sync_create_inside_running_loop(client_case: Any, api: str, stream: bool) -> None:
+    """Synchronous calls and stream iteration work in a notebook-style event loop."""
+    make, requests, _, _ = client_case
+    config: dict[str, Any] = {"version": 1}
+    for stage in ("pre_flight", "input", "output"):
+        config[stage] = pipeline(stage, "blocked")[stage]
+    client = make(config)
+    create = client.chat.completions.create if api == "chat" else client.responses.create
+    kwargs = {"messages": [{"role": "user", "content": "hello"}]} if api == "chat" else {"input": "hello"}
+
+    for _ in range(2):
+        result = create(model="test-model", stream=stream, **kwargs)
+        if stream:
+            chunks = list(result)
+            assert len(chunks) == 1
+            result = chunks[0]
+            assert (result.choices[0].delta.content if api == "chat" else result.delta) == "hello"
+        else:
+            assert (result.choices[0].message.content if api == "chat" else result.output_text) == "hello"
+        assert isinstance(result, guardrails.GuardrailsResponse)
+        assert not result.guardrail_results.tripwires_triggered
+        assert result.guardrail_results.preflight
+        assert result.guardrail_results.input
+        if stream:
+            # Output validation runs when iteration ends; chunks retain no output results.
+            assert result.guardrail_results.output == []
+        else:
+            assert result.guardrail_results.output
+    assert len(requests) == 2
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("client_case", [(False, False), (False, True)], indirect=True)
+@pytest.mark.parametrize("api", ["chat", "responses"])
+@pytest.mark.parametrize("stage", ["pre_flight", "output"])
+async def test_sync_tripwire_inside_running_loop(client_case: Any, api: str, stage: str) -> None:
+    """Running-loop execution retains blocking and explicit suppression semantics."""
+    make, requests, _, _ = client_case
+    client = make(pipeline(stage, "hello"))
+    create = client.chat.completions.create if api == "chat" else client.responses.create
+    kwargs = {"messages": [{"role": "user", "content": "hello"}]} if api == "chat" else {"input": "hello"}
+    with pytest.raises(guardrails.GuardrailTripwireTriggered):
+        create(model="test-model", **kwargs)
+    assert len(requests) == (0 if stage == "pre_flight" else 1)
+    result = create(model="test-model", suppress_tripwire=True, **kwargs)
+    assert len(result.guardrail_results.triggered_results) == 1
+    assert len(requests) == (1 if stage == "pre_flight" else 2)
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("client_case", CLIENTS, indirect=True)
 @pytest.mark.parametrize("api", ["chat", "responses"])
 @pytest.mark.parametrize("stream", [False, True])

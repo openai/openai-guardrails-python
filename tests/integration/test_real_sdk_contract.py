@@ -13,7 +13,7 @@ def test_real_sdk_contracts() -> None:
     env = {key: value for key, value in os.environ.items() if not key.startswith(("OPENAI_", "AZURE_")) and "proxy" not in key.lower()}
     env.pop("PYTEST_ADDOPTS", None)
     result = subprocess.run(
-        [sys.executable, "-m", "pytest", "-q", "-ra", f"--confcutdir={cases.parent}", str(cases)],
+        [sys.executable, "-m", "pytest", "-q", "-ra", f"--confcutdir={cases.parent}", str(cases), str(cases.parent / "moderation_pool_cases.py")],
         capture_output=True,
         text=True,
         env=env,
