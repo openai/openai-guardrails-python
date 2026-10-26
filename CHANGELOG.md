@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.5](https://github.com/openai/openai-guardrails-python/compare/v0.3.4...v0.3.5) (2026-10-26)
+
+
+### Chores
+
+* **deps:** bump github/codeql-action/init from 4.38.0 to 4.39.0 ([#145](https://github.com/openai/openai-guardrails-python/issues/145)) ([517b8d2](https://github.com/openai/openai-guardrails-python/commit/517b8d281c91223a30d289a408c7f9e7e62207ad))
+
 ## [0.3.4](https://github.com/openai/openai-guardrails-python/compare/v0.3.3...v0.3.4) (2026-10-26)
 
 
