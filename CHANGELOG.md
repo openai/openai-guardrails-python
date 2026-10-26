@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.6](https://github.com/openai/openai-guardrails-python/compare/v0.3.5...v0.3.6) (2026-10-26)
+
+
+### Bug Fixes
+
+* support synchronous guardrails inside running event loops ([#149](https://github.com/openai/openai-guardrails-python/issues/149)) ([d9c89bb](https://github.com/openai/openai-guardrails-python/commit/d9c89bb6240cb7ae1456d00e063460ee87ad45c2))
+
 ## [0.3.5](https://github.com/openai/openai-guardrails-python/compare/v0.3.4...v0.3.5) (2026-10-26)
 
 
