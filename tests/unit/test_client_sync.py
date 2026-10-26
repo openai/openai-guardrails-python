@@ -11,8 +11,10 @@ if TYPE_CHECKING:
 
 import asyncio
 from collections.abc import Iterator
+from contextvars import ContextVar
 from types import SimpleNamespace
 from typing import Any, Literal
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -234,6 +236,35 @@ def test_run_stage_guardrails_creates_event_loop(monkeypatch: pytest.MonkeyPatch
     finally:
         for loop in loops:
             loop.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("client_type", [GuardrailsOpenAI, GuardrailsAzureOpenAI])
+async def test_running_loop_guardrails_inherit_context(monkeypatch: pytest.MonkeyPatch, client_type: Any) -> None:
+    """Worker checks retain request context across suspension and repeated stages."""
+    request_id: ContextVar[str] = ContextVar("request_id")
+    token = request_id.set("test-request")
+    seen: list[str] = []
+
+    async def check(**kwargs: Any) -> list[GuardrailResult]:
+        checkpoint = asyncio.Event()
+        asyncio.get_running_loop().call_soon(checkpoint.set)
+        await checkpoint.wait()
+        seen.append(request_id.get())
+        return [GuardrailResult(tripwire_triggered=False)]
+
+    run = AsyncMock(side_effect=check)
+    monkeypatch.setattr(client_module, "run_guardrails", run)
+    try:
+        client = client_type(config=_minimal_config(), api_key="test-key")
+        client.guardrails["output"] = [_guardrail("context check")]
+        for _ in range(2):
+            results = client._run_stage_guardrails("output", "hello")
+            assert not results[0].tripwire_triggered
+        assert seen == ["test-request", "test-request"]
+        assert run.await_count == 2
+    finally:
+        request_id.reset(token)
 
 
 def test_handle_llm_response_runs_output_guardrails(monkeypatch: pytest.MonkeyPatch) -> None:
