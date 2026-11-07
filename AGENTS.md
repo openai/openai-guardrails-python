@@ -1,7 +1,5 @@
 # Contributor Guide
 
-This guide defines the required workflow for agents and contributors working in the OpenAI Guardrails Python repository.
-
 ## Policies and mandatory rules
 
 ### Security review
@@ -30,71 +28,17 @@ complete independent work and identify the exact remaining decision privately.
 
 ### Repository skills
 
-Repository skills live under `.agents/skills/`. A reference such as `$<skill-name>` is a repository instruction reference, not a request for manual user invocation. When a rule requires a skill, read `.agents/skills/<skill-name>/SKILL.md` completely before taking task actions, follow it, and resolve referenced files relative to that skill directory.
+`$<skill-name>` references are instructions, not requests for manual invocation. When applicable below, read the linked skill completely before task actions and follow it; resolve its references relative to its directory.
 
-This repository defines these repository skills:
-
-- `$code-change-verification`
-- `$final-release-review`
-- `$implementation-final-review`
-- `$implementation-kickoff`
-- `$implementation-strategy`
-- `$maintainer-review`
-- `$pr-draft-summary`
-
-#### `$final-release-review`
-
-Use `$final-release-review` when the user asks for pre-release planning or a final release-candidate review. Compare the target with the previous remote release tag, determine the minimum compatible release type, audit runtime and packaging risk, inspect current CI, and issue the English ship-or-block report required by the skill. Documentation coverage is intentionally out of scope. This is a read-only workflow and never authorizes GitHub mutation.
-
-#### `$implementation-kickoff`
-
-Use `$implementation-kickoff` only when the user explicitly invokes it. It may create a dedicated worktree, a local branch, and one local commit as described by the skill. It never authorizes a push, pull-request creation, or any other GitHub mutation.
-
-#### `$implementation-strategy`
-
-Before changing or reviewing runtime code, exported APIs, external configuration, persisted schemas, wire formats, or other caller-visible behavior, use `$implementation-strategy` to define the compatibility boundary and the smallest coherent implementation.
-
-Before coding, record an implementation scope contract with:
-
-1. Required behavior.
-2. Compatibility requirements.
-3. Intentionally unsupported cases and their failure behavior.
-4. A supported alternative, or `none`.
-
-Repeat the strategy check before each review-feedback batch that would widen supported behavior, add a compatibility branch, change lifecycle or protocol ownership, or expand test permutations.
-
-Independent reviewers dispatched by `$implementation-final-review` inherit the implementer's recorded implementation scope contract. The implementer remains responsible for rerunning `$implementation-strategy` before any review-feedback batch that widens the supported contract or changes a durable boundary.
-
-#### `$implementation-final-review`
-
-After implementing runtime code, tests, examples, build or test behavior, or behavior-impacting docs and completing focused checks, run `$implementation-final-review` before broad verification and before declaring the task complete. Repository instructions authorize this automatic invocation without a separate user mention.
-
-Do not invoke it for planning, investigation, report-only work, repository metadata changes, or documentation without behavior impact. Its clean-review gate does not replace verification.
-
-#### `$code-change-verification`
-
-Run `$code-change-verification` after final review and before marking work complete when changes affect:
-
-- `src/guardrails/` or `mcp_server/` runtime code.
-- `tests/`.
-- `examples/`.
-- Build, packaging, docs-build, or test configuration such as `pyproject.toml`, `uv.lock`, `Makefile`, `mkdocs.yml`, `docs/scripts/`, or CI workflows.
-
-Skip it for repository metadata or editorial documentation-only changes, including `.agents/`, `AGENTS.md`, `README.md`, and ordinary prose under `docs/`, unless the user explicitly requests the full stack or the change affects executable examples, generated reference content, or build behavior.
-
-Treat this skill as the final broad gate. During iterative review, prefer focused tests and narrowly targeted static checks.
-
-Immediately before the broad stack, use available read-only task or process evidence to check for another repository-wide test, typecheck, build, examples, or integration command on the same host. When concrete contention exists, continue useful non-heavy work and retry later. Do not add a repository lock, host-wide mutex, sentinel file, or user-triggered `finalize` step. Lack of host telemetry alone is not a blocker.
-
-#### `$maintainer-review`
-
-Use `$maintainer-review` when the user asks for a maintainer-level review of an issue, pull request, proposed fix, or competing implementations. Separate evidence for the user need from code quality and repository readiness. Use read-only remote access only.
-
-#### `$pr-draft-summary`
-
-Before the final response for a task that changed runtime code, tests, examples, build/test configuration, or behavior-impacting docs, use `$pr-draft-summary` after review and verification. It produces copy-ready text only and does not authorize creating a branch, committing, pushing, or opening a pull request.
-
-Skip it for repository metadata, editorial docs, conversation-only work, or when the user explicitly says not to include a PR draft.
+| Skill | Required use / limits |
+| --- | --- |
+| [final-release-review](.agents/skills/final-release-review/SKILL.md) | Requested pre-release planning or final candidate review: compare the previous remote release, determine minimum compatible release type, audit runtime/packaging and CI, and produce the English ship-or-block report. Documentation coverage excluded; read-only, no GitHub mutations. |
+| [implementation-kickoff](.agents/skills/implementation-kickoff/SKILL.md) | Explicit invocation only. May create a dedicated worktree, local branch, and one local commit; no push, PR, or other GitHub mutation. |
+| [implementation-strategy](.agents/skills/implementation-strategy/SKILL.md) | Before changing or reviewing runtime, exported APIs, external configuration, persisted schemas, wire formats, or caller-visible behavior. Before coding, record required behavior, compatibility, unsupported cases/failure behavior, and supported alternative (or `none`). Reviewers inherit this contract. Implementer repeats strategy before feedback batches widening support, adding compatibility branches, changing lifecycle/protocol ownership, or expanding test permutations. |
+| [implementation-final-review](.agents/skills/implementation-final-review/SKILL.md) | After runtime, tests, examples, build/test behavior, or behavior-impacting docs changes and focused checks; before broad verification and completion. Automatically authorized. Skip planning, investigation, reports, metadata, and docs without behavior impact. Clean review does not replace verification. |
+| [code-change-verification](.agents/skills/code-change-verification/SKILL.md) | Final broad gate after review for runtime (`src/guardrails/`, `mcp_server/`), tests, examples, build/packaging/docs-build/test configuration (`pyproject.toml`, `uv.lock`, `Makefile`, `mkdocs.yml`, `docs/scripts/`, CI). Skip metadata/editorial docs (`.agents/`, `AGENTS.md`, `README.md`, ordinary `docs/` prose) unless full-stack verification is requested or executable examples, generated reference content, or build behavior changes. Follow its host-capacity checks; use focused checks while iterating. |
+| [maintainer-review](.agents/skills/maintainer-review/SKILL.md) | Requested maintainer review of issues, PRs, fixes, or competing implementations. Separate user-need evidence, code quality, and readiness; read-only remote access. |
+| [pr-draft-summary](.agents/skills/pr-draft-summary/SKILL.md) | After review/verification, before the final response for runtime, tests, examples, build/test configuration, or behavior-impacting docs. Copy-ready text only; no Git mutations. Skip metadata, editorial docs, conversation-only work, or explicit opt-out. |
 
 ### Work status reporting
 
@@ -122,9 +66,9 @@ Skip it for repository metadata, editorial docs, conversation-only work, or when
 
 ### Documentation release timing
 
-When a feature or bug fix introduces behavior that is not yet available in the latest published release, do not include `docs/` changes that describe that unreleased behavior in the feature or bug-fix pull request, and do not expect those changes as part of that pull request. Handle them in a separate docs-only pull request so maintainers can coordinate its merge timing with the release that makes the documentation accurate. This exception applies only when the documentation would be incorrect for the latest published release; documentation already accurate for released behavior remains part of the normal change scope.
+`docs/` content describing behavior unavailable in the latest published release belongs in a separate docs-only PR, timed by maintainers with that release. Record it as separately timed work, not a missing deliverable or blocking finding in the feature/fix PR. Determine documentation necessity separately from delivery timing.
 
-Determine whether documentation is required separately from deciding which pull request should carry it. When required `docs/` content would describe behavior unavailable in the latest published release, classify it as separately timed documentation work rather than a missing deliverable or blocking finding. This timing rule takes precedence over general documentation-completeness requirements in review rules and repository skills. It applies to `docs/` content, not automatically to examples or code-level documentation that ships with the changed API.
+This rule overrides general documentation-completeness rules and skills. Documentation accurate for released behavior remains in normal scope. The exception does not automatically cover examples or code-level documentation shipped with the API.
 
 ### Documentation verification tiers
 
@@ -142,35 +86,33 @@ Do not edit generated output. Use `make build-full-docs` only for translation-to
 
 ### Finding threshold and supported scope
 
-- Report a runtime defect only when changed code causes concrete incorrect behavior on a supported path. State the trigger and the caller-visible, compatibility, security, persistence, or lifecycle consequence; omit the finding when no such consequence can be established.
-- Treat added abstractions, state, validation, compatibility handling, fallback behavior, dependencies, or parallel paths as actionable only when the machinery does not map to the task, a released contract, supported durable state, or a verified runtime or platform risk. Identify the exact unnecessary machinery and recommend the smallest safe removal or direct replacement.
-- Flag validation, compatibility handling, fallback behavior, or tests added only for synthetic or unsupported values when no ordinary supported producer, released contract, durable boundary, or actual untrusted-input path can produce the value with a concrete consequence. Constructibility in Python, manually corrupted typed objects, monkeypatched state, and direct helper calls that bypass the owning public or wire boundary are not sufficient justification.
-- Do not duplicate client-side runtime validation solely for values already excluded by the public type contract or authoritatively rejected by the upstream provider. Add fail-fast library validation only when delayed rejection creates a concrete library-owned problem before the authoritative rejection, such as an irreversible side effect, persistent corruption, security or privacy exposure, avoidable billable work, repeated resource consumption, or an error that arrives too late or is too opaque for reasonable correction.
-- Do not report a defect merely because another semantic choice appears cleaner, more symmetric, or easier to explain. When repository evidence does not select one contract, report only a concrete inconsistency with an already supported path or established caller-visible expectation.
-- Flag a new public option, callback, class, compatibility branch, or parallel execution path when the exact required outcome, including lifecycle and compatibility constraints, is already available through a reasonable supported API or composition path. Name that path and recommend removal or narrower reuse of the existing source of truth.
-- Report compatibility findings only against behavior shipped in the latest release, an explicitly supported public contract, or a durable external state or protocol boundary. Do not require compatibility shims for unreleased branch-local helpers, same-branch tests, or intentionally unsupported intermediate persisted formats.
+- Runtime findings require concrete incorrect behavior on a supported path. State the trigger and caller-visible, compatibility, security, persistence, or lifecycle consequence; otherwise omit.
+- Flag abstractions, state, validation, compatibility, fallbacks, dependencies, or parallel paths lacking a task requirement, released contract, supported durable boundary/state, or verified runtime/platform risk. Name the unnecessary machinery and smallest safe removal/replacement. Flag new public options, callbacks, classes, compatibility branches, or execution paths when a reasonable supported API/composition already meets the exact requirement, including lifecycle/compatibility constraints. Name that path and recommend removal or narrower reuse.
+- Synthetic/unsupported values do not justify machinery or tests without an ordinary supported producer, released contract, durable boundary, or actual untrusted-input path and concrete consequence. Python constructibility, corrupted typed objects, monkeypatches, and helpers bypassing public/wire owners are insufficient.
+- Do not duplicate validation for values excluded by public types or authoritatively rejected upstream. Fail fast only for a concrete library-owned problem before rejection: irreversible effects, persistent corruption, security/privacy exposure, avoidable billing, repeated resource use, or errors too late/opaque for reasonable correction.
+- Cleaner or more symmetric semantics alone are not defects. If evidence does not select a contract, require concrete inconsistency with supported behavior or established caller expectations.
+- Compatibility findings require latest-release behavior, an explicitly supported public contract, or durable external state/protocol boundaries. No shims for unreleased helpers, same-branch tests, or intentionally unsupported intermediate persisted formats.
 
 ### Contract and lifecycle coverage
 
-- For every added or modified public field, configuration value, event, serialized value, or wire value, inspect all supported construction, forwarding, adapter, and consumption paths. Flag partial implementations where normal, specialized, default, missing-value, or error paths silently drop, reshape, or reject the value inconsistently. Include intended public imports and generated package surfaces when they are part of the changed contract.
-- Require parity across streaming and non-streaming, sync and async, Chat Completions and Responses, OpenAI and Azure, or direct and Agents SDK paths only when the accepted requirement or existing contract covers those paths. Do not report missing parity solely for API symmetry or conceptual similarity.
-- When changed code mutates shared state across an `await`, callback, retry, cancellation, cleanup, or rollback boundary, check whether stale or failing work can overwrite, revert, or dispose state owned by surviving work. Report the concrete interleaving and the missing ownership, generation, identity, transaction, revalidation, or serialization invariant at the actual mutation boundary; sequential happy-path tests are insufficient.
-- When a new validation or failure path can run after resources or observable state are acquired, verify cleanup explicitly and preserve the primary failure. Report concrete leaked resources, stale state, lost handlers, or survivor corruption rather than assuming normal teardown runs after failed construction or context entry.
-- Flag persisted, resumed, serialized, provider-controlled, or manifest data that is treated as authority for a host-owned runtime, security, identity, or cleanup decision unless the supported trust boundary explicitly grants that authority. Preserve trusted current configuration and validate untrusted state before it can affect side effects, replay, or resource ownership.
+- For added or modified public fields, configuration, events, serialized/wire values, inspect every supported construction, forwarding, adapter, and consumption path, including intended imports/generated surfaces. Flag inconsistent dropping, reshaping, or rejection across normal, specialized, default, missing, and error paths.
+- Require streaming/non-streaming, sync/async, Chat Completions/Responses, OpenAI/Azure, and direct/Agents SDK parity only where the accepted requirement or existing contract applies; symmetry alone is insufficient.
+- For shared-state mutations across await, callback, retry, cancellation, cleanup, or rollback, check whether stale/failing work can overwrite, revert, or dispose surviving work's state. Identify the concrete interleaving and missing ownership, generation, identity, transaction, revalidation, or serialization invariant at the mutation boundary. Sequential happy-path tests are insufficient.
+- For validation/failure after resource or observable-state acquisition, verify cleanup and primary-failure preservation explicitly. Report concrete leaks, stale state, lost handlers, or survivor corruption; do not assume teardown after failed construction/context entry.
+- Persisted, resumed, serialized, provider-controlled, or manifest data must not authorize host-owned runtime, security, identity, or cleanup decisions unless the supported trust boundary grants authority. Preserve trusted current configuration; validate untrusted state before side effects, replay, or ownership changes.
 
 ### Test and documentation evidence
 
-- Treat tests as contract evidence only when they exercise the highest stable caller-visible boundary that controls the observable result and derive expected behavior from the requirement, released behavior, a worked example, a baseline, or another independent oracle. Do not accept helper-only call-shape assertions or expected values recomputed with the implementation's own logic when another layer owns the outcome.
-- Require representative regression coverage for accepted behavior and intentionally unsupported categories. For concurrency findings, require controlled completion ordering plus assertions about the surviving operation and final shared state. Do not request exhaustive tests for every constructible permutation.
-- Report missing documentation or examples only when the patch makes existing guidance materially false, unsafe, or misleading; correct use depends on a non-obvious migration, compatibility boundary, constraint, or operational warning; or the accepted feature would otherwise be practically unusable. Do not report optional completeness or discoverability improvements as blocking findings.
-- Decide `docs/` delivery timing separately from documentation necessity. If required `docs/` content would describe behavior unavailable in the latest published release, apply the documentation release timing policy: record it as separately timed work and do not report its absence as a blocking finding for the feature or bug-fix pull request.
-- Do not report formatting, lint, full-suite status, commit history, or pull-request description quality as code findings; those are CI or repository-readiness conditions.
+- Tests must exercise the highest stable caller-visible boundary controlling the result, with expectations from requirements, released behavior, worked examples, baselines, or independent oracles. Helper call-shape assertions or implementation-derived expectations are insufficient when another layer owns the outcome.
+- Require representative regressions for accepted behavior and intentionally unsupported categories, not every constructible permutation. Concurrency tests need controlled completion order and assertions on surviving work and final shared state.
+- Missing docs/examples block only when existing guidance becomes materially false/unsafe/misleading, correct use requires a non-obvious migration/compatibility boundary/constraint/operational warning, or the accepted feature is otherwise practically unusable. Optional completeness/discoverability does not block. Apply [documentation release timing](#documentation-release-timing) separately: required unreleased `docs/` content is separately timed work, not a blocker for the feature/fix PR.
+- Formatting, lint, full-suite status, commit history, and PR descriptions are CI/readiness conditions, not code findings.
 
 ### Review scope
 
-- Review the complete diff from the merge base of the intended target branch, or from the latest release tag when it is the compatibility baseline, not only the latest incremental fix. Passing tests do not justify branch-local machinery that no longer matches the original requirement.
-- Keep findings scoped to consequences introduced, exposed, or worsened by the patch. Do not block on unrelated cleanup, pre-existing bugs, optional refactors, or speculative extensibility merely discovered while reading adjacent code. A pre-existing condition is in scope when the patch newly reaches it on a supported path, relies on it for correctness, or otherwise makes its consequence part of the changed behavior.
-- Require a broader refactor only when concrete evidence shows the focused change would otherwise remain incorrect, unsafe, incompatible, or dependent on duplicated sources of truth that can observably diverge.
+- Review the complete diff from the intended target's merge base; use the latest release tag for compatibility. Passing tests do not justify branch-local machinery outside the original requirement.
+- Findings must concern consequences introduced, exposed, or worsened by the patch. Pre-existing conditions qualify only when newly reached on a supported path, relied on for correctness, or otherwise made consequential by the change. Exclude unrelated cleanup, pre-existing bugs, optional refactors, and speculative extensibility.
+- Require broader refactoring only with evidence the focused change remains incorrect, unsafe, incompatible, or dependent on duplicated sources of truth that can observably diverge.
 
 ## Project structure
 
@@ -185,8 +127,6 @@ Do not edit generated output. Use `make build-full-docs` only for translation-to
 - `pyproject.toml`, `uv.lock`: Dependencies, packaging, and tool configuration.
 - `Makefile`: Common development commands.
 - `.github/workflows/`: CI, docs, and publication workflows.
-
-Use `uv run ...` for Python commands so local execution uses the repository environment.
 
 ## Guardrails runtime boundaries
 
@@ -221,55 +161,20 @@ Use `uv run ...` for Python commands so local execution uses the repository envi
 
 ## Development workflow
 
-1. Inspect the current status and applicable instructions without modifying user-owned work.
-2. Use `$implementation-strategy` when the change affects runtime or caller-visible contracts.
-3. Implement the narrowest coherent change and add focused tests.
-4. Run focused formatting, static checks, and tests while iterating.
-5. Run `$implementation-final-review` when applicable.
-6. Run `$code-change-verification` when applicable.
-7. Run `$pr-draft-summary` when applicable.
-8. Complete the user-authorized commit, pull request, CI monitoring, and handoff steps.
+Inspect status/instructions without modifying user-owned work; apply the [skill gates](#repository-skills) in order: strategy → focused implementation/tests/checks → final review → broad verification → PR summary → authorized delivery and handoff. Keep commits focused and include tests with behavior changes.
 
 ### Common commands
 
-Install or refresh dependencies when needed:
+Use the repository environment (`uv run`) for Python commands. See [Makefile](Makefile) for command definitions.
 
-```bash
-make sync
-```
-
-Run focused tests:
-
-```bash
-uv run pytest -q tests/unit/test_<area>.py
-```
-
-Run formatting and linting:
-
-```bash
-make format
-make lint
-```
-
-Run both configured type checkers:
-
-```bash
-uv run mypy src tests
-uv run pyright
-```
-
-Run the test suite and coverage gate:
-
-```bash
-make tests
-make coverage
-```
-
-Build documentation:
-
-```bash
-make build-docs
-```
+| Purpose | Command |
+| --- | --- |
+| Install/refresh dependencies | `make sync` |
+| Focused tests | `uv run pytest -q tests/unit/test_<area>.py` |
+| Format / lint | `make format` / `make lint` |
+| Both type checkers | `uv run mypy src tests` and `uv run pyright` |
+| Test suite / coverage gate | `make tests` / `make coverage` |
+| Documentation | `make build-docs` |
 
 ### Code style
 
@@ -285,16 +190,9 @@ make build-docs
 ## Commit and PR text
 
 - Use concise, imperative commit subjects. Conventional prefixes such as `fix:`, `feat:`, `docs:`, and `chore:` are preferred when they clarify intent.
-- Keep commits focused and include tests with behavior changes.
 - Copy-ready GitHub text must use `#123` for this repository and `owner/repo#123` for cross-repository references. Do not wrap native issue or pull-request references in Markdown links.
 - Never include local paths, internal review artifacts, task IDs, or Codex-only directives in copy-ready external text.
 
 ## Review baseline
 
-- The implementation satisfies the explicit requirement without unsupported scope expansion.
-- Released public behavior and durable formats remain compatible or have an explicitly approved migration.
-- Sync/async, streaming/non-streaming, and Chat Completions/Responses parity are covered where affected.
-- Failure, cancellation, cleanup, and sensitive-data paths are reviewed where affected.
-- Tests cover new behavior and representative edge cases.
-- Applicable formatting, lint, type checking, tests, and documentation checks pass.
-- The final diff contains no unrelated changes and no untracked task deliverables are omitted.
+Apply the [code review rules](#code-review-rules), [runtime boundaries](#guardrails-runtime-boundaries), and applicable [skill gates](#repository-skills). Confirm the requirement is met without unsupported scope, released behavior/durable formats remain compatible or have an approved migration, affected parity/failure/cleanup/security paths and representative tests are covered, and all applicable checks pass. Audit the final diff for unrelated changes and omitted task-owned untracked deliverables.
