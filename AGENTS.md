@@ -52,7 +52,7 @@ complete independent work and identify the exact remaining decision privately.
 - Preserve unrelated and user-owned changes. Never remove or overwrite an existing worktree or branch to make room.
 - Perform Git and GitHub actions within the user's authorized task scope, including creating branches, committing, pushing, and managing pull requests. Do not request authorization again for actions already authorized in the conversation.
 - Use the available GitHub connector or Git tooling for remote operations.
-- Complete required review and verification before pushing or opening or updating a pull request. Monitor CI, fix in-scope failures, and request review in the root `#sdk-reviews` channel once checks pass.
+- Complete required review and verification before pushing or opening or updating a pull request. Monitor CI and fix in-scope failures.
 - Complete the authorized delivery and handoff steps; stop at local verification only when the user requests a local-only task.
 
 ### Scope discipline and complexity reset
