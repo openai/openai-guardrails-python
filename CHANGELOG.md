@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.3.7](https://github.com/openai/openai-guardrails-python/compare/v0.3.6...v0.3.7) (2026-11-10)
+
+
+### Chores
+
+* **deps:** bump actions/setup-python from 7.0.0 to 7.1.0 ([#152](https://github.com/openai/openai-guardrails-python/issues/152)) ([dcb4173](https://github.com/openai/openai-guardrails-python/commit/dcb4173f4497a1ed809600f673f3802c1ec24e99))
+* **deps:** bump CodeQL actions to 4.39.1 ([#153](https://github.com/openai/openai-guardrails-python/issues/153)) ([bb5727b](https://github.com/openai/openai-guardrails-python/commit/bb5727bb9cc0904895208f61884f7f9b2b5d0e28))
+* **deps:** bump pypa/gh-action-pypi-publish from 1.14.2 to 1.14.3 ([#154](https://github.com/openai/openai-guardrails-python/issues/154)) ([fbff621](https://github.com/openai/openai-guardrails-python/commit/fbff62185d5929271e434950754d80efa02877b7))
+
+
+### Documentation
+
+* consolidate AGENTS.md guidance ([#157](https://github.com/openai/openai-guardrails-python/issues/157)) ([9a3f3ce](https://github.com/openai/openai-guardrails-python/commit/9a3f3ced06f48e9c39c384fbf53962214fb7d4a6))
+* simplify review handoff instructions ([#160](https://github.com/openai/openai-guardrails-python/issues/160)) ([4d5e391](https://github.com/openai/openai-guardrails-python/commit/4d5e391a4c575a83822b050be0960a31127bc7b3))
+
 ## [0.3.6](https://github.com/openai/openai-guardrails-python/compare/v0.3.5...v0.3.6) (2026-10-26)
 
 
